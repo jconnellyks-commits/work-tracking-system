@@ -142,7 +142,12 @@ def create_job():
         if existing:
             return jsonify({'error': 'Ticket number already exists'}), 409
 
-    # Create job
+    # Create job - handle empty strings for optional fields
+    job_date = data.get('job_date') or None
+    due_date = data.get('due_date') or None
+    billing_amount = data.get('billing_amount') or None
+    estimated_hours = data.get('estimated_hours') or None
+
     job = Job(
         platform_id=platform_id,
         platform_job_code=data.get('platform_job_code', '').strip() or None,
@@ -152,11 +157,11 @@ def create_job():
         job_type=data.get('job_type', '').strip() or None,
         location=data.get('location', '').strip() or None,
         billing_type=data.get('billing_type', 'flat_rate'),
-        billing_amount=data.get('billing_amount'),
-        estimated_hours=data.get('estimated_hours'),
+        billing_amount=billing_amount,
+        estimated_hours=estimated_hours,
         job_status=data.get('job_status', 'pending'),
-        job_date=data.get('job_date'),
-        due_date=data.get('due_date')
+        job_date=job_date,
+        due_date=due_date
     )
 
     db.session.add(job)

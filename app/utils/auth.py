@@ -33,7 +33,7 @@ def get_current_user():
     try:
         verify_jwt_in_request()
         user_id = get_jwt_identity()
-        return User.query.get(user_id)
+        return User.query.get(int(user_id))
     except Exception:
         return None
 
@@ -50,7 +50,7 @@ def jwt_required_with_user(fn):
         try:
             verify_jwt_in_request()
             user_id = get_jwt_identity()
-            user = User.query.get(user_id)
+            user = User.query.get(int(user_id))
 
             if not user:
                 logger.warning(f"JWT valid but user {user_id} not found")
@@ -91,7 +91,7 @@ def role_required(*allowed_roles):
             try:
                 verify_jwt_in_request()
                 user_id = get_jwt_identity()
-                user = User.query.get(user_id)
+                user = User.query.get(int(user_id))
 
                 if not user:
                     return jsonify({'error': 'User not found'}), 404

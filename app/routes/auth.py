@@ -78,8 +78,8 @@ def login():
     # Successful login
     rate_limiter.reset(f"login:{client_ip}")
 
-    access_token = create_access_token(identity=user.user_id)
-    refresh_token = create_refresh_token(identity=user.user_id)
+    access_token = create_access_token(identity=str(user.user_id))
+    refresh_token = create_refresh_token(identity=str(user.user_id))
 
     # Update last login
     user.last_login = datetime.utcnow()
@@ -187,12 +187,12 @@ def register():
 def refresh():
     """Refresh access token using refresh token."""
     current_user_id = get_jwt_identity()
-    user = User.query.get(current_user_id)
+    user = User.query.get(int(current_user_id))
 
     if not user or user.status != 'active':
         return jsonify({'error': 'User not found or inactive'}), 401
 
-    access_token = create_access_token(identity=current_user_id)
+    access_token = create_access_token(identity=str(current_user_id))
 
     return jsonify({'access_token': access_token}), 200
 

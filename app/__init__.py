@@ -53,11 +53,13 @@ def create_app(config_class=None):
     from app.routes.jobs import jobs_bp
     from app.routes.time_entries import time_entries_bp
     from app.routes.reports import reports_bp
+    from app.routes.frontend import frontend_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(jobs_bp, url_prefix='/api/jobs')
     app.register_blueprint(time_entries_bp, url_prefix='/api/time-entries')
     app.register_blueprint(reports_bp, url_prefix='/api/reports')
+    app.register_blueprint(frontend_bp)
 
     # Health check endpoint
     @app.route('/health')

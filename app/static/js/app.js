@@ -351,6 +351,7 @@ const Pages = {
                         <td>${App.getStatusBadge(job.job_status)}</td>
                         <td>
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
+                            <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
                             ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.editJob(${job.job_id})">Edit</button>` : ''}
                         </td>
                     </tr>
@@ -426,7 +427,13 @@ const Pages = {
             </div>
         `;
 
-        App.showModal('Job Details', body, '<button class="btn btn-secondary" onclick="App.hideModal()">Close</button>');
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
+            <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
+                <i class="fas fa-plus"></i> Add Time Entry
+            </button>
+        `;
+        App.showModal('Job Details', body, footer);
     },
 
     // Edit/create job
@@ -528,6 +535,51 @@ const Pages = {
         } catch (error) {
             App.showAlert(error.message);
         }
+    },
+
+    // Add time entry for a specific job
+    async addTimeToJob(jobId) {
+        const jobData = await API.jobs.get(jobId);
+        const job = jobData.job;
+
+        const body = `
+            <form id="entry-form">
+                <div class="form-group">
+                    <label>Job</label>
+                    <input type="text" class="form-control" value="${job.ticket_number || job.job_id} - ${job.description}" readonly>
+                    <input type="hidden" name="job_id" value="${jobId}">
+                </div>
+                <div class="form-group">
+                    <label>Date Worked *</label>
+                    <input type="date" class="form-control" name="date_worked" value="${new Date().toISOString().split('T')[0]}" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Time In</label>
+                        <input type="time" class="form-control" name="time_in">
+                    </div>
+                    <div class="form-group">
+                        <label>Time Out</label>
+                        <input type="time" class="form-control" name="time_out">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Hours (auto-calculated if times provided)</label>
+                    <input type="number" step="0.25" class="form-control" name="hours_worked">
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea class="form-control" name="notes" rows="3"></textarea>
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveEntry(null)">Save</button>
+        `;
+
+        App.showModal(`Add Time - ${job.ticket_number || 'Job ' + jobId}`, body, footer);
     },
 
     // Time entries page
@@ -664,11 +716,13 @@ const Pages = {
             entry = data.time_entry;
         }
 
-        // Get jobs for dropdown
-        const jobsData = await API.jobs.list({ per_page: 100, status: 'in_progress' });
-        const jobOptions = jobsData.jobs.map(j =>
-            `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
-        ).join('');
+        // Get jobs for dropdown (exclude cancelled jobs)
+        const jobsData = await API.jobs.list({ per_page: 100 });
+        const jobOptions = jobsData.jobs
+            .filter(j => j.job_status !== 'cancelled')
+            .map(j =>
+                `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
+            ).join('');
 
         const body = `
             <form id="entry-form">

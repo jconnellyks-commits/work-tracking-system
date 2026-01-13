@@ -1,0 +1,29 @@
+[Unit]
+Description=Work Tracking System Flask Application
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+RuntimeDirectory=work-tracking
+WorkingDirectory=/opt/work-tracking
+Environment="PATH=/opt/work-tracking/venv/bin"
+EnvironmentFile=/opt/work-tracking/.env
+ExecStart=/opt/work-tracking/venv/bin/gunicorn --config /opt/work-tracking/deploy/gunicorn.conf.py app.main:app
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=30
+Restart=always
+RestartSec=5
+
+# Security hardening
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/work-tracking /opt/work-tracking/logs
+
+[Install]
+WantedBy=multi-user.target

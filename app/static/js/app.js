@@ -406,6 +406,49 @@ const Pages = {
         const data = await API.jobs.get(jobId);
         const job = data.job;
 
+        // Fetch time entries for this job
+        const entriesData = await API.jobs.getTimeEntries(jobId);
+        const entries = entriesData.time_entries || [];
+
+        // Build time entries table
+        let entriesHtml = '';
+        if (entries.length > 0) {
+            entriesHtml = `
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Time Entries (${entries.length})</label>
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                        <table style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Technician</th>
+                                    <th>Hours</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${entries.map(e => `
+                                    <tr>
+                                        <td>${App.formatDate(e.date_worked)}</td>
+                                        <td>${e.tech_name || 'Tech #' + e.tech_id}</td>
+                                        <td>${e.hours_worked || '-'}</td>
+                                        <td>${App.getStatusBadge(e.status)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+        } else {
+            entriesHtml = `
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label>Time Entries</label>
+                    <p class="text-muted">No time entries yet</p>
+                </div>
+            `;
+        }
+
         const body = `
             <div class="form-group">
                 <label>Ticket Number</label>
@@ -442,9 +485,10 @@ const Pages = {
                 </div>
                 <div class="form-group">
                     <label>Total Hours</label>
-                    <p>${job.total_hours_worked || 0}</p>
+                    <p>${entriesData.total_hours || 0}</p>
                 </div>
             </div>
+            ${entriesHtml}
         `;
 
         const footer = `
@@ -1041,7 +1085,7 @@ const Pages = {
                                 <th>Technician</th>
                                 <th>Entries</th>
                                 <th>Hours</th>
-                                <th>Rate</th>
+                                <th>Min Pay</th>
                                 <th>Total Pay</th>
                             </tr>
                         </thead>
@@ -1262,7 +1306,7 @@ const Pages = {
                                 <th>Name</th>
                                 <th>Email</th>
                                 <th>Phone</th>
-                                <th>Hourly Rate</th>
+                                <th>Minimum Pay</th>
                                 <th>Status</th>
                                 <th>User Account</th>
                                 <th>Actions</th>
@@ -1358,7 +1402,7 @@ const Pages = {
                         <input type="text" class="form-control" name="phone" value="${tech.phone || ''}">
                     </div>
                     <div class="form-group">
-                        <label>Hourly Rate</label>
+                        <label>Minimum Pay</label>
                         <input type="number" step="0.01" class="form-control" name="hourly_rate" value="${tech.hourly_rate || ''}">
                     </div>
                 </div>

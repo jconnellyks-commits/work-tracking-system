@@ -616,6 +616,10 @@ const Pages = {
                     <label>Location</label>
                     <input type="text" class="form-control" name="location" value="${job.location || ''}">
                 </div>
+                <div class="form-group">
+                    <label>External Platform URL</label>
+                    <input type="url" class="form-control" name="external_url" value="${job.external_url || ''}" placeholder="https://...">
+                </div>
                 <div class="form-row">
                     <div class="form-group">
                         <label>Billing Type</label>
@@ -1243,8 +1247,9 @@ const Pages = {
                             <table style="font-size: 0.85rem;">
                                 <thead>
                                     <tr>
-                                        <th>Date</th>
+                                        <th>Date(s)</th>
                                         <th>Job</th>
+                                        <th>Link</th>
                                         <th>Hours</th>
                                         <th>Rate</th>
                                         <th>Base Pay</th>
@@ -1257,8 +1262,14 @@ const Pages = {
                                 <tbody>
                                     ${tech.jobs.map(job => `
                                         <tr>
-                                            <td>${job.job_date ? App.formatDate(job.job_date) : '-'}</td>
-                                            <td>${job.ticket_number || 'Job #' + job.job_id} - ${job.description.slice(0, 25)}${job.description.length > 25 ? '...' : ''}</td>
+                                            <td style="white-space: nowrap;">${job.date_display || '-'}</td>
+                                            <td>
+                                                <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary); text-decoration: underline;">
+                                                    ${job.ticket_number || 'Job #' + job.job_id}
+                                                </a>
+                                                <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
+                                            </td>
+                                            <td>${job.external_url ? `<a href="${job.external_url}" target="_blank" title="Open in platform"><i class="fas fa-external-link-alt"></i></a>` : '-'}</td>
                                             <td>${job.hours}</td>
                                             <td>$${job.effective_rate.toFixed(2)} ${job.using_minimum ? '<span class="badge badge-info">MIN</span>' : ''}</td>
                                             <td>$${job.base_pay.toFixed(2)}</td>
@@ -1271,7 +1282,7 @@ const Pages = {
                                 </tbody>
                                 <tfoot>
                                     <tr style="background: #f8f9fa;">
-                                        <th colspan="2">Totals</th>
+                                        <th colspan="3">Totals</th>
                                         <th>${tech.totals.total_hours.toFixed(2)}</th>
                                         <th></th>
                                         <th>$${tech.totals.total_base_pay.toFixed(2)}</th>

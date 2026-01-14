@@ -213,12 +213,28 @@ def payroll_detail_report():
             if not tech_pay:
                 continue
 
+            # Get entry dates for this tech on this job
+            tech_entries = [e for e in tech_pay['entries']]
+            entry_dates = sorted(set(
+                e['date_worked'] for e in tech_entries if e.get('date_worked')
+            ))
+
+            # Format date display: single date or range
+            if len(entry_dates) == 0:
+                date_display = None
+            elif len(entry_dates) == 1:
+                date_display = entry_dates[0]
+            else:
+                date_display = f"{entry_dates[0]} - {entry_dates[-1]}"
+
             # Add job to tech's report
             job_entry = {
                 'job_id': job_id,
                 'ticket_number': job.ticket_number,
                 'description': job.description,
-                'job_date': job.job_date.isoformat() if job.job_date else None,
+                'entry_dates': entry_dates,
+                'date_display': date_display,
+                'external_url': job.external_url,
                 'billing_amount': float(job.billing_amount or 0),
                 'hours': tech_pay['hours'],
                 'effective_rate': tech_pay['effective_rate'],
@@ -243,8 +259,8 @@ def payroll_detail_report():
         # Convert tech totals to float
         tech_data['totals'] = {k: float(v) for k, v in tech_data['totals'].items()}
 
-        # Sort jobs by date
-        tech_data['jobs'].sort(key=lambda j: j['job_date'] or '')
+        # Sort jobs by first entry date
+        tech_data['jobs'].sort(key=lambda j: j['entry_dates'][0] if j['entry_dates'] else '')
 
         # Update grand totals
         for key in grand_totals:

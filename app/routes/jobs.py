@@ -163,6 +163,7 @@ def create_job():
         estimated_hours=estimated_hours,
         expenses=expenses,
         commissions=commissions,
+        external_url=data.get('external_url', '').strip() or None,
         job_status=data.get('job_status', 'pending'),
         job_date=job_date,
         due_date=due_date
@@ -208,8 +209,8 @@ def update_job(job_id):
     updatable_fields = [
         'platform_id', 'platform_job_code', 'ticket_number', 'description',
         'client_name', 'job_type', 'location', 'billing_type', 'billing_amount',
-        'estimated_hours', 'expenses', 'commissions', 'job_status', 'job_date',
-        'due_date', 'completed_date'
+        'estimated_hours', 'expenses', 'commissions', 'external_url', 'job_status',
+        'job_date', 'due_date', 'completed_date'
     ]
 
     for field in updatable_fields:

@@ -84,6 +84,9 @@ class Job(db.Model):
     expenses = db.Column(db.Numeric(10, 2), default=0)
     commissions = db.Column(db.Numeric(10, 2), default=0)
 
+    # External platform URL
+    external_url = db.Column(db.String(500))
+
     # Status
     job_status = db.Column(
         db.Enum('pending', 'assigned', 'in_progress', 'completed', 'cancelled'),
@@ -117,6 +120,7 @@ class Job(db.Model):
             'estimated_hours': float(self.estimated_hours) if self.estimated_hours else None,
             'expenses': float(self.expenses) if self.expenses else 0,
             'commissions': float(self.commissions) if self.commissions else 0,
+            'external_url': self.external_url,
             'job_status': self.job_status,
             'job_date': self.job_date.isoformat() if self.job_date else None,
             'due_date': self.due_date.isoformat() if self.due_date else None,

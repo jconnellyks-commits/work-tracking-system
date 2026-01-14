@@ -80,7 +80,8 @@ env/
 *.sublime-workspace
 
 # Logs
-logs/
+logs/*
+!logs/.gitkeep
 *.log
 log/
 

@@ -636,13 +636,14 @@ const Pages = {
                     </select>
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
+                    <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
                 </div>
                 <div class="table-container">
                     <table>
                         <thead>
                             <tr>
-                                ${isManager ? '<th><input type="checkbox" id="select-all-entries"></th>' : ''}
+                                <th><input type="checkbox" id="select-all-entries"></th>
                                 <th>Date</th>
                                 <th>Job</th>
                                 <th>Time In</th>
@@ -675,11 +676,11 @@ const Pages = {
 
             const tbody = document.getElementById('entries-table');
             if (data.time_entries.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="${isManager ? 9 : 8}" class="text-center">No entries found</td></tr>`;
+                tbody.innerHTML = '<tr><td colspan="9" class="text-center">No entries found</td></tr>';
             } else {
                 tbody.innerHTML = data.time_entries.map(entry => `
                     <tr>
-                        ${isManager ? `<td><input type="checkbox" class="entry-checkbox" value="${entry.entry_id}" ${entry.status !== 'submitted' ? 'disabled' : ''}></td>` : ''}
+                        <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
                         <td>${entry.job_id}</td>
                         <td>${App.formatTime(entry.time_in)}</td>
@@ -717,15 +718,36 @@ const Pages = {
         document.getElementById('entry-to-date').addEventListener('change', () => loadEntries(1));
         document.getElementById('new-entry-btn').addEventListener('click', () => Pages.editEntry(null));
 
-        if (isManager) {
-            document.getElementById('select-all-entries').addEventListener('change', (e) => {
-                document.querySelectorAll('.entry-checkbox:not(:disabled)').forEach(cb => cb.checked = e.target.checked);
-            });
+        // Select all checkbox
+        document.getElementById('select-all-entries').addEventListener('change', (e) => {
+            document.querySelectorAll('.entry-checkbox:not(:disabled)').forEach(cb => cb.checked = e.target.checked);
+        });
 
+        // Bulk submit handler
+        document.getElementById('bulk-submit-btn').addEventListener('click', async () => {
+            const selected = [...document.querySelectorAll('.entry-checkbox:checked')]
+                .filter(cb => cb.dataset.status === 'draft')
+                .map(cb => parseInt(cb.value));
+            if (selected.length === 0) {
+                App.showAlert('No draft entries selected');
+                return;
+            }
+            try {
+                await API.timeEntries.bulkSubmit(selected);
+                App.showAlert(`Submitted ${selected.length} entries`, 'success');
+                loadEntries(1);
+            } catch (error) {
+                App.showAlert(error.message);
+            }
+        });
+
+        if (isManager) {
             document.getElementById('bulk-verify-btn').addEventListener('click', async () => {
-                const selected = [...document.querySelectorAll('.entry-checkbox:checked')].map(cb => parseInt(cb.value));
+                const selected = [...document.querySelectorAll('.entry-checkbox:checked')]
+                    .filter(cb => cb.dataset.status === 'submitted')
+                    .map(cb => parseInt(cb.value));
                 if (selected.length === 0) {
-                    App.showAlert('No entries selected');
+                    App.showAlert('No submitted entries selected');
                     return;
                 }
                 try {

@@ -212,6 +212,10 @@ const API = {
             return API.request('/jobs/platforms');
         },
 
+        async getTechnicians() {
+            return API.request('/jobs/technicians');
+        },
+
         async getStats() {
             return API.request('/jobs/stats');
         }

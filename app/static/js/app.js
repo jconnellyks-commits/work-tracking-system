@@ -6,6 +6,7 @@ const App = {
     currentPage: 'dashboard',
     user: null,
     platforms: [],
+    technicians: [],
 
     // Initialize the app
     async init() {
@@ -17,12 +18,19 @@ const App = {
 
         this.user = API.getUser();
 
-        // Load platforms for forms
+        // Load platforms and technicians for forms
         try {
             const data = await API.jobs.getPlatforms();
             this.platforms = data.platforms;
         } catch (e) {
             console.error('Failed to load platforms:', e);
+        }
+
+        try {
+            const data = await API.jobs.getTechnicians();
+            this.technicians = data.technicians;
+        } catch (e) {
+            console.error('Failed to load technicians:', e);
         }
 
         // Setup UI
@@ -197,6 +205,13 @@ const App = {
     getPlatformOptions(selectedId = '') {
         return this.platforms.map(p =>
             `<option value="${p.platform_id}" ${p.platform_id == selectedId ? 'selected' : ''}>${p.name}</option>`
+        ).join('');
+    },
+
+    // Get technician options HTML
+    getTechnicianOptions(selectedId = '') {
+        return this.technicians.map(t =>
+            `<option value="${t.tech_id}" ${t.tech_id == selectedId ? 'selected' : ''}>${t.name}</option>`
         ).join('');
     }
 };
@@ -541,6 +556,18 @@ const Pages = {
     async addTimeToJob(jobId) {
         const jobData = await API.jobs.get(jobId);
         const job = jobData.job;
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+
+        // Technician field - only show for managers/admins
+        const techField = isManager ? `
+            <div class="form-group">
+                <label>Technician *</label>
+                <select class="form-control" name="tech_id" required>
+                    <option value="">Select Technician</option>
+                    ${App.getTechnicianOptions()}
+                </select>
+            </div>
+        ` : '';
 
         const body = `
             <form id="entry-form">
@@ -549,6 +576,7 @@ const Pages = {
                     <input type="text" class="form-control" value="${job.ticket_number || job.job_id} - ${job.description}" readonly>
                     <input type="hidden" name="job_id" value="${jobId}">
                 </div>
+                ${techField}
                 <div class="form-group">
                     <label>Date Worked *</label>
                     <input type="date" class="form-control" name="date_worked" value="${new Date().toISOString().split('T')[0]}" required>
@@ -716,6 +744,8 @@ const Pages = {
             entry = data.time_entry;
         }
 
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+
         // Get jobs for dropdown (exclude cancelled jobs)
         const jobsData = await API.jobs.list({ per_page: 100 });
         const jobOptions = jobsData.jobs
@@ -723,6 +753,17 @@ const Pages = {
             .map(j =>
                 `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
             ).join('');
+
+        // Technician field - only show for managers/admins
+        const techField = isManager ? `
+            <div class="form-group">
+                <label>Technician *</label>
+                <select class="form-control" name="tech_id" required>
+                    <option value="">Select Technician</option>
+                    ${App.getTechnicianOptions(entry.tech_id)}
+                </select>
+            </div>
+        ` : '';
 
         const body = `
             <form id="entry-form">
@@ -733,6 +774,7 @@ const Pages = {
                         ${jobOptions}
                     </select>
                 </div>
+                ${techField}
                 <div class="form-group">
                     <label>Date Worked *</label>
                     <input type="date" class="form-control" name="date_worked" value="${entry.date_worked || new Date().toISOString().split('T')[0]}" required>

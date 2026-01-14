@@ -320,6 +320,25 @@ def list_platforms():
     }), 200
 
 
+@jobs_bp.route('/technicians', methods=['GET'])
+@jwt_required_with_user
+def list_technicians():
+    """List all technicians."""
+    from app.models import Technician
+
+    status = request.args.get('status', 'active')
+
+    query = Technician.query
+    if status:
+        query = query.filter_by(status=status)
+
+    technicians = query.order_by(Technician.name).all()
+
+    return jsonify({
+        'technicians': [t.to_dict() for t in technicians]
+    }), 200
+
+
 @jobs_bp.route('/platforms', methods=['POST'])
 @manager_required
 def create_platform():

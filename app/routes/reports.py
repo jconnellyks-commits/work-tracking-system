@@ -17,6 +17,7 @@ from app.utils.auth import (
     admin_required,
     can_access_technician_data,
 )
+from app.utils.pay_calculator import calculate_job_pay
 
 reports_bp = Blueprint('reports', __name__)
 logger = get_logger(__name__)
@@ -115,6 +116,161 @@ def payroll_report():
             'total_hours': float(grand_total_hours),
             'total_pay': float(grand_total_pay)
         }
+    }), 200
+
+
+@reports_bp.route('/payroll-detail', methods=['GET'])
+@manager_required
+def payroll_detail_report():
+    """
+    Generate detailed payroll report with per-job pay breakdowns.
+
+    Query parameters:
+        - from_date: Start date (required)
+        - to_date: End date (required)
+        - tech_id: Filter by specific technician (optional)
+
+    Returns detailed pay breakdown for each technician showing:
+        - All jobs worked with pay calculation
+        - Base pay, mileage, per diem, expenses per job
+        - Using minimum rate indicator
+        - Grand totals
+    """
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    tech_id = request.args.get('tech_id', type=int)
+
+    if not from_date or not to_date:
+        return jsonify({'error': 'Date range required'}), 400
+
+    # Get all time entries in the period
+    entry_query = TimeEntry.query.filter(
+        TimeEntry.date_worked >= from_date,
+        TimeEntry.date_worked <= to_date,
+        TimeEntry.status.in_(['verified', 'billed', 'paid'])
+    )
+
+    if tech_id:
+        entry_query = entry_query.filter(TimeEntry.tech_id == tech_id)
+
+    entries = entry_query.all()
+
+    # Group entries by technician and find unique jobs
+    tech_jobs = {}  # {tech_id: set(job_ids)}
+    for entry in entries:
+        if entry.tech_id not in tech_jobs:
+            tech_jobs[entry.tech_id] = set()
+        tech_jobs[entry.tech_id].add(entry.job_id)
+
+    # Build detailed report for each technician
+    technicians_report = []
+    grand_totals = {
+        'total_hours': Decimal('0'),
+        'total_base_pay': Decimal('0'),
+        'total_mileage_pay': Decimal('0'),
+        'total_per_diem': Decimal('0'),
+        'total_personal_expenses': Decimal('0'),
+        'total_pay': Decimal('0')
+    }
+
+    for tid, job_ids in tech_jobs.items():
+        tech = Technician.query.get(tid)
+        if not tech:
+            continue
+
+        tech_data = {
+            'tech_id': tid,
+            'tech_name': tech.name,
+            'min_pay': float(tech.hourly_rate or 0),
+            'jobs': [],
+            'totals': {
+                'total_hours': Decimal('0'),
+                'total_base_pay': Decimal('0'),
+                'total_mileage_pay': Decimal('0'),
+                'total_per_diem': Decimal('0'),
+                'total_personal_expenses': Decimal('0'),
+                'total_pay': Decimal('0')
+            }
+        }
+
+        for job_id in job_ids:
+            job = Job.query.get(job_id)
+            if not job:
+                continue
+
+            # Calculate pay for this job
+            pay_data = calculate_job_pay(job_id)
+            if not pay_data:
+                continue
+
+            # Find this tech's pay in the job
+            tech_pay = None
+            for t in pay_data['technicians']:
+                if t['tech_id'] == tid:
+                    tech_pay = t
+                    break
+
+            if not tech_pay:
+                continue
+
+            # Add job to tech's report
+            job_entry = {
+                'job_id': job_id,
+                'ticket_number': job.ticket_number,
+                'description': job.description,
+                'job_date': job.job_date.isoformat() if job.job_date else None,
+                'billing_amount': float(job.billing_amount or 0),
+                'hours': tech_pay['hours'],
+                'effective_rate': tech_pay['effective_rate'],
+                'using_minimum': tech_pay['using_minimum'],
+                'base_pay': tech_pay['base_pay'],
+                'mileage': tech_pay['mileage'],
+                'mileage_pay': tech_pay['mileage_pay'],
+                'per_diem': tech_pay['per_diem'],
+                'personal_expenses': tech_pay['personal_expenses'],
+                'total_pay': tech_pay['total_pay']
+            }
+            tech_data['jobs'].append(job_entry)
+
+            # Update tech totals
+            tech_data['totals']['total_hours'] += Decimal(str(tech_pay['hours']))
+            tech_data['totals']['total_base_pay'] += Decimal(str(tech_pay['base_pay']))
+            tech_data['totals']['total_mileage_pay'] += Decimal(str(tech_pay['mileage_pay']))
+            tech_data['totals']['total_per_diem'] += Decimal(str(tech_pay['per_diem']))
+            tech_data['totals']['total_personal_expenses'] += Decimal(str(tech_pay['personal_expenses']))
+            tech_data['totals']['total_pay'] += Decimal(str(tech_pay['total_pay']))
+
+        # Convert tech totals to float
+        tech_data['totals'] = {k: float(v) for k, v in tech_data['totals'].items()}
+
+        # Sort jobs by date
+        tech_data['jobs'].sort(key=lambda j: j['job_date'] or '')
+
+        # Update grand totals
+        for key in grand_totals:
+            grand_totals[key] += Decimal(str(tech_data['totals'][key]))
+
+        technicians_report.append(tech_data)
+
+    # Sort technicians by name
+    technicians_report.sort(key=lambda t: t['tech_name'])
+
+    # Log report generation
+    audit_logger.log(
+        action_type='report_generated',
+        entity_type='payroll_detail_report',
+        description=f"Detailed payroll report generated for {from_date} to {to_date}",
+        user_id=g.user_id
+    )
+
+    return jsonify({
+        'report_type': 'payroll_detail',
+        'from_date': from_date,
+        'to_date': to_date,
+        'generated_at': datetime.utcnow().isoformat(),
+        'technicians': technicians_report,
+        'grand_totals': {k: float(v) for k, v in grand_totals.items()},
+        'technician_count': len(technicians_report)
     }), 200
 
 

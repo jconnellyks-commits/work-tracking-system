@@ -1202,48 +1202,95 @@ const Pages = {
     async loadPayrollReport() {
         const fromDate = document.getElementById('payroll-from').value;
         const toDate = document.getElementById('payroll-to').value;
+        const resultsDiv = document.getElementById('payroll-results');
+
+        resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
 
         try {
-            const data = await API.reports.payroll({ from_date: fromDate, to_date: toDate });
+            const data = await API.reports.payrollDetail({ from_date: fromDate, to_date: toDate });
 
-            let html = `
-                <div class="table-container">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Technician</th>
-                                <th>Entries</th>
-                                <th>Hours</th>
-                                <th>Min Pay</th>
-                                <th>Total Pay</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${data.data.map(row => `
-                                <tr>
-                                    <td>${row.name}</td>
-                                    <td>${row.entry_count}</td>
-                                    <td>${row.total_hours.toFixed(2)}</td>
-                                    <td>$${row.hourly_rate.toFixed(2)}</td>
-                                    <td>$${row.total_pay.toFixed(2)}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <th colspan="2">Total</th>
-                                <th>${data.summary.total_hours.toFixed(2)}</th>
-                                <th></th>
-                                <th>$${data.summary.total_pay.toFixed(2)}</th>
-                            </tr>
-                        </tfoot>
-                    </table>
+            if (data.technicians.length === 0) {
+                resultsDiv.innerHTML = '<p class="text-center" style="padding: 2rem;">No verified time entries found for this period.</p>';
+                return;
+            }
+
+            let html = '';
+
+            // Grand totals summary at top
+            html += `
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+                    <h4 style="margin-bottom: 0.5rem;">Period Summary: ${fromDate} to ${toDate}</h4>
+                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; text-align: center;">
+                        <div><small>Technicians</small><br><strong>${data.technician_count}</strong></div>
+                        <div><small>Total Hours</small><br><strong>${data.grand_totals.total_hours.toFixed(2)}</strong></div>
+                        <div><small>Base Pay</small><br><strong>$${data.grand_totals.total_base_pay.toFixed(2)}</strong></div>
+                        <div><small>Mileage</small><br><strong>$${data.grand_totals.total_mileage_pay.toFixed(2)}</strong></div>
+                        <div><small>Per Diem</small><br><strong>$${data.grand_totals.total_per_diem.toFixed(2)}</strong></div>
+                        <div><small>Total Pay</small><br><strong style="color: var(--success);">$${data.grand_totals.total_pay.toFixed(2)}</strong></div>
+                    </div>
                 </div>
             `;
 
-            document.getElementById('payroll-results').innerHTML = html;
+            // Each technician gets their own section
+            for (const tech of data.technicians) {
+                html += `
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div class="card-header" style="background: #f8f9fa;">
+                            <h3 class="card-title">${tech.tech_name} <small style="font-weight: normal;">(Min Pay: $${tech.min_pay.toFixed(2)}/hr)</small></h3>
+                            <span style="font-size: 1.25rem; font-weight: bold; color: var(--success);">$${tech.totals.total_pay.toFixed(2)}</span>
+                        </div>
+                        <div class="table-container">
+                            <table style="font-size: 0.85rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Job</th>
+                                        <th>Hours</th>
+                                        <th>Rate</th>
+                                        <th>Base Pay</th>
+                                        <th>Mileage</th>
+                                        <th>Per Diem</th>
+                                        <th>Expenses</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tech.jobs.map(job => `
+                                        <tr>
+                                            <td>${job.job_date ? App.formatDate(job.job_date) : '-'}</td>
+                                            <td>${job.ticket_number || 'Job #' + job.job_id} - ${job.description.slice(0, 25)}${job.description.length > 25 ? '...' : ''}</td>
+                                            <td>${job.hours}</td>
+                                            <td>$${job.effective_rate.toFixed(2)} ${job.using_minimum ? '<span class="badge badge-info">MIN</span>' : ''}</td>
+                                            <td>$${job.base_pay.toFixed(2)}</td>
+                                            <td>$${job.mileage_pay.toFixed(2)} <small>(${job.mileage} mi)</small></td>
+                                            <td>$${job.per_diem.toFixed(2)}</td>
+                                            <td>$${job.personal_expenses.toFixed(2)}</td>
+                                            <td><strong>$${job.total_pay.toFixed(2)}</strong></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background: #f8f9fa;">
+                                        <th colspan="2">Totals</th>
+                                        <th>${tech.totals.total_hours.toFixed(2)}</th>
+                                        <th></th>
+                                        <th>$${tech.totals.total_base_pay.toFixed(2)}</th>
+                                        <th>$${tech.totals.total_mileage_pay.toFixed(2)}</th>
+                                        <th>$${tech.totals.total_per_diem.toFixed(2)}</th>
+                                        <th>$${tech.totals.total_personal_expenses.toFixed(2)}</th>
+                                        <th><strong>$${tech.totals.total_pay.toFixed(2)}</strong></th>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            }
+
+            resultsDiv.innerHTML = html;
         } catch (error) {
             App.showAlert(error.message);
+            resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;
         }
     },
 

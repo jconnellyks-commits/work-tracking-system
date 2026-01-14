@@ -301,6 +301,11 @@ const API = {
             return API.request(`/reports/payroll${query ? '?' + query : ''}`);
         },
 
+        async payrollDetail(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/reports/payroll-detail${query ? '?' + query : ''}`);
+        },
+
         async technicianHours(params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/reports/technician-hours${query ? '?' + query : ''}`);

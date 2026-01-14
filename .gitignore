@@ -114,3 +114,4 @@ temp/
 # Upload directories
 uploads/
 static/uploads/
+tmpclaude-*

@@ -410,6 +410,56 @@ const Pages = {
         const entriesData = await API.jobs.getTimeEntries(jobId);
         const entries = entriesData.time_entries || [];
 
+        // Fetch pay calculation (managers only)
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+        let payHtml = '';
+        if (isManager && entries.length > 0) {
+            try {
+                const payData = await API.settings.getJobPay(jobId);
+                payHtml = `
+                    <div class="form-group" style="margin-top: 1rem; background: #f8f9fa; padding: 1rem; border-radius: 4px;">
+                        <label style="font-size: 1.1rem; margin-bottom: 0.5rem;">Pay Breakdown</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+                            <div><small>Job Net:</small> <strong>$${payData.job_net.toFixed(2)}</strong></div>
+                            <div><small>Tech Pool (50%):</small> <strong>$${payData.tech_pool.toFixed(2)}</strong></div>
+                            <div><small>Total Deductions:</small> <strong>$${payData.total_deductions.toFixed(2)}</strong></div>
+                            <div><small>Total Pay:</small> <strong>$${payData.totals.total_pay.toFixed(2)}</strong></div>
+                        </div>
+                        <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                            <table style="font-size: 0.85rem;">
+                                <thead>
+                                    <tr>
+                                        <th>Technician</th>
+                                        <th>Hours</th>
+                                        <th>Base Pay</th>
+                                        <th>Mileage</th>
+                                        <th>Per Diem</th>
+                                        <th>Expenses</th>
+                                        <th>Total</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${payData.technicians.map(t => `
+                                        <tr>
+                                            <td>${t.tech_name}</td>
+                                            <td>${t.hours} <small>(@$${t.effective_rate}/hr)</small></td>
+                                            <td>$${t.base_pay.toFixed(2)}</td>
+                                            <td>$${t.mileage_pay.toFixed(2)} <small>(${t.mileage} mi)</small></td>
+                                            <td>$${t.per_diem.toFixed(2)}</td>
+                                            <td>$${t.personal_expenses.toFixed(2)}</td>
+                                            <td><strong>$${t.total_pay.toFixed(2)}</strong></td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                console.error('Failed to load pay data:', e);
+            }
+        }
+
         // Build time entries table
         let entriesHtml = '';
         if (entries.length > 0) {
@@ -423,6 +473,7 @@ const Pages = {
                                     <th>Date</th>
                                     <th>Technician</th>
                                     <th>Hours</th>
+                                    <th>Mileage</th>
                                     <th>Status</th>
                                 </tr>
                             </thead>
@@ -432,6 +483,7 @@ const Pages = {
                                         <td>${App.formatDate(e.date_worked)}</td>
                                         <td>${e.tech_name || 'Tech #' + e.tech_id}</td>
                                         <td>${e.hours_worked || '-'}</td>
+                                        <td>${e.mileage || 0}</td>
                                         <td>${App.getStatusBadge(e.status)}</td>
                                     </tr>
                                 `).join('')}
@@ -488,7 +540,18 @@ const Pages = {
                     <p>${entriesData.total_hours || 0}</p>
                 </div>
             </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Expenses</label>
+                    <p>$${job.expenses || 0}</p>
+                </div>
+                <div class="form-group">
+                    <label>Commissions</label>
+                    <p>$${job.commissions || 0}</p>
+                </div>
+            </div>
             ${entriesHtml}
+            ${payHtml}
         `;
 
         const footer = `

@@ -384,5 +384,54 @@ const API = {
                 body: JSON.stringify({ user_id: userId })
             });
         }
+    },
+
+    // Settings endpoints
+    settings: {
+        async list() {
+            return API.request('/settings');
+        },
+
+        async get(key) {
+            return API.request(`/settings/${key}`);
+        },
+
+        async update(key, data) {
+            return API.request(`/settings/${key}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async create(data) {
+            return API.request('/settings', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async getMileageRates() {
+            return API.request('/settings/mileage-rates');
+        },
+
+        async createMileageRate(data) {
+            return API.request('/settings/mileage-rates', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async getCurrentMileageRate() {
+            return API.request('/settings/mileage-rates/current');
+        },
+
+        async getJobPay(jobId) {
+            return API.request(`/settings/pay/job/${jobId}`);
+        },
+
+        async getTechPay(techId, params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/settings/pay/technician/${techId}${query ? '?' + query : ''}`);
+        }
     }
 };

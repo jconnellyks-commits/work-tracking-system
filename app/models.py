@@ -295,6 +295,79 @@ class Invoice(db.Model):
         }
 
 
+class SystemSettings(db.Model):
+    """System settings for global configuration values."""
+    __tablename__ = 'system_settings'
+
+    setting_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    setting_key = db.Column(db.String(50), nullable=False, unique=True)
+    setting_value = db.Column(db.String(255), nullable=False)
+    description = db.Column(db.Text)
+    effective_date = db.Column(db.Date)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'setting_id': self.setting_id,
+            'setting_key': self.setting_key,
+            'setting_value': self.setting_value,
+            'description': self.description,
+            'effective_date': self.effective_date.isoformat() if self.effective_date else None,
+        }
+
+    @staticmethod
+    def get_value(key, default=None):
+        """Get a setting value by key."""
+        setting = SystemSettings.query.filter_by(setting_key=key).first()
+        return setting.setting_value if setting else default
+
+    @staticmethod
+    def get_float(key, default=0.0):
+        """Get a setting value as float."""
+        value = SystemSettings.get_value(key)
+        try:
+            return float(value) if value else default
+        except (ValueError, TypeError):
+            return default
+
+
+class MileageRateHistory(db.Model):
+    """Historical mileage rates for accurate pay calculation on past entries."""
+    __tablename__ = 'mileage_rate_history'
+
+    rate_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    rate_per_mile = db.Column(db.Numeric(6, 4), nullable=False)
+    effective_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date)
+    description = db.Column(db.String(100))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'rate_id': self.rate_id,
+            'rate_per_mile': float(self.rate_per_mile),
+            'effective_date': self.effective_date.isoformat() if self.effective_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'description': self.description,
+        }
+
+    @staticmethod
+    def get_rate_for_date(date):
+        """Get the mileage rate effective for a specific date."""
+        from sqlalchemy import and_
+        rate = MileageRateHistory.query.filter(
+            and_(
+                MileageRateHistory.effective_date <= date,
+                db.or_(
+                    MileageRateHistory.end_date.is_(None),
+                    MileageRateHistory.end_date >= date
+                )
+            )
+        ).order_by(MileageRateHistory.effective_date.desc()).first()
+        return float(rate.rate_per_mile) if rate else 0.67  # Default IRS rate
+
+
 class AuditLog(db.Model):
     """Audit log model for tracking all system actions."""
     __tablename__ = 'audit_logs'

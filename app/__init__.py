@@ -54,6 +54,7 @@ def create_app(config_class=None):
     from app.routes.time_entries import time_entries_bp
     from app.routes.reports import reports_bp
     from app.routes.technicians import technicians_bp
+    from app.routes.settings import settings_bp
     from app.routes.frontend import frontend_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
@@ -61,6 +62,7 @@ def create_app(config_class=None):
     app.register_blueprint(time_entries_bp, url_prefix='/api/time-entries')
     app.register_blueprint(reports_bp, url_prefix='/api/reports')
     app.register_blueprint(technicians_bp, url_prefix='/api/technicians')
+    app.register_blueprint(settings_bp, url_prefix='/api/settings')
     app.register_blueprint(frontend_bp)
 
     # Health check endpoint

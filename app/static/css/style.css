@@ -557,3 +557,69 @@ tr:hover {
         width: 100%;
     }
 }
+
+/* Print Styles */
+@media print {
+    /* Hide non-printable elements */
+    .sidebar,
+    .header,
+    .no-print,
+    .filters,
+    .nav-item,
+    .btn {
+        display: none !important;
+    }
+
+    /* Reset layout for print */
+    .app-container {
+        display: block;
+    }
+
+    .main-content {
+        margin: 0;
+        padding: 0;
+    }
+
+    .content {
+        padding: 0;
+    }
+
+    /* Card styling for print */
+    .card {
+        box-shadow: none;
+        border: 1px solid #ddd;
+        page-break-inside: avoid;
+        margin-bottom: 1rem;
+    }
+
+    .card-header {
+        background: #f8f9fa !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Table styling for print */
+    table {
+        font-size: 10pt;
+    }
+
+    th, td {
+        padding: 4px 8px;
+    }
+
+    /* Ensure colors print */
+    .badge {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    /* Page breaks */
+    .card {
+        page-break-after: auto;
+    }
+
+    /* Show full URLs for links */
+    a[href^="http"]:after {
+        content: none;
+    }
+}

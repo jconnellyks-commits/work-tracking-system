@@ -1192,8 +1192,16 @@ const Pages = {
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">Payroll Report</h3>
+                    <div class="no-print" id="payroll-export-btns" style="display: none;">
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.printPayrollReport()">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.exportPayrollCSV()">
+                            <i class="fas fa-download"></i> Export CSV
+                        </button>
+                    </div>
                 </div>
-                <div class="filters">
+                <div class="filters no-print">
                     <input type="date" class="form-control" id="payroll-from" value="${firstDay}">
                     <input type="date" class="form-control" id="payroll-to" value="${lastDay}">
                     <button class="btn btn-primary" onclick="Pages.loadPayrollReport()">Generate</button>
@@ -1203,20 +1211,31 @@ const Pages = {
         `;
     },
 
+    // Store last payroll data for export
+    lastPayrollData: null,
+
     async loadPayrollReport() {
         const fromDate = document.getElementById('payroll-from').value;
         const toDate = document.getElementById('payroll-to').value;
         const resultsDiv = document.getElementById('payroll-results');
 
         resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+        document.getElementById('payroll-export-btns').style.display = 'none';
 
         try {
             const data = await API.reports.payrollDetail({ from_date: fromDate, to_date: toDate });
+
+            // Store for export
+            this.lastPayrollData = data;
 
             if (data.technicians.length === 0) {
                 resultsDiv.innerHTML = '<p class="text-center" style="padding: 2rem;">No verified time entries found for this period.</p>';
                 return;
             }
+
+            // Show export buttons
+            document.getElementById('payroll-export-btns').style.display = 'flex';
+            document.getElementById('payroll-export-btns').style.gap = '0.5rem';
 
             let html = '';
 
@@ -1303,6 +1322,93 @@ const Pages = {
             App.showAlert(error.message);
             resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;
         }
+    },
+
+    // Print payroll report
+    printPayrollReport() {
+        window.print();
+    },
+
+    // Export payroll to CSV
+    exportPayrollCSV() {
+        const data = this.lastPayrollData;
+        if (!data) {
+            App.showAlert('No data to export');
+            return;
+        }
+
+        // Build CSV content
+        let csv = [];
+
+        // Header
+        csv.push(['Payroll Report']);
+        csv.push([`Period: ${data.from_date} to ${data.to_date}`]);
+        csv.push([`Generated: ${data.generated_at}`]);
+        csv.push([]);
+
+        // Grand totals
+        csv.push(['SUMMARY']);
+        csv.push(['Technicians', 'Total Hours', 'Base Pay', 'Mileage Pay', 'Per Diem', 'Personal Expenses', 'Total Pay']);
+        csv.push([
+            data.technician_count,
+            data.grand_totals.total_hours.toFixed(2),
+            data.grand_totals.total_base_pay.toFixed(2),
+            data.grand_totals.total_mileage_pay.toFixed(2),
+            data.grand_totals.total_per_diem.toFixed(2),
+            data.grand_totals.total_personal_expenses.toFixed(2),
+            data.grand_totals.total_pay.toFixed(2)
+        ]);
+        csv.push([]);
+
+        // Each technician
+        for (const tech of data.technicians) {
+            csv.push([]);
+            csv.push([`TECHNICIAN: ${tech.tech_name}`]);
+            csv.push([`Min Pay: $${tech.min_pay.toFixed(2)}/hr`]);
+            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay']);
+
+            for (const job of tech.jobs) {
+                csv.push([
+                    job.date_display || '',
+                    job.ticket_number || `Job #${job.job_id}`,
+                    `"${job.description.replace(/"/g, '""')}"`,
+                    job.hours,
+                    job.effective_rate.toFixed(2),
+                    job.using_minimum ? 'Yes' : 'No',
+                    job.base_pay.toFixed(2),
+                    job.mileage,
+                    job.mileage_pay.toFixed(2),
+                    job.per_diem.toFixed(2),
+                    job.personal_expenses.toFixed(2),
+                    job.total_pay.toFixed(2)
+                ]);
+            }
+
+            // Tech totals
+            csv.push([
+                'TOTALS', '', '',
+                tech.totals.total_hours.toFixed(2),
+                '', '',
+                tech.totals.total_base_pay.toFixed(2),
+                '',
+                tech.totals.total_mileage_pay.toFixed(2),
+                tech.totals.total_per_diem.toFixed(2),
+                tech.totals.total_personal_expenses.toFixed(2),
+                tech.totals.total_pay.toFixed(2)
+            ]);
+        }
+
+        // Convert to CSV string
+        const csvContent = csv.map(row => row.join(',')).join('\n');
+
+        // Download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const filename = `payroll_${data.from_date}_to_${data.to_date}.csv`;
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        URL.revokeObjectURL(link.href);
     },
 
     // Show billing report

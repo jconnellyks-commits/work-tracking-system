@@ -692,9 +692,15 @@ const Pages = {
                                 <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
                                 <button class="btn btn-sm btn-success" onclick="Pages.submitEntry(${entry.entry_id})">Submit</button>
                             ` : ''}
+                            ${entry.status !== 'draft' && entry.status !== 'paid' && isManager ? `
+                                <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
+                            ` : ''}
                             ${entry.status === 'submitted' && isManager ? `
                                 <button class="btn btn-sm btn-success" onclick="Pages.verifyEntry(${entry.entry_id})">Verify</button>
                                 <button class="btn btn-sm btn-danger" onclick="Pages.rejectEntry(${entry.entry_id})">Reject</button>
+                            ` : ''}
+                            ${isManager ? `
+                                <button class="btn btn-sm btn-secondary" onclick="Pages.copyEntry(${entry.entry_id})">Copy</button>
                             ` : ''}
                         </td>
                     </tr>
@@ -886,6 +892,83 @@ const Pages = {
         try {
             await API.timeEntries.reject(entryId, reason);
             App.showAlert('Entry rejected', 'success');
+            Pages.entriesPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Copy entry (create new entry based on existing one)
+    async copyEntry(entryId) {
+        const data = await API.timeEntries.get(entryId);
+        const entry = data.time_entry;
+
+        // Get jobs for dropdown
+        const jobsData = await API.jobs.list({ per_page: 100 });
+        const jobOptions = jobsData.jobs
+            .filter(j => j.job_status !== 'cancelled')
+            .map(j =>
+                `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
+            ).join('');
+
+        const body = `
+            <form id="copy-entry-form">
+                <p class="text-muted">Creating a copy of this time entry. Select a different technician if needed (e.g., for multiple techs on the same job).</p>
+                <div class="form-group">
+                    <label>Job *</label>
+                    <select class="form-control" name="job_id" required>
+                        ${jobOptions}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Technician *</label>
+                    <select class="form-control" name="tech_id" required>
+                        ${App.getTechnicianOptions(entry.tech_id)}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Date Worked *</label>
+                    <input type="date" class="form-control" name="date_worked" value="${entry.date_worked}" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Time In</label>
+                        <input type="time" class="form-control" name="time_in" value="${entry.time_in ? entry.time_in.slice(0, 5) : ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Time Out</label>
+                        <input type="time" class="form-control" name="time_out" value="${entry.time_out ? entry.time_out.slice(0, 5) : ''}">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Hours</label>
+                    <input type="number" step="0.25" class="form-control" name="hours_worked" value="${entry.hours_worked || ''}">
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea class="form-control" name="notes" rows="3">${entry.notes || ''}</textarea>
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveCopiedEntry()">Create Copy</button>
+        `;
+
+        App.showModal('Copy Time Entry', body, footer);
+    },
+
+    // Save copied entry
+    async saveCopiedEntry() {
+        const form = document.getElementById('copy-entry-form');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        try {
+            await API.timeEntries.create(data);
+            App.showAlert('Time entry copied successfully', 'success');
+            App.hideModal();
             Pages.entriesPage(1);
         } catch (error) {
             App.showAlert(error.message);

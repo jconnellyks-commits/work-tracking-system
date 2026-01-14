@@ -221,11 +221,12 @@ def can_modify_time_entry(user, time_entry):
     if not user:
         return False
 
-    # Admins can modify anything
+    # Admins can modify anything (except paid - requires extra confirmation)
     if user.role == 'admin':
         return True
 
     # Managers can modify any entry that's not paid
+    # This includes verified entries for compliance corrections
     if user.role == 'manager':
         return time_entry.status not in ('paid',)
 

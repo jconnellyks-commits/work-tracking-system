@@ -144,17 +144,29 @@ const App = {
     },
 
     // Show modal
-    showModal(title, body, footer = '') {
-        const modal = document.getElementById('modal-overlay');
+    showModal(title, body, footer = '', options = {}) {
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modal = modalOverlay.querySelector('.modal');
         document.getElementById('modal-title').textContent = title;
         document.getElementById('modal-body').innerHTML = body;
         document.getElementById('modal-footer').innerHTML = footer;
-        modal.classList.add('active');
+
+        // Handle wide modal option
+        if (options.wide) {
+            modal.classList.add('modal-wide');
+        } else {
+            modal.classList.remove('modal-wide');
+        }
+
+        modalOverlay.classList.add('active');
     },
 
     // Hide modal
     hideModal() {
-        document.getElementById('modal-overlay').classList.remove('active');
+        const modalOverlay = document.getElementById('modal-overlay');
+        const modal = modalOverlay.querySelector('.modal');
+        modalOverlay.classList.remove('active');
+        modal.classList.remove('modal-wide');
     },
 
     // Show alert
@@ -419,18 +431,19 @@ const Pages = {
                 payHtml = `
                     <div class="form-group" style="margin-top: 1rem; background: #f8f9fa; padding: 1rem; border-radius: 4px;">
                         <label style="font-size: 1.1rem; margin-bottom: 0.5rem;">Pay Breakdown</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
                             <div><small>Job Net:</small> <strong>$${payData.job_net.toFixed(2)}</strong></div>
                             <div><small>Tech Pool (50%):</small> <strong>$${payData.tech_pool.toFixed(2)}</strong></div>
                             <div><small>Total Deductions:</small> <strong>$${payData.total_deductions.toFixed(2)}</strong></div>
                             <div><small>Total Pay:</small> <strong>$${payData.totals.total_pay.toFixed(2)}</strong></div>
                         </div>
-                        <div class="table-container" style="max-height: 200px; overflow-y: auto;">
+                        <div class="table-container" style="max-height: 250px; overflow-y: auto;">
                             <table style="font-size: 0.85rem;">
                                 <thead>
                                     <tr>
                                         <th>Technician</th>
                                         <th>Hours</th>
+                                        <th>Rate</th>
                                         <th>Base Pay</th>
                                         <th>Mileage</th>
                                         <th>Per Diem</th>
@@ -442,7 +455,8 @@ const Pages = {
                                     ${payData.technicians.map(t => `
                                         <tr>
                                             <td>${t.tech_name}</td>
-                                            <td>${t.hours} <small>(@$${t.effective_rate}/hr)</small></td>
+                                            <td>${t.hours}</td>
+                                            <td>$${t.effective_rate.toFixed(2)}/hr ${t.using_minimum ? '<span class="badge badge-info" title="Using minimum pay rate">MIN</span>' : ''}</td>
                                             <td>$${t.base_pay.toFixed(2)}</td>
                                             <td>$${t.mileage_pay.toFixed(2)} <small>(${t.mileage} mi)</small></td>
                                             <td>$${t.per_diem.toFixed(2)}</td>
@@ -560,7 +574,7 @@ const Pages = {
                 <i class="fas fa-plus"></i> Add Time Entry
             </button>
         `;
-        App.showModal('Job Details', body, footer);
+        App.showModal('Job Details', body, footer, { wide: true });
     },
 
     // Edit/create job

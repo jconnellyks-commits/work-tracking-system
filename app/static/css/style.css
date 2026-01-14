@@ -350,6 +350,7 @@ tr:hover {
 .badge-danger { background: #fee2e2; color: #991b1b; }
 .badge-primary { background: #dbeafe; color: #1e40af; }
 .badge-secondary { background: var(--gray-200); color: var(--gray-700); }
+.badge-info { background: #e0f2fe; color: #0369a1; }
 
 /* Alerts */
 .alert {
@@ -398,6 +399,10 @@ tr:hover {
     overflow-y: auto;
     transform: scale(0.95);
     transition: transform 0.2s;
+}
+
+.modal.modal-wide {
+    max-width: 800px;
 }
 
 .modal-overlay.active .modal {

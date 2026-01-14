@@ -145,6 +145,7 @@ def calculate_job_pay(job_id):
     total_base_pay = Decimal('0')
 
     for tech_id, data in tech_data.items():
+        using_minimum = False
         if total_hours == 0:
             weight = Decimal('0')
             base_pay = Decimal('0')
@@ -155,7 +156,11 @@ def calculate_job_pay(job_id):
             if data['hours'] > 0:
                 calculated_rate = tech_pool / data['hours']
                 # Use higher of calculated rate or minimum pay
-                effective_rate = max(calculated_rate, data['min_pay'])
+                if calculated_rate < data['min_pay']:
+                    using_minimum = True
+                    effective_rate = data['min_pay']
+                else:
+                    effective_rate = calculated_rate
                 base_pay = data['hours'] * effective_rate
             else:
                 effective_rate = data['min_pay']
@@ -171,7 +176,11 @@ def calculate_job_pay(job_id):
 
             # Ensure minimum pay is met
             min_pay_amount = data['hours'] * data['min_pay']
-            base_pay = max(weighted_base, min_pay_amount)
+            if weighted_base < min_pay_amount:
+                using_minimum = True
+                base_pay = min_pay_amount
+            else:
+                base_pay = weighted_base
 
             if data['hours'] > 0:
                 effective_rate = base_pay / data['hours']
@@ -194,6 +203,7 @@ def calculate_job_pay(job_id):
             'personal_expenses': float(data['personal_expenses'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'total_pay': float(total_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'effective_rate': float(effective_rate.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'using_minimum': using_minimum,
             'entries': data['entries']
         })
 

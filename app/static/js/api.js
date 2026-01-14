@@ -338,5 +338,51 @@ const API = {
                 method: 'POST'
             });
         }
+    },
+
+    // Technicians endpoints
+    technicians: {
+        async list(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/technicians${query ? '?' + query : ''}`);
+        },
+
+        async get(techId) {
+            return API.request(`/technicians/${techId}`);
+        },
+
+        async create(techData) {
+            return API.request('/technicians', {
+                method: 'POST',
+                body: JSON.stringify(techData)
+            });
+        },
+
+        async update(techId, techData) {
+            return API.request(`/technicians/${techId}`, {
+                method: 'PUT',
+                body: JSON.stringify(techData)
+            });
+        },
+
+        async delete(techId) {
+            return API.request(`/technicians/${techId}`, {
+                method: 'DELETE'
+            });
+        },
+
+        async createUserAccount(techId, password, email = null) {
+            return API.request(`/technicians/${techId}/create-user`, {
+                method: 'POST',
+                body: JSON.stringify({ password, email })
+            });
+        },
+
+        async linkUser(techId, userId) {
+            return API.request(`/technicians/${techId}/link-user`, {
+                method: 'POST',
+                body: JSON.stringify({ user_id: userId })
+            });
+        }
     }
 };

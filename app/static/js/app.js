@@ -56,6 +56,7 @@ const App = {
             { id: 'jobs', icon: 'fas fa-briefcase', label: 'Jobs' },
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
+            { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
             { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] }
         ];
 
@@ -101,6 +102,7 @@ const App = {
             'jobs': 'Jobs',
             'time-entries': 'Time Entries',
             'reports': 'Reports',
+            'technicians': 'Technician Management',
             'users': 'User Management'
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
@@ -122,6 +124,9 @@ const App = {
                     break;
                 case 'reports':
                     await Pages.reports(content);
+                    break;
+                case 'technicians':
+                    await Pages.technicians(content);
                     break;
                 case 'users':
                     await Pages.users(content);
@@ -1124,6 +1129,270 @@ const Pages = {
             `;
 
             document.getElementById('audit-results').innerHTML = html;
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Technicians page
+    async technicians(container) {
+        let html = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Technicians</h3>
+                    <button class="btn btn-primary" id="new-tech-btn"><i class="fas fa-plus"></i> New Technician</button>
+                </div>
+                <div class="filters">
+                    <select class="form-control" id="tech-status-filter">
+                        <option value="">All Statuses</option>
+                        <option value="active" selected>Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                    <input type="text" class="form-control" id="tech-search" placeholder="Search...">
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Phone</th>
+                                <th>Hourly Rate</th>
+                                <th>Status</th>
+                                <th>User Account</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="technicians-table"></tbody>
+                    </table>
+                </div>
+                <div class="pagination" id="technicians-pagination"></div>
+            </div>
+        `;
+
+        container.innerHTML = html;
+
+        const loadTechnicians = async (page = 1) => {
+            const params = { page, per_page: 20 };
+            const status = document.getElementById('tech-status-filter').value;
+            const search = document.getElementById('tech-search').value;
+
+            if (status) params.status = status;
+            if (search) params.search = search;
+
+            const data = await API.technicians.list(params);
+
+            const tbody = document.getElementById('technicians-table');
+            if (data.technicians.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center">No technicians found</td></tr>';
+            } else {
+                tbody.innerHTML = data.technicians.map(tech => `
+                    <tr>
+                        <td>${tech.name}</td>
+                        <td>${tech.email || '-'}</td>
+                        <td>${tech.phone || '-'}</td>
+                        <td>${tech.hourly_rate ? '$' + parseFloat(tech.hourly_rate).toFixed(2) : '-'}</td>
+                        <td>${App.getStatusBadge(tech.status)}</td>
+                        <td>
+                            ${tech.has_user_account
+                                ? `<span class="badge badge-success">Yes</span> <small>(${tech.user_email})</small>`
+                                : `<button class="btn btn-sm btn-secondary" onclick="Pages.createTechUserAccount(${tech.tech_id}, '${tech.name}', '${tech.email || ''}')">Create Account</button>`
+                            }
+                        </td>
+                        <td>
+                            <button class="btn btn-sm btn-primary" onclick="Pages.editTechnician(${tech.tech_id})">Edit</button>
+                            ${tech.status === 'active'
+                                ? `<button class="btn btn-sm btn-danger" onclick="Pages.deactivateTechnician(${tech.tech_id})">Deactivate</button>`
+                                : `<button class="btn btn-sm btn-success" onclick="Pages.reactivateTechnician(${tech.tech_id})">Activate</button>`
+                            }
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Pagination
+            const pagination = document.getElementById('technicians-pagination');
+            pagination.innerHTML = `
+                <button ${page <= 1 ? 'disabled' : ''} onclick="Pages.techniciansPage(${page - 1})">Prev</button>
+                <span style="padding: 0.5rem;">Page ${page} of ${data.pages || 1}</span>
+                <button ${page >= (data.pages || 1) ? 'disabled' : ''} onclick="Pages.techniciansPage(${page + 1})">Next</button>
+            `;
+        };
+
+        Pages.techniciansPage = loadTechnicians;
+
+        // Event listeners
+        document.getElementById('tech-status-filter').addEventListener('change', () => loadTechnicians(1));
+        document.getElementById('tech-search').addEventListener('input', debounce(() => loadTechnicians(1), 300));
+        document.getElementById('new-tech-btn').addEventListener('click', () => Pages.editTechnician(null));
+
+        await loadTechnicians(1);
+    },
+
+    // Edit/create technician
+    async editTechnician(techId) {
+        let tech = {};
+        if (techId) {
+            const data = await API.technicians.get(techId);
+            tech = data.technician;
+        }
+
+        const body = `
+            <form id="tech-form">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" class="form-control" name="name" value="${tech.name || ''}" required>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" class="form-control" name="email" value="${tech.email || ''}">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Phone</label>
+                        <input type="text" class="form-control" name="phone" value="${tech.phone || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Hourly Rate</label>
+                        <input type="number" step="0.01" class="form-control" name="hourly_rate" value="${tech.hourly_rate || ''}">
+                    </div>
+                </div>
+                ${techId ? `
+                <div class="form-group">
+                    <label>Status</label>
+                    <select class="form-control" name="status">
+                        <option value="active" ${tech.status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="inactive" ${tech.status === 'inactive' ? 'selected' : ''}>Inactive</option>
+                    </select>
+                </div>
+                ` : `
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="create-user-checkbox"> Create user account for this technician
+                    </label>
+                </div>
+                <div id="user-account-fields" style="display: none;">
+                    <div class="form-group">
+                        <label>Password *</label>
+                        <input type="password" class="form-control" name="password" placeholder="Min 8 chars, uppercase, lowercase, number">
+                    </div>
+                </div>
+                `}
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveTechnician(${techId})">Save</button>
+        `;
+
+        App.showModal(techId ? 'Edit Technician' : 'New Technician', body, footer);
+
+        // Toggle password field visibility for new technicians
+        if (!techId) {
+            document.getElementById('create-user-checkbox').addEventListener('change', (e) => {
+                document.getElementById('user-account-fields').style.display = e.target.checked ? 'block' : 'none';
+            });
+        }
+    },
+
+    // Save technician
+    async saveTechnician(techId) {
+        const form = document.getElementById('tech-form');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        // Handle checkbox for new technicians
+        if (!techId) {
+            const createUserCheckbox = document.getElementById('create-user-checkbox');
+            data.create_user_account = createUserCheckbox?.checked || false;
+        }
+
+        try {
+            if (techId) {
+                await API.technicians.update(techId, data);
+                App.showAlert('Technician updated', 'success');
+            } else {
+                await API.technicians.create(data);
+                App.showAlert('Technician created', 'success');
+            }
+            App.hideModal();
+            // Refresh technicians list in App for dropdowns
+            const techData = await API.jobs.getTechnicians();
+            App.technicians = techData.technicians;
+            Pages.techniciansPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Create user account for existing technician
+    async createTechUserAccount(techId, name, email) {
+        const body = `
+            <form id="create-user-form">
+                <p>Create a user account for technician: <strong>${name}</strong></p>
+                <div class="form-group">
+                    <label>Email *</label>
+                    <input type="email" class="form-control" name="email" value="${email}" ${email ? '' : 'required'}>
+                </div>
+                <div class="form-group">
+                    <label>Password *</label>
+                    <input type="password" class="form-control" name="password" required placeholder="Min 8 chars, uppercase, lowercase, number">
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveUserForTechnician(${techId})">Create Account</button>
+        `;
+
+        App.showModal('Create User Account', body, footer);
+    },
+
+    // Save user account for technician
+    async saveUserForTechnician(techId) {
+        const form = document.getElementById('create-user-form');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        try {
+            await API.technicians.createUserAccount(techId, data.password, data.email);
+            App.showAlert('User account created', 'success');
+            App.hideModal();
+            Pages.techniciansPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Deactivate technician
+    async deactivateTechnician(techId) {
+        if (!confirm('Are you sure you want to deactivate this technician? Their user account will also be deactivated.')) {
+            return;
+        }
+
+        try {
+            await API.technicians.delete(techId);
+            App.showAlert('Technician deactivated', 'success');
+            // Refresh technicians list in App for dropdowns
+            const techData = await API.jobs.getTechnicians();
+            App.technicians = techData.technicians;
+            Pages.techniciansPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Reactivate technician
+    async reactivateTechnician(techId) {
+        try {
+            await API.technicians.update(techId, { status: 'active' });
+            App.showAlert('Technician activated', 'success');
+            // Refresh technicians list in App for dropdowns
+            const techData = await API.jobs.getTechnicians();
+            App.technicians = techData.technicians;
+            Pages.techniciansPage(1);
         } catch (error) {
             App.showAlert(error.message);
         }

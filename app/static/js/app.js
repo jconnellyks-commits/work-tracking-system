@@ -569,6 +569,16 @@ const Pages = {
                         </select>
                     </div>
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Expenses</label>
+                        <input type="number" step="0.01" class="form-control" name="expenses" value="${job.expenses || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Commissions</label>
+                        <input type="number" step="0.01" class="form-control" name="commissions" value="${job.commissions || ''}">
+                    </div>
+                </div>
             </form>
         `;
 
@@ -643,6 +653,20 @@ const Pages = {
                 <div class="form-group">
                     <label>Hours (auto-calculated if times provided)</label>
                     <input type="number" step="0.25" class="form-control" name="hours_worked">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Mileage</label>
+                        <input type="number" step="0.1" class="form-control" name="mileage">
+                    </div>
+                    <div class="form-group">
+                        <label>Per Diem</label>
+                        <input type="number" step="0.01" class="form-control" name="per_diem">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Personal Expenses</label>
+                    <input type="number" step="0.01" class="form-control" name="personal_expenses">
                 </div>
                 <div class="form-group">
                     <label>Notes</label>
@@ -870,6 +894,20 @@ const Pages = {
                     <label>Hours (auto-calculated if times provided)</label>
                     <input type="number" step="0.25" class="form-control" name="hours_worked" value="${entry.hours_worked || ''}">
                 </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Mileage</label>
+                        <input type="number" step="0.1" class="form-control" name="mileage" value="${entry.mileage || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Per Diem</label>
+                        <input type="number" step="0.01" class="form-control" name="per_diem" value="${entry.per_diem || ''}">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Personal Expenses</label>
+                    <input type="number" step="0.01" class="form-control" name="personal_expenses" value="${entry.personal_expenses || ''}">
+                </div>
                 <div class="form-group">
                     <label>Notes</label>
                     <textarea class="form-control" name="notes" rows="3">${entry.notes || ''}</textarea>
@@ -987,6 +1025,20 @@ const Pages = {
                 <div class="form-group">
                     <label>Hours</label>
                     <input type="number" step="0.25" class="form-control" name="hours_worked" value="${entry.hours_worked || ''}">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Mileage</label>
+                        <input type="number" step="0.1" class="form-control" name="mileage" value="${entry.mileage || ''}">
+                    </div>
+                    <div class="form-group">
+                        <label>Per Diem</label>
+                        <input type="number" step="0.01" class="form-control" name="per_diem" value="${entry.per_diem || ''}">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Personal Expenses</label>
+                    <input type="number" step="0.01" class="form-control" name="personal_expenses" value="${entry.personal_expenses || ''}">
                 </div>
                 <div class="form-group">
                     <label>Notes</label>

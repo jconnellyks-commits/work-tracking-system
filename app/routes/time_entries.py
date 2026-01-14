@@ -201,6 +201,9 @@ def create_time_entry():
         time_in=time_in,
         time_out=time_out,
         hours_worked=hours_worked,
+        mileage=data.get('mileage') or 0,
+        personal_expenses=data.get('personal_expenses') or 0,
+        per_diem=data.get('per_diem') or 0,
         notes=data.get('notes', '').strip() or None,
         status='draft',
         created_by=user.user_id
@@ -262,6 +265,15 @@ def update_time_entry(entry_id):
 
     if 'notes' in data:
         entry.notes = data['notes'].strip() if data['notes'] else None
+
+    if 'mileage' in data:
+        entry.mileage = data['mileage'] or 0
+
+    if 'personal_expenses' in data:
+        entry.personal_expenses = data['personal_expenses'] or 0
+
+    if 'per_diem' in data:
+        entry.per_diem = data['per_diem'] or 0
 
     # Managers can update job_id and tech_id
     if user.role in ('admin', 'manager'):

@@ -147,6 +147,8 @@ def create_job():
     due_date = data.get('due_date') or None
     billing_amount = data.get('billing_amount') or None
     estimated_hours = data.get('estimated_hours') or None
+    expenses = data.get('expenses') or 0
+    commissions = data.get('commissions') or 0
 
     job = Job(
         platform_id=platform_id,
@@ -159,6 +161,8 @@ def create_job():
         billing_type=data.get('billing_type', 'flat_rate'),
         billing_amount=billing_amount,
         estimated_hours=estimated_hours,
+        expenses=expenses,
+        commissions=commissions,
         job_status=data.get('job_status', 'pending'),
         job_date=job_date,
         due_date=due_date
@@ -204,7 +208,8 @@ def update_job(job_id):
     updatable_fields = [
         'platform_id', 'platform_job_code', 'ticket_number', 'description',
         'client_name', 'job_type', 'location', 'billing_type', 'billing_amount',
-        'estimated_hours', 'job_status', 'job_date', 'due_date', 'completed_date'
+        'estimated_hours', 'expenses', 'commissions', 'job_status', 'job_date',
+        'due_date', 'completed_date'
     ]
 
     for field in updatable_fields:

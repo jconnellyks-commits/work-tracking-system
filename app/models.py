@@ -80,6 +80,10 @@ class Job(db.Model):
     billing_amount = db.Column(db.Numeric(10, 2))
     estimated_hours = db.Column(db.Numeric(8, 2))
 
+    # Additional job financials
+    expenses = db.Column(db.Numeric(10, 2), default=0)
+    commissions = db.Column(db.Numeric(10, 2), default=0)
+
     # Status
     job_status = db.Column(
         db.Enum('pending', 'assigned', 'in_progress', 'completed', 'cancelled'),
@@ -111,6 +115,8 @@ class Job(db.Model):
             'billing_type': self.billing_type,
             'billing_amount': float(self.billing_amount) if self.billing_amount else None,
             'estimated_hours': float(self.estimated_hours) if self.estimated_hours else None,
+            'expenses': float(self.expenses) if self.expenses else 0,
+            'commissions': float(self.commissions) if self.commissions else 0,
             'job_status': self.job_status,
             'job_date': self.job_date.isoformat() if self.job_date else None,
             'due_date': self.due_date.isoformat() if self.due_date else None,
@@ -162,6 +168,11 @@ class TimeEntry(db.Model):
     time_out = db.Column(db.Time)
     hours_worked = db.Column(db.Numeric(8, 2))
 
+    # Technician expenses/reimbursements
+    mileage = db.Column(db.Numeric(8, 2), default=0)
+    personal_expenses = db.Column(db.Numeric(10, 2), default=0)
+    per_diem = db.Column(db.Numeric(10, 2), default=0)
+
     # Status
     status = db.Column(
         db.Enum('draft', 'submitted', 'verified', 'billed', 'paid'),
@@ -190,6 +201,9 @@ class TimeEntry(db.Model):
             'time_in': self.time_in.isoformat() if self.time_in else None,
             'time_out': self.time_out.isoformat() if self.time_out else None,
             'hours_worked': float(self.hours_worked) if self.hours_worked else None,
+            'mileage': float(self.mileage) if self.mileage else 0,
+            'personal_expenses': float(self.personal_expenses) if self.personal_expenses else 0,
+            'per_diem': float(self.per_diem) if self.per_diem else 0,
             'status': self.status,
             'notes': self.notes,
             'verified_by': self.verified_by,

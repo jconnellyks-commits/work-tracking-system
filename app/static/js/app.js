@@ -698,14 +698,15 @@ const Pages = {
         const job = jobData.job;
         const isManager = ['admin', 'manager'].includes(App.user.role);
 
-        // Technician field - only show for managers/admins
+        // Technician field - only show for managers/admins (optional for imported entries)
         const techField = isManager ? `
             <div class="form-group">
-                <label>Technician *</label>
-                <select class="form-control" name="tech_id" required>
-                    <option value="">Select Technician</option>
+                <label>Technician</label>
+                <select class="form-control" name="tech_id">
+                    <option value="">Unassigned</option>
                     ${App.getTechnicianOptions()}
                 </select>
+                <small class="text-muted">Leave unassigned for imported entries that need review</small>
             </div>
         ` : '';
 

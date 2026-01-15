@@ -189,7 +189,8 @@ def payroll_detail_report():
                 'total_mileage_pay': Decimal('0'),
                 'total_per_diem': Decimal('0'),
                 'total_personal_expenses': Decimal('0'),
-                'total_pay': Decimal('0')
+                'total_pay': Decimal('0'),
+                'total_profit_share': Decimal('0')
             }
         }
 
@@ -274,6 +275,7 @@ def payroll_detail_report():
             tech_data['totals']['total_per_diem'] += Decimal(str(tech_pay['per_diem']))
             tech_data['totals']['total_personal_expenses'] += Decimal(str(tech_pay['personal_expenses']))
             tech_data['totals']['total_pay'] += Decimal(str(tech_pay['total_pay']))
+            tech_data['totals']['total_profit_share'] += tech_profit_share
 
         # Convert tech totals to float
         tech_data['totals'] = {k: float(v) for k, v in tech_data['totals'].items()}

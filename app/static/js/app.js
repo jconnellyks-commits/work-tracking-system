@@ -1314,7 +1314,7 @@ const Pages = {
                                         <th>$${tech.totals.total_per_diem.toFixed(2)}</th>
                                         <th>$${tech.totals.total_personal_expenses.toFixed(2)}</th>
                                         <th><strong>$${tech.totals.total_pay.toFixed(2)}</strong></th>
-                                        <th></th>
+                                        <th style="color: ${tech.totals.total_profit_share >= 0 ? 'var(--success)' : 'var(--danger)'}; font-weight: bold;">$${tech.totals.total_profit_share.toFixed(2)}</th>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -1402,7 +1402,9 @@ const Pages = {
                 tech.totals.total_mileage_pay.toFixed(2),
                 tech.totals.total_per_diem.toFixed(2),
                 tech.totals.total_personal_expenses.toFixed(2),
-                tech.totals.total_pay.toFixed(2)
+                tech.totals.total_pay.toFixed(2),
+                tech.totals.total_profit_share.toFixed(2),
+                ''
             ]);
         }
 

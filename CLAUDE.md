@@ -79,12 +79,21 @@ app/
 7. Replaced job billing report with income/expense report
 8. Added profit column showing each tech's proportional share based on hours ratio
 9. Added total profit share to technician totals row
+10. Made tech_id nullable for imported/scraped time entries (prepares for Field Nation scraping)
+
+## Unassigned Time Entries
+- Time entries can now be created without a technician (for scraped/imported data)
+- Managers can filter by "Unassigned" in the time entries list
+- "Assign" button appears for unassigned entries
+- Submission blocked until technician is assigned
+- Workflow: Import -> Review -> Assign Technician -> Submit -> Verify
 
 ## Database Migrations Run
 - 001: Initial schema
 - 002: Financial fields (mileage, per_diem, personal_expenses, expenses, commissions)
 - 003: Mileage rate history table
 - 004: External URL field on jobs
+- 005: Make tech_id nullable on time_entries
 
 ## User Roles
 - **admin**: Full access

@@ -1281,7 +1281,8 @@ const Pages = {
                                 </thead>
                                 <tbody>
                                     ${tech.jobs.map(job => {
-                                        const profitColor = job.job_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+                                        const profitColor = job.tech_profit_share >= 0 ? 'var(--success)' : 'var(--danger)';
+                                        const ratioDisplay = job.hours_ratio < 1 ? ` <small>(${(job.hours_ratio * 100).toFixed(0)}%)</small>` : '';
                                         return `
                                         <tr>
                                             <td style="white-space: nowrap;">${job.date_display || '-'}</td>
@@ -1299,7 +1300,7 @@ const Pages = {
                                             <td>$${job.per_diem.toFixed(2)}</td>
                                             <td>$${job.personal_expenses.toFixed(2)}</td>
                                             <td><strong>$${job.total_pay.toFixed(2)}</strong></td>
-                                            <td style="color: ${profitColor}; font-weight: bold;">$${job.job_profit.toFixed(2)}</td>
+                                            <td style="color: ${profitColor}; font-weight: bold;">$${job.tech_profit_share.toFixed(2)}${ratioDisplay}</td>
                                         </tr>
                                     `}).join('')}
                                 </tbody>
@@ -1370,7 +1371,7 @@ const Pages = {
             csv.push([]);
             csv.push([`TECHNICIAN: ${tech.tech_name}`]);
             csv.push([`Min Pay: $${tech.min_pay.toFixed(2)}/hr`]);
-            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay', 'Job Profit']);
+            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay', 'Profit Share', 'Hours %']);
 
             for (const job of tech.jobs) {
                 csv.push([
@@ -1386,7 +1387,8 @@ const Pages = {
                     job.per_diem.toFixed(2),
                     job.personal_expenses.toFixed(2),
                     job.total_pay.toFixed(2),
-                    job.job_profit.toFixed(2)
+                    job.tech_profit_share.toFixed(2),
+                    (job.hours_ratio * 100).toFixed(0) + '%'
                 ]);
             }
 

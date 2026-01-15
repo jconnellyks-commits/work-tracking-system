@@ -227,12 +227,21 @@ def payroll_detail_report():
             else:
                 date_display = f"{entry_dates[0]} - {entry_dates[-1]}"
 
-            # Calculate job profit
+            # Calculate job profit and this tech's share
             billing = Decimal(str(job.billing_amount or 0))
             job_expenses = Decimal(str(job.expenses or 0))
             job_commissions = Decimal(str(job.commissions or 0))
             total_tech_pay = Decimal(str(pay_data['totals']['total_pay'])) if pay_data.get('totals') else Decimal('0')
+            total_job_hours = Decimal(str(pay_data['totals']['total_hours'])) if pay_data.get('totals') else Decimal('0')
             job_profit = billing - job_expenses - job_commissions - total_tech_pay
+
+            # Calculate this tech's share of profit based on their hours ratio
+            tech_hours = Decimal(str(tech_pay['hours']))
+            if total_job_hours > 0:
+                hours_ratio = tech_hours / total_job_hours
+                tech_profit_share = job_profit * hours_ratio
+            else:
+                tech_profit_share = Decimal('0')
 
             # Add job to tech's report
             job_entry = {
@@ -244,6 +253,8 @@ def payroll_detail_report():
                 'external_url': job.external_url,
                 'billing_amount': float(billing),
                 'job_profit': float(job_profit),
+                'tech_profit_share': float(tech_profit_share.quantize(Decimal('0.01'))),
+                'hours_ratio': float(hours_ratio.quantize(Decimal('0.0001'))) if total_job_hours > 0 else 0,
                 'hours': tech_pay['hours'],
                 'effective_rate': tech_pay['effective_rate'],
                 'using_minimum': tech_pay['using_minimum'],

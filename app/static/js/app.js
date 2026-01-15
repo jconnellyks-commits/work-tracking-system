@@ -1161,7 +1161,7 @@ const Pages = {
                     <div class="stat-value"><i class="fas fa-file-invoice-dollar"></i></div>
                 </div>
                 <div class="stat-card" style="cursor: pointer" onclick="Pages.showBillingReport()">
-                    <div class="stat-label">Job Billing</div>
+                    <div class="stat-label">Income / Expense</div>
                     <div class="stat-value"><i class="fas fa-receipt"></i></div>
                 </div>
                 <div class="stat-card" style="cursor: pointer" onclick="Pages.showPlatformReport()">
@@ -1411,77 +1411,186 @@ const Pages = {
         URL.revokeObjectURL(link.href);
     },
 
-    // Show billing report
+    // Show income/expense report
     async showBillingReport() {
         const content = document.getElementById('report-content');
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
 
         content.innerHTML = `
             <div class="card">
                 <div class="card-header">
-                    <h3 class="card-title">Job Billing Report</h3>
+                    <h3 class="card-title">Income / Expense Report</h3>
+                    <div class="no-print" id="income-export-btns" style="display: none;">
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.printIncomeReport()">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.exportIncomeCSV()">
+                            <i class="fas fa-download"></i> Export CSV
+                        </button>
+                    </div>
                 </div>
-                <div class="filters">
-                    <input type="date" class="form-control" id="billing-from">
-                    <input type="date" class="form-control" id="billing-to">
-                    <button class="btn btn-primary" onclick="Pages.loadBillingReport()">Generate</button>
+                <div class="filters no-print">
+                    <input type="date" class="form-control" id="income-from" value="${firstDay}">
+                    <input type="date" class="form-control" id="income-to" value="${lastDay}">
+                    <button class="btn btn-primary" onclick="Pages.loadIncomeReport()">Generate</button>
                 </div>
-                <div id="billing-results"></div>
+                <div id="income-results"></div>
             </div>
         `;
     },
 
-    async loadBillingReport() {
-        const fromDate = document.getElementById('billing-from').value;
-        const toDate = document.getElementById('billing-to').value;
+    lastIncomeData: null,
+
+    async loadIncomeReport() {
+        const fromDate = document.getElementById('income-from').value;
+        const toDate = document.getElementById('income-to').value;
+        const resultsDiv = document.getElementById('income-results');
+
+        if (!fromDate || !toDate) {
+            App.showAlert('Please select date range');
+            return;
+        }
+
+        resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+        document.getElementById('income-export-btns').style.display = 'none';
 
         try {
-            const params = {};
-            if (fromDate) params.from_date = fromDate;
-            if (toDate) params.to_date = toDate;
+            const data = await API.reports.incomeExpense({ from_date: fromDate, to_date: toDate });
+            this.lastIncomeData = data;
 
-            const data = await API.reports.jobBilling(params);
+            if (data.jobs.length === 0) {
+                resultsDiv.innerHTML = '<p class="text-center" style="padding: 2rem;">No jobs found for this period.</p>';
+                return;
+            }
+
+            document.getElementById('income-export-btns').style.display = 'flex';
+            document.getElementById('income-export-btns').style.gap = '0.5rem';
+
+            const profitClass = data.totals.net_profit >= 0 ? 'text-success' : 'text-danger';
 
             let html = `
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
+                    <h4 style="margin-bottom: 0.5rem;">Period Summary: ${fromDate} to ${toDate}</h4>
+                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; text-align: center;">
+                        <div><small>Jobs</small><br><strong>${data.job_count}</strong></div>
+                        <div><small>Income</small><br><strong style="color: var(--success);">$${data.totals.billing.toFixed(2)}</strong></div>
+                        <div><small>Job Expenses</small><br><strong>$${data.totals.job_expenses.toFixed(2)}</strong></div>
+                        <div><small>Commissions</small><br><strong>$${data.totals.commissions.toFixed(2)}</strong></div>
+                        <div><small>Tech Pay</small><br><strong>$${data.totals.tech_pay.toFixed(2)}</strong></div>
+                        <div><small>Net Profit</small><br><strong class="${profitClass}">$${data.totals.net_profit.toFixed(2)}</strong><br><small>(${data.profit_margin.toFixed(1)}%)</small></div>
+                    </div>
+                </div>
+
                 <div class="table-container">
-                    <table>
+                    <table style="font-size: 0.85rem;">
                         <thead>
                             <tr>
-                                <th>Ticket</th>
-                                <th>Description</th>
+                                <th>Date</th>
+                                <th>Job</th>
                                 <th>Platform</th>
-                                <th>Billing</th>
-                                <th>Hours</th>
-                                <th>Status</th>
+                                <th style="text-align: right;">Income</th>
+                                <th style="text-align: right;">Expenses</th>
+                                <th style="text-align: right;">Commissions</th>
+                                <th style="text-align: right;">Tech Pay</th>
+                                <th style="text-align: right;">Net Profit</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${data.data.map(row => `
+                            ${data.jobs.map(job => {
+                                const profitColor = job.net_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+                                return `
                                 <tr>
-                                    <td>${row.ticket_number || '-'}</td>
-                                    <td>${row.description.slice(0, 40)}</td>
-                                    <td>${row.platform}</td>
-                                    <td>$${row.billing_amount.toFixed(2)}</td>
-                                    <td>${row.actual_hours.toFixed(2)}</td>
-                                    <td>${App.getStatusBadge(row.job_status)}</td>
+                                    <td>${job.job_date ? App.formatDate(job.job_date) : '-'}</td>
+                                    <td>
+                                        <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary);">
+                                            ${job.ticket_number || 'Job #' + job.job_id}
+                                        </a>
+                                        <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
+                                    </td>
+                                    <td>${job.platform || '-'}</td>
+                                    <td style="text-align: right; color: var(--success);">$${job.billing.toFixed(2)}</td>
+                                    <td style="text-align: right;">$${job.job_expenses.toFixed(2)}</td>
+                                    <td style="text-align: right;">$${job.commissions.toFixed(2)}</td>
+                                    <td style="text-align: right;">$${job.tech_pay.toFixed(2)}</td>
+                                    <td style="text-align: right; color: ${profitColor}; font-weight: bold;">$${job.net_profit.toFixed(2)}</td>
                                 </tr>
-                            `).join('')}
+                            `}).join('')}
                         </tbody>
                         <tfoot>
-                            <tr>
-                                <th colspan="3">Total (${data.summary.job_count} jobs)</th>
-                                <th>$${data.summary.total_billing.toFixed(2)}</th>
-                                <th>${data.summary.total_hours.toFixed(2)}</th>
-                                <th></th>
+                            <tr style="background: #f8f9fa;">
+                                <th colspan="3">Totals (${data.job_count} jobs)</th>
+                                <th style="text-align: right; color: var(--success);">$${data.totals.billing.toFixed(2)}</th>
+                                <th style="text-align: right;">$${data.totals.job_expenses.toFixed(2)}</th>
+                                <th style="text-align: right;">$${data.totals.commissions.toFixed(2)}</th>
+                                <th style="text-align: right;">$${data.totals.tech_pay.toFixed(2)}</th>
+                                <th style="text-align: right; font-weight: bold;" class="${profitClass}">$${data.totals.net_profit.toFixed(2)}</th>
                             </tr>
                         </tfoot>
                     </table>
                 </div>
             `;
 
-            document.getElementById('billing-results').innerHTML = html;
+            resultsDiv.innerHTML = html;
         } catch (error) {
             App.showAlert(error.message);
+            resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;
         }
+    },
+
+    printIncomeReport() {
+        window.print();
+    },
+
+    exportIncomeCSV() {
+        const data = this.lastIncomeData;
+        if (!data) {
+            App.showAlert('No data to export');
+            return;
+        }
+
+        let csv = [];
+        csv.push(['Income/Expense Report']);
+        csv.push([`Period: ${data.from_date} to ${data.to_date}`]);
+        csv.push([]);
+        csv.push(['SUMMARY']);
+        csv.push(['Jobs', 'Income', 'Job Expenses', 'Commissions', 'Tech Pay', 'Total Expenses', 'Net Profit', 'Margin %']);
+        csv.push([
+            data.job_count,
+            data.totals.billing.toFixed(2),
+            data.totals.job_expenses.toFixed(2),
+            data.totals.commissions.toFixed(2),
+            data.totals.tech_pay.toFixed(2),
+            data.totals.total_expenses.toFixed(2),
+            data.totals.net_profit.toFixed(2),
+            data.profit_margin.toFixed(1)
+        ]);
+        csv.push([]);
+        csv.push(['DETAILS']);
+        csv.push(['Date', 'Ticket', 'Description', 'Platform', 'Income', 'Expenses', 'Commissions', 'Tech Pay', 'Net Profit']);
+
+        for (const job of data.jobs) {
+            csv.push([
+                job.job_date || '',
+                job.ticket_number || `Job #${job.job_id}`,
+                `"${job.description.replace(/"/g, '""')}"`,
+                job.platform || '',
+                job.billing.toFixed(2),
+                job.job_expenses.toFixed(2),
+                job.commissions.toFixed(2),
+                job.tech_pay.toFixed(2),
+                job.net_profit.toFixed(2)
+            ]);
+        }
+
+        const csvContent = csv.map(row => row.join(',')).join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `income_expense_${data.from_date}_to_${data.to_date}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
     },
 
     // Show platform report

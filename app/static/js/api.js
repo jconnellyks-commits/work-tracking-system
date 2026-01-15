@@ -316,6 +316,11 @@ const API = {
             return API.request(`/reports/job-billing${query ? '?' + query : ''}`);
         },
 
+        async incomeExpense(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/reports/income-expense${query ? '?' + query : ''}`);
+        },
+
         async platformSummary(params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/reports/platform-summary${query ? '?' + query : ''}`);

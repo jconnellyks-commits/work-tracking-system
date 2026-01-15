@@ -290,6 +290,98 @@ def payroll_detail_report():
     }), 200
 
 
+@reports_bp.route('/income-expense', methods=['GET'])
+@manager_required
+def income_expense_report():
+    """
+    Generate income/expense report showing profitability.
+
+    Query parameters:
+        - from_date: Start date (required)
+        - to_date: End date (required)
+
+    Returns breakdown of income, expenses, and net profit.
+    """
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+
+    if not from_date or not to_date:
+        return jsonify({'error': 'Date range required'}), 400
+
+    # Get jobs in date range with verified time entries
+    jobs_query = Job.query.filter(
+        Job.job_date >= from_date,
+        Job.job_date <= to_date
+    ).all()
+
+    jobs_data = []
+    totals = {
+        'billing': Decimal('0'),
+        'job_expenses': Decimal('0'),
+        'commissions': Decimal('0'),
+        'tech_pay': Decimal('0'),
+        'total_expenses': Decimal('0'),
+        'net_profit': Decimal('0')
+    }
+
+    for job in jobs_query:
+        # Calculate tech pay for this job
+        pay_data = calculate_job_pay(job.job_id)
+        tech_pay = Decimal('0')
+        if pay_data and pay_data.get('totals'):
+            tech_pay = Decimal(str(pay_data['totals'].get('total_pay', 0)))
+
+        billing = Decimal(str(job.billing_amount or 0))
+        job_expenses = Decimal(str(job.expenses or 0))
+        commissions = Decimal(str(job.commissions or 0))
+        total_expenses = job_expenses + commissions + tech_pay
+        net_profit = billing - total_expenses
+
+        job_entry = {
+            'job_id': job.job_id,
+            'ticket_number': job.ticket_number,
+            'description': job.description,
+            'job_date': job.job_date.isoformat() if job.job_date else None,
+            'platform': job.platform.name if job.platform else None,
+            'billing': float(billing),
+            'job_expenses': float(job_expenses),
+            'commissions': float(commissions),
+            'tech_pay': float(tech_pay),
+            'total_expenses': float(total_expenses),
+            'net_profit': float(net_profit)
+        }
+        jobs_data.append(job_entry)
+
+        # Update totals
+        totals['billing'] += billing
+        totals['job_expenses'] += job_expenses
+        totals['commissions'] += commissions
+        totals['tech_pay'] += tech_pay
+        totals['total_expenses'] += total_expenses
+        totals['net_profit'] += net_profit
+
+    # Sort by date
+    jobs_data.sort(key=lambda j: j['job_date'] or '')
+
+    audit_logger.log(
+        action_type='report_generated',
+        entity_type='income_expense_report',
+        description=f"Income/expense report generated for {from_date} to {to_date}",
+        user_id=g.user_id
+    )
+
+    return jsonify({
+        'report_type': 'income_expense',
+        'from_date': from_date,
+        'to_date': to_date,
+        'generated_at': datetime.utcnow().isoformat(),
+        'jobs': jobs_data,
+        'totals': {k: float(v) for k, v in totals.items()},
+        'job_count': len(jobs_data),
+        'profit_margin': float((totals['net_profit'] / totals['billing'] * 100) if totals['billing'] > 0 else 0)
+    }), 200
+
+
 @reports_bp.route('/technician-hours', methods=['GET'])
 @jwt_required_with_user
 def technician_hours_report():

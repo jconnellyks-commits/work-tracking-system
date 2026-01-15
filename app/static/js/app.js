@@ -783,6 +783,13 @@ const Pages = {
                         <option value="billed">Billed</option>
                         <option value="paid">Paid</option>
                     </select>
+                    ${isManager ? `
+                    <select class="form-control" id="entry-tech-filter">
+                        <option value="">All Technicians</option>
+                        <option value="unassigned">Unassigned</option>
+                        ${App.getTechnicianOptions()}
+                    </select>
+                    ` : ''}
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
                     <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
@@ -795,6 +802,7 @@ const Pages = {
                                 <th><input type="checkbox" id="select-all-entries"></th>
                                 <th>Date</th>
                                 <th>Job</th>
+                                ${isManager ? '<th>Technician</th>' : ''}
                                 <th>Time In</th>
                                 <th>Time Out</th>
                                 <th>Hours</th>
@@ -814,32 +822,49 @@ const Pages = {
         const loadEntries = async (page = 1) => {
             const params = { page, per_page: 20 };
             const status = document.getElementById('entry-status-filter').value;
+            const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
 
             if (status) params.status = status;
+            if (techFilter === 'unassigned') {
+                params.unassigned = 'true';
+            } else if (techFilter) {
+                params.tech_id = techFilter;
+            }
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
 
             const data = await API.timeEntries.list(params);
 
             const tbody = document.getElementById('entries-table');
+            const colSpan = isManager ? 10 : 9;
             if (data.time_entries.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="9" class="text-center">No entries found</td></tr>';
+                tbody.innerHTML = `<tr><td colspan="${colSpan}" class="text-center">No entries found</td></tr>`;
             } else {
-                tbody.innerHTML = data.time_entries.map(entry => `
+                tbody.innerHTML = data.time_entries.map(entry => {
+                    const isUnassigned = !entry.tech_id;
+                    const techDisplay = isUnassigned
+                        ? '<span class="badge badge-warning">Unassigned</span>'
+                        : (entry.tech_name || `Tech #${entry.tech_id}`);
+                    return `
                     <tr>
-                        <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
+                        <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
                         <td>${entry.job_id}</td>
+                        ${isManager ? `<td>${techDisplay}</td>` : ''}
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
                         <td>${entry.hours_worked || '-'}</td>
                         <td>${App.getStatusBadge(entry.status)}</td>
                         <td>
-                            ${entry.status === 'draft' ? `
+                            ${entry.status === 'draft' && !isUnassigned ? `
                                 <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
                                 <button class="btn btn-sm btn-success" onclick="Pages.submitEntry(${entry.entry_id})">Submit</button>
+                            ` : ''}
+                            ${entry.status === 'draft' && isUnassigned && isManager ? `
+                                <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
+                                <button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entry.entry_id})">Assign</button>
                             ` : ''}
                             ${entry.status !== 'draft' && entry.status !== 'paid' && isManager ? `
                                 <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
@@ -853,7 +878,7 @@ const Pages = {
                             ` : ''}
                         </td>
                     </tr>
-                `).join('');
+                `}).join('');
             }
 
             // Pagination
@@ -869,6 +894,9 @@ const Pages = {
 
         // Event listeners
         document.getElementById('entry-status-filter').addEventListener('change', () => loadEntries(1));
+        if (isManager) {
+            document.getElementById('entry-tech-filter').addEventListener('change', () => loadEntries(1));
+        }
         document.getElementById('entry-from-date').addEventListener('change', () => loadEntries(1));
         document.getElementById('entry-to-date').addEventListener('change', () => loadEntries(1));
         document.getElementById('new-entry-btn').addEventListener('click', () => Pages.editEntry(null));
@@ -936,14 +964,15 @@ const Pages = {
                 `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
             ).join('');
 
-        // Technician field - only show for managers/admins
+        // Technician field - only show for managers/admins (optional for imported entries)
         const techField = isManager ? `
             <div class="form-group">
-                <label>Technician *</label>
-                <select class="form-control" name="tech_id" required>
-                    <option value="">Select Technician</option>
+                <label>Technician</label>
+                <select class="form-control" name="tech_id">
+                    <option value="">Unassigned</option>
                     ${App.getTechnicianOptions(entry.tech_id)}
                 </select>
+                <small class="text-muted">Leave unassigned for imported entries that need review</small>
             </div>
         ` : '';
 
@@ -1055,6 +1084,64 @@ const Pages = {
         try {
             await API.timeEntries.reject(entryId, reason);
             App.showAlert('Entry rejected', 'success');
+            Pages.entriesPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Assign technician to unassigned entry
+    async assignTechnician(entryId) {
+        const data = await API.timeEntries.get(entryId);
+        const entry = data.time_entry;
+
+        const body = `
+            <form id="assign-tech-form">
+                <p>Assign a technician to this time entry:</p>
+                <div class="form-group">
+                    <label>Job</label>
+                    <input type="text" class="form-control" value="Job #${entry.job_id}" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Date Worked</label>
+                    <input type="text" class="form-control" value="${App.formatDate(entry.date_worked)}" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Hours</label>
+                    <input type="text" class="form-control" value="${entry.hours_worked || '-'}" readonly>
+                </div>
+                <div class="form-group">
+                    <label>Technician *</label>
+                    <select class="form-control" name="tech_id" required>
+                        <option value="">Select Technician</option>
+                        ${App.getTechnicianOptions()}
+                    </select>
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveAssignment(${entryId})">Assign</button>
+        `;
+
+        App.showModal('Assign Technician', body, footer);
+    },
+
+    // Save technician assignment
+    async saveAssignment(entryId) {
+        const form = document.getElementById('assign-tech-form');
+        const techId = form.querySelector('[name="tech_id"]').value;
+
+        if (!techId) {
+            App.showAlert('Please select a technician');
+            return;
+        }
+
+        try {
+            await API.timeEntries.update(entryId, { tech_id: parseInt(techId) });
+            App.showAlert('Technician assigned successfully', 'success');
+            App.hideModal();
             Pages.entriesPage(1);
         } catch (error) {
             App.showAlert(error.message);

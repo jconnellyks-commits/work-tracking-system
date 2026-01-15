@@ -163,7 +163,7 @@ class TimeEntry(db.Model):
 
     entry_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
-    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=False)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=True)
     period_id = db.Column(db.Integer, db.ForeignKey('pay_periods.period_id'))
 
     # Time information

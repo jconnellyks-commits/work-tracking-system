@@ -63,6 +63,7 @@ def list_time_entries():
     period_id = request.args.get('period_id', type=int)
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
+    unassigned = request.args.get('unassigned', '').lower() == 'true'
 
     query = TimeEntry.query
 
@@ -71,6 +72,9 @@ def list_time_entries():
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
         query = query.filter(TimeEntry.tech_id == user.tech_id)
+    elif unassigned:
+        # Filter for entries without a technician assigned
+        query = query.filter(TimeEntry.tech_id.is_(None))
     elif tech_id:
         query = query.filter(TimeEntry.tech_id == tech_id)
 
@@ -159,13 +163,13 @@ def create_time_entry():
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
         tech_id = user.tech_id
-    elif not tech_id:
-        return jsonify({'error': 'Technician ID required'}), 400
+    # Managers/admins can leave tech_id null for imported/scraped entries
 
-    # Validate technician
-    technician = Technician.query.get(tech_id)
-    if not technician:
-        return jsonify({'error': 'Technician not found'}), 404
+    # Validate technician if provided
+    if tech_id:
+        technician = Technician.query.get(tech_id)
+        if not technician:
+            return jsonify({'error': 'Technician not found'}), 404
 
     # Parse times
     time_in = None
@@ -352,6 +356,9 @@ def submit_time_entry(entry_id):
     if entry.status != 'draft':
         return jsonify({'error': 'Only draft entries can be submitted'}), 400
 
+    if not entry.tech_id:
+        return jsonify({'error': 'Technician must be assigned before submission'}), 400
+
     if not entry.hours_worked or entry.hours_worked <= 0:
         return jsonify({'error': 'Hours worked required before submission'}), 400
 
@@ -486,6 +493,10 @@ def bulk_submit_entries():
 
         if entry.status != 'draft':
             errors.append({'entry_id': entry_id, 'error': 'Not in draft status'})
+            continue
+
+        if not entry.tech_id:
+            errors.append({'entry_id': entry_id, 'error': 'No technician assigned'})
             continue
 
         if not entry.hours_worked or entry.hours_worked <= 0:

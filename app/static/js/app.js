@@ -1275,11 +1275,14 @@ const Pages = {
                                         <th>Mileage</th>
                                         <th>Per Diem</th>
                                         <th>Expenses</th>
-                                        <th>Total</th>
+                                        <th>Total Pay</th>
+                                        <th>Job Profit</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${tech.jobs.map(job => `
+                                    ${tech.jobs.map(job => {
+                                        const profitColor = job.job_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+                                        return `
                                         <tr>
                                             <td style="white-space: nowrap;">${job.date_display || '-'}</td>
                                             <td>
@@ -1296,8 +1299,9 @@ const Pages = {
                                             <td>$${job.per_diem.toFixed(2)}</td>
                                             <td>$${job.personal_expenses.toFixed(2)}</td>
                                             <td><strong>$${job.total_pay.toFixed(2)}</strong></td>
+                                            <td style="color: ${profitColor}; font-weight: bold;">$${job.job_profit.toFixed(2)}</td>
                                         </tr>
-                                    `).join('')}
+                                    `}).join('')}
                                 </tbody>
                                 <tfoot>
                                     <tr style="background: #f8f9fa;">
@@ -1309,6 +1313,7 @@ const Pages = {
                                         <th>$${tech.totals.total_per_diem.toFixed(2)}</th>
                                         <th>$${tech.totals.total_personal_expenses.toFixed(2)}</th>
                                         <th><strong>$${tech.totals.total_pay.toFixed(2)}</strong></th>
+                                        <th></th>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -1365,7 +1370,7 @@ const Pages = {
             csv.push([]);
             csv.push([`TECHNICIAN: ${tech.tech_name}`]);
             csv.push([`Min Pay: $${tech.min_pay.toFixed(2)}/hr`]);
-            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay']);
+            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay', 'Job Profit']);
 
             for (const job of tech.jobs) {
                 csv.push([
@@ -1380,7 +1385,8 @@ const Pages = {
                     job.mileage_pay.toFixed(2),
                     job.per_diem.toFixed(2),
                     job.personal_expenses.toFixed(2),
-                    job.total_pay.toFixed(2)
+                    job.total_pay.toFixed(2),
+                    job.job_profit.toFixed(2)
                 ]);
             }
 

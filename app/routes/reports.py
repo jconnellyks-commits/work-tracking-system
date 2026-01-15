@@ -227,6 +227,13 @@ def payroll_detail_report():
             else:
                 date_display = f"{entry_dates[0]} - {entry_dates[-1]}"
 
+            # Calculate job profit
+            billing = Decimal(str(job.billing_amount or 0))
+            job_expenses = Decimal(str(job.expenses or 0))
+            job_commissions = Decimal(str(job.commissions or 0))
+            total_tech_pay = Decimal(str(pay_data['totals']['total_pay'])) if pay_data.get('totals') else Decimal('0')
+            job_profit = billing - job_expenses - job_commissions - total_tech_pay
+
             # Add job to tech's report
             job_entry = {
                 'job_id': job_id,
@@ -235,7 +242,8 @@ def payroll_detail_report():
                 'entry_dates': entry_dates,
                 'date_display': date_display,
                 'external_url': job.external_url,
-                'billing_amount': float(job.billing_amount or 0),
+                'billing_amount': float(billing),
+                'job_profit': float(job_profit),
                 'hours': tech_pay['hours'],
                 'effective_rate': tech_pay['effective_rate'],
                 'using_minimum': tech_pay['using_minimum'],

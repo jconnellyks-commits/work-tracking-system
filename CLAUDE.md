@@ -88,6 +88,24 @@ app/
 - Submission blocked until technician is assigned
 - Workflow: Import -> Review -> Assign Technician -> Submit -> Verify
 
+## Field Nation Scraper
+The `scraper/` folder (gitignored) contains tools for scraping Field Nation:
+- `fieldnation_scraper.py` - Selenium-based scraper for work orders and time entries
+- `import_to_api.py` - Imports scraped JSON to the work tracking API
+- `recon.py` - Reconnaissance tool for capturing page structure
+- `run_scraper.bat` - Windows batch file to run the scraper
+
+**Workflow:**
+1. Run `run_scraper.bat` to open Field Nation and scrape work orders
+2. Log in manually, script scrapes completed jobs
+3. JSON saved to `scraper/output/`
+4. Run `python import_to_api.py` to push data to work tracking system
+5. Imported entries appear as "Unassigned" for technician assignment
+
+**API Endpoints:**
+- `POST /api/imports/fieldnation` - Import scraped data
+- `POST /api/imports/fieldnation/preview` - Preview without importing
+
 ## Database Migrations Run
 - 001: Initial schema
 - 002: Financial fields (mileage, per_diem, personal_expenses, expenses, commissions)

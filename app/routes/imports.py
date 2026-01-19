@@ -4,7 +4,7 @@ Import routes for external data sources like Field Nation.
 
 from flask import Blueprint, request, jsonify, g
 from app.models import db, Job, TimeEntry, Technician, Platform
-from app.utils.auth import token_required, admin_required
+from app.utils.auth import jwt_required_with_user, admin_required
 from datetime import datetime
 import re
 
@@ -12,7 +12,7 @@ imports_bp = Blueprint('imports', __name__)
 
 
 @imports_bp.route('/fieldnation', methods=['POST'])
-@token_required
+@jwt_required_with_user
 @admin_required
 def import_fieldnation():
     """
@@ -208,7 +208,7 @@ def parse_time(time_str):
 
 
 @imports_bp.route('/fieldnation/preview', methods=['POST'])
-@token_required
+@jwt_required_with_user
 @admin_required
 def preview_fieldnation_import():
     """

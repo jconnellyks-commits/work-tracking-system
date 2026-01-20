@@ -103,14 +103,12 @@ def import_fieldnation():
                     ticket_number=f"FN-{wo_id}",
                     description=title[:500] if title else f"Field Nation #{wo_id}",
                     client_name=company[:200] if company else 'Field Nation',
-                    scheduled_date=scheduled_date,
+                    job_date=scheduled_date,
                     job_status='completed',
                     billing_amount=wo.get('total_pay', 0),
                     external_url=url,
                     platform_id=platform.platform_id,
                     platform_job_code=wo_id,
-                    created_by=user.user_id,
-                    updated_by=user.user_id
                 )
                 db.session.add(job)
                 db.session.flush()  # Get the job_id

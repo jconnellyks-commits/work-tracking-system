@@ -11,6 +11,44 @@ import re
 imports_bp = Blueprint('imports', __name__)
 
 
+def map_fieldnation_status(fn_status):
+    """Map Field Nation status to internal job status."""
+    if not fn_status:
+        return 'pending'
+
+    fn_status = fn_status.lower().strip()
+
+    # Field Nation statuses mapped to internal statuses
+    status_map = {
+        # Pending/not started
+        'published': 'pending',
+        'routed': 'pending',
+        'requested': 'pending',
+
+        # Assigned but not started
+        'assigned': 'assigned',
+        'confirmed': 'assigned',
+        'scheduled': 'assigned',
+
+        # Work in progress
+        'in progress': 'in_progress',
+        'on my way': 'in_progress',
+        'checked in': 'in_progress',
+        'work done': 'in_progress',
+
+        # Completed
+        'approved': 'completed',
+        'paid': 'completed',
+        'completed': 'completed',
+
+        # Cancelled
+        'cancelled': 'cancelled',
+        'canceled': 'cancelled',
+    }
+
+    return status_map.get(fn_status, 'pending')
+
+
 @imports_bp.route('/fieldnation', methods=['POST'])
 @jwt_required_with_user
 @admin_required
@@ -49,8 +87,8 @@ def import_fieldnation():
 
     results = {
         'imported_jobs': 0,
+        'updated_jobs': 0,
         'imported_entries': 0,
-        'skipped_jobs': 0,
         'skipped_entries': 0,
         'errors': []
     }
@@ -70,9 +108,21 @@ def import_fieldnation():
                 # Try matching by ticket number containing the work order ID
                 existing_job = Job.query.filter(Job.ticket_number.like(f'%{wo_id}%')).first()
 
+            # Map Field Nation status to internal status
+            mapped_status = map_fieldnation_status(wo.get('status', ''))
+
             if existing_job:
                 job = existing_job
-                results['skipped_jobs'] += 1
+                # Update existing job with latest status and billing info
+                job.job_status = mapped_status
+                if wo.get('total_pay'):
+                    job.billing_amount = wo.get('total_pay')
+                if wo.get('title') and len(wo.get('title', '')) > len(job.description or ''):
+                    job.description = wo['title'][:500]
+                # Set completed_date if status changed to completed
+                if mapped_status == 'completed' and not job.completed_date:
+                    job.completed_date = datetime.utcnow().date()
+                results['updated_jobs'] += 1
             else:
                 # Create new job
                 # Parse scheduled date
@@ -104,11 +154,12 @@ def import_fieldnation():
                     description=title[:500] if title else f"Field Nation #{wo_id}",
                     client_name=company[:200] if company else 'Field Nation',
                     job_date=scheduled_date,
-                    job_status='completed',
+                    job_status=mapped_status,
                     billing_amount=wo.get('total_pay', 0),
                     external_url=url,
                     platform_id=platform.platform_id,
                     platform_job_code=wo_id,
+                    completed_date=datetime.utcnow().date() if mapped_status == 'completed' else None,
                 )
                 db.session.add(job)
                 db.session.flush()  # Get the job_id

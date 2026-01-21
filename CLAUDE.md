@@ -96,18 +96,36 @@ app/
 
 ## Field Nation Scraper
 The `scraper/` folder (gitignored) contains tools for scraping Field Nation:
-- `fieldnation_scraper.py` - Selenium-based scraper for work orders and time entries
+- `fieldnation_scraper.py` - Selenium-based scraper with persistent session
 - `import_to_api.py` - Imports scraped JSON to the work tracking API (uses HTTPS)
-- `import_to_api.bat` - Windows batch file to run the importer (keeps window open)
-- `recon.py` - Reconnaissance tool for capturing page structure
+- `import_to_api.bat` - Windows batch file to run the importer
 - `run_scraper.bat` - Windows batch file to run the scraper
+- `chrome_profile/` - Persistent Chrome profile (cookies/session saved here)
+
+**Persistent Session:**
+- Browser profile saved in `scraper/chrome_profile/`
+- First run: Log in and complete 2FA manually
+- Subsequent runs: Automatically logged in (session restored)
+- No need to re-authenticate each time!
+
+**Scraper Menu:**
+```
+1. Scrape Completed work orders
+2. Scrape Assigned work orders
+3. Scrape In Progress work orders
+4. Scrape a specific work order by ID
+5. List work orders on current page
+6. Exit (browser stays open)
+7. Exit and close browser
+```
 
 **Workflow:**
-1. Run `run_scraper.bat` to open Field Nation and scrape work orders
-2. Log in manually, script scrapes completed/pending/assigned jobs
-3. JSON saved to `scraper/output/`
-4. Run `import_to_api.bat` to push data to work tracking system
-5. Imported entries appear as "Unassigned" for technician assignment
+1. Run `run_scraper.bat` - browser opens with saved session
+2. If first run, log in manually (session saved for next time)
+3. Choose what to scrape from menu (can do multiple in one session)
+4. JSON saved to `scraper/output/` with timestamps
+5. Run `import_to_api.bat` to push data to work tracking system
+6. Imported entries appear as "Unassigned" for technician assignment
 
 **Status Mapping (Field Nation → Internal):**
 - Published, Routed, Requested → `pending`

@@ -198,6 +198,9 @@ class TimeEntry(db.Model):
         return {
             'entry_id': self.entry_id,
             'job_id': self.job_id,
+            'job_ticket': self.job.ticket_number if self.job else None,
+            'job_title': self.job.description if self.job else None,
+            'job_client': self.job.client_name if self.job else None,
             'tech_id': self.tech_id,
             'tech_name': self.technician.name if self.technician else None,
             'period_id': self.period_id,

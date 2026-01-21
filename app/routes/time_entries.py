@@ -581,6 +581,84 @@ def bulk_verify_entries():
     }), 200
 
 
+@time_entries_bp.route('/grouped-by-job', methods=['GET'])
+@jwt_required_with_user
+def list_time_entries_grouped():
+    """
+    List time entries grouped by job.
+
+    Query parameters:
+        - tech_id: Filter by technician
+        - status: Filter by entry status
+        - unassigned: If 'true', show only unassigned entries
+        - from_date, to_date: Date range filter
+    """
+    user = g.current_user
+    tech_id = request.args.get('tech_id', type=int)
+    status = request.args.get('status')
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    unassigned = request.args.get('unassigned', '').lower() == 'true'
+
+    query = TimeEntry.query
+
+    # Technicians can only see their own entries
+    if user.role == 'technician':
+        if not user.tech_id:
+            return jsonify({'error': 'User not linked to technician'}), 400
+        query = query.filter(TimeEntry.tech_id == user.tech_id)
+    elif unassigned:
+        query = query.filter(TimeEntry.tech_id.is_(None))
+    elif tech_id:
+        query = query.filter(TimeEntry.tech_id == tech_id)
+
+    if status:
+        query = query.filter(TimeEntry.status == status)
+
+    if from_date:
+        query = query.filter(TimeEntry.date_worked >= from_date)
+
+    if to_date:
+        query = query.filter(TimeEntry.date_worked <= to_date)
+
+    # Get all matching entries
+    entries = query.order_by(TimeEntry.date_worked.desc()).all()
+
+    # Group by job
+    jobs_dict = {}
+    for entry in entries:
+        job_id = entry.job_id
+        if job_id not in jobs_dict:
+            job = entry.job
+            jobs_dict[job_id] = {
+                'job_id': job_id,
+                'job_ticket': job.ticket_number if job else None,
+                'job_title': job.description if job else None,
+                'job_client': job.client_name if job else None,
+                'job_status': job.job_status if job else None,
+                'job_date': job.job_date.isoformat() if job and job.job_date else None,
+                'billing_amount': float(job.billing_amount) if job and job.billing_amount else None,
+                'total_hours': 0,
+                'entry_count': 0,
+                'entries': []
+            }
+
+        jobs_dict[job_id]['entries'].append(entry.to_dict())
+        jobs_dict[job_id]['entry_count'] += 1
+        if entry.hours_worked:
+            jobs_dict[job_id]['total_hours'] += float(entry.hours_worked)
+
+    # Convert to list and sort by job date (most recent first)
+    grouped = list(jobs_dict.values())
+    grouped.sort(key=lambda x: x['job_date'] or '', reverse=True)
+
+    return jsonify({
+        'grouped_entries': grouped,
+        'total_jobs': len(grouped),
+        'total_entries': len(entries)
+    }), 200
+
+
 @time_entries_bp.route('/my-summary', methods=['GET'])
 @jwt_required_with_user
 def get_my_summary():

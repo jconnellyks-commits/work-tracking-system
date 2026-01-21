@@ -287,6 +287,11 @@ const API = {
 
         async getMySummary() {
             return API.request('/time-entries/my-summary');
+        },
+
+        async groupedByJob(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/time-entries/grouped-by-job${query ? '?' + query : ''}`);
         }
     },
 

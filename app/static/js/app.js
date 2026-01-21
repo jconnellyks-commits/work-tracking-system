@@ -795,8 +795,9 @@ const Pages = {
                     <input type="date" class="form-control" id="entry-to-date">
                     <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
+                    <button class="btn btn-secondary btn-sm" id="toggle-group-btn"><i class="fas fa-layer-group"></i> Group by Job</button>
                 </div>
-                <div class="table-container">
+                <div id="entries-list-view" class="table-container">
                     <table>
                         <thead>
                             <tr>
@@ -814,11 +815,14 @@ const Pages = {
                         <tbody id="entries-table"></tbody>
                     </table>
                 </div>
+                <div id="entries-grouped-view" style="display: none;"></div>
                 <div class="pagination" id="entries-pagination"></div>
             </div>
         `;
 
         container.innerHTML = html;
+
+        let isGroupedView = false;
 
         const loadEntries = async (page = 1) => {
             const params = { page, per_page: 20 };
@@ -852,7 +856,7 @@ const Pages = {
                     <tr>
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
-                        <td>${entry.job_id}</td>
+                        <td title="${entry.job_title || ''}">${entry.job_ticket || entry.job_id}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
                         ${isManager ? `<td>${techDisplay}</td>` : ''}
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
@@ -893,13 +897,138 @@ const Pages = {
 
         Pages.entriesPage = loadEntries;
 
+        // Grouped view loader
+        const loadGroupedEntries = async () => {
+            const params = {};
+            const status = document.getElementById('entry-status-filter').value;
+            const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
+            const fromDate = document.getElementById('entry-from-date').value;
+            const toDate = document.getElementById('entry-to-date').value;
+
+            if (status) params.status = status;
+            if (techFilter === 'unassigned') {
+                params.unassigned = 'true';
+            } else if (techFilter) {
+                params.tech_id = techFilter;
+            }
+            if (fromDate) params.from_date = fromDate;
+            if (toDate) params.to_date = toDate;
+
+            const data = await API.timeEntries.groupedByJob(params);
+            const groupedView = document.getElementById('entries-grouped-view');
+
+            if (data.grouped_entries.length === 0) {
+                groupedView.innerHTML = '<p class="text-center" style="padding: 2rem;">No entries found</p>';
+            } else {
+                groupedView.innerHTML = data.grouped_entries.map(job => `
+                    <div class="card" style="margin-bottom: 1rem;">
+                        <div class="card-header" style="cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong>${job.job_ticket || 'Job #' + job.job_id}</strong>
+                                    <span style="margin-left: 1rem; color: #666;">${job.job_client || ''}</span>
+                                </div>
+                                <div>
+                                    <span class="badge badge-info">${job.entry_count} entries</span>
+                                    <span style="margin-left: 0.5rem;">${job.total_hours.toFixed(2)} hrs</span>
+                                    ${job.billing_amount ? `<span style="margin-left: 0.5rem; color: green;">$${job.billing_amount.toFixed(2)}</span>` : ''}
+                                </div>
+                            </div>
+                            <div style="font-size: 0.9rem; color: #666; margin-top: 0.25rem;">${job.job_title || ''}</div>
+                        </div>
+                        <div class="table-container" style="display: block;">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" class="select-all-job" data-job-id="${job.job_id}"></th>
+                                        <th>Date</th>
+                                        ${isManager ? '<th>Technician</th>' : ''}
+                                        <th>Time In</th>
+                                        <th>Time Out</th>
+                                        <th>Hours</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${job.entries.map(entry => {
+                                        const isUnassigned = !entry.tech_id;
+                                        const techDisplay = isUnassigned
+                                            ? '<span class="badge badge-warning">Unassigned</span>'
+                                            : (entry.tech_name || 'Tech #' + entry.tech_id);
+                                        return `
+                                        <tr>
+                                            <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
+                                            <td>${App.formatDate(entry.date_worked)}</td>
+                                            ${isManager ? '<td>' + techDisplay + '</td>' : ''}
+                                            <td>${App.formatTime(entry.time_in)}</td>
+                                            <td>${App.formatTime(entry.time_out)}</td>
+                                            <td>${entry.hours_worked || '-'}</td>
+                                            <td>${App.getStatusBadge(entry.status)}</td>
+                                            <td>
+                                                ${entry.status === 'draft' && !isUnassigned ? `
+                                                    <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
+                                                    <button class="btn btn-sm btn-success" onclick="Pages.submitEntry(${entry.entry_id})">Submit</button>
+                                                ` : ''}
+                                                ${entry.status === 'draft' && isUnassigned && isManager ? `
+                                                    <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
+                                                    <button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entry.entry_id})">Assign</button>
+                                                ` : ''}
+                                                ${entry.status !== 'draft' && entry.status !== 'paid' && isManager ? `
+                                                    <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
+                                                ` : ''}
+                                                ${entry.status === 'submitted' && isManager ? `
+                                                    <button class="btn btn-sm btn-success" onclick="Pages.verifyEntry(${entry.entry_id})">Verify</button>
+                                                    <button class="btn btn-sm btn-danger" onclick="Pages.rejectEntry(${entry.entry_id})">Reject</button>
+                                                ` : ''}
+                                            </td>
+                                        </tr>
+                                    `}).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `).join('');
+
+                // Add select-all-job handlers
+                document.querySelectorAll('.select-all-job').forEach(checkbox => {
+                    checkbox.addEventListener('change', (e) => {
+                        const jobCard = e.target.closest('.card');
+                        jobCard.querySelectorAll('.entry-checkbox:not(:disabled)').forEach(cb => cb.checked = e.target.checked);
+                    });
+                });
+            }
+
+            document.getElementById('entries-pagination').innerHTML = `<span style="padding: 0.5rem;">Showing ${data.total_jobs} jobs with ${data.total_entries} entries</span>`;
+        };
+
+        // Toggle view handler
+        document.getElementById('toggle-group-btn').addEventListener('click', async () => {
+            isGroupedView = !isGroupedView;
+            const listView = document.getElementById('entries-list-view');
+            const groupedView = document.getElementById('entries-grouped-view');
+            const toggleBtn = document.getElementById('toggle-group-btn');
+
+            if (isGroupedView) {
+                listView.style.display = 'none';
+                groupedView.style.display = 'block';
+                toggleBtn.innerHTML = '<i class="fas fa-list"></i> List View';
+                await loadGroupedEntries();
+            } else {
+                listView.style.display = 'block';
+                groupedView.style.display = 'none';
+                toggleBtn.innerHTML = '<i class="fas fa-layer-group"></i> Group by Job';
+                await loadEntries(1);
+            }
+        });
+
         // Event listeners
-        document.getElementById('entry-status-filter').addEventListener('change', () => loadEntries(1));
+        document.getElementById('entry-status-filter').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
         if (isManager) {
-            document.getElementById('entry-tech-filter').addEventListener('change', () => loadEntries(1));
+            document.getElementById('entry-tech-filter').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
         }
-        document.getElementById('entry-from-date').addEventListener('change', () => loadEntries(1));
-        document.getElementById('entry-to-date').addEventListener('change', () => loadEntries(1));
+        document.getElementById('entry-from-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
+        document.getElementById('entry-to-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
         document.getElementById('new-entry-btn').addEventListener('click', () => Pages.editEntry(null));
 
         // Select all checkbox

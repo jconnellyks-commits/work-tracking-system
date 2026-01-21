@@ -623,3 +623,15 @@ tr:hover {
         content: none;
     }
 }
+
+/* Job links in time entries */
+.job-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.job-link:hover {
+    text-decoration: underline;
+    color: var(--primary-dark);
+}

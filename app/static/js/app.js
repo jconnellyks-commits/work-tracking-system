@@ -856,7 +856,7 @@ const Pages = {
                     <tr>
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
-                        <td title="${entry.job_title || ''}">${entry.job_ticket || entry.job_id}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
+                        <td title="${entry.job_title || ''}"><a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
                         ${isManager ? `<td>${techDisplay}</td>` : ''}
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
@@ -922,14 +922,14 @@ const Pages = {
             } else {
                 groupedView.innerHTML = data.grouped_entries.map(job => `
                     <div class="card" style="margin-bottom: 1rem;">
-                        <div class="card-header" style="cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'">
+                        <div class="card-header">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                                 <div>
-                                    <strong>${job.job_ticket || 'Job #' + job.job_id}</strong>
+                                    <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" class="job-link" style="font-weight: bold;">${job.job_ticket || 'Job #' + job.job_id}</a>
                                     <span style="margin-left: 1rem; color: #666;">${job.job_client || ''}</span>
                                 </div>
                                 <div>
-                                    <span class="badge badge-info">${job.entry_count} entries</span>
+                                    <span class="badge badge-info" style="cursor: pointer;" onclick="this.closest('.card').querySelector('.table-container').style.display = this.closest('.card').querySelector('.table-container').style.display === 'none' ? 'block' : 'none'"><i class="fas fa-chevron-down"></i> ${job.entry_count} entries</span>
                                     <span style="margin-left: 0.5rem;">${job.total_hours.toFixed(2)} hrs</span>
                                     ${job.billing_amount ? `<span style="margin-left: 0.5rem; color: green;">$${job.billing_amount.toFixed(2)}</span>` : ''}
                                 </div>

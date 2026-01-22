@@ -46,7 +46,18 @@ def create_app(config_class=None):
     db.init_app(app)
     jwt.init_app(app)
     bcrypt.init_app(app)
-    CORS(app)
+
+    # Configure CORS - restrict to specified origins
+    cors_origins = app.config.get('CORS_ORIGINS', [])
+    if cors_origins:
+        CORS(app, origins=cors_origins,
+             supports_credentials=app.config.get('CORS_SUPPORTS_CREDENTIALS', True))
+        logger.info(f"CORS enabled for origins: {cors_origins}")
+    else:
+        # No origins configured - allow same-origin only (default secure behavior)
+        CORS(app, origins=[],
+             supports_credentials=app.config.get('CORS_SUPPORTS_CREDENTIALS', True))
+        logger.info("CORS configured for same-origin only (no external origins allowed)")
 
     # Register blueprints
     from app.routes.auth import auth_bp

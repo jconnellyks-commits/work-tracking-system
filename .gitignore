@@ -117,3 +117,6 @@ uploads/
 static/uploads/
 tmpclaude-*
 scraper/
+
+# Project documentation with sensitive info (keep local only)
+CLAUDE.md

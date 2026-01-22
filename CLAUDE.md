@@ -86,6 +86,16 @@ app/
 14. Added job_ticket, job_title, job_client to TimeEntry.to_dict()
 15. Added "Group by Job" view for time entries with collapsible job cards
 16. Frontend time entries table now shows job ticket and client instead of just ID
+17. Added persistent browser session for scraper (no repeated logins)
+18. Added debug mode to scraper for troubleshooting extraction issues
+19. Fixed time entry extraction - timezone suffix handling `(CST)`, `(EST)`
+20. Fixed "Time Log" vs "Time Logged" section matching bug
+21. Added multiple extraction patterns for different Field Nation page formats
+22. Added datetime range with arrow pattern for side-by-side time display
+23. Fixed tab navigation - robust selectors, waits for content to load
+24. Changed "In Progress" to "Pending" (correct Field Nation tab name)
+25. Added browser reconnection via Chrome remote debugging port 9222
+26. Fast socket check (2s) to detect existing browser before connection attempt
 
 ## Unassigned Time Entries
 - Time entries can now be created without a technician (for scraped/imported data)
@@ -102,19 +112,22 @@ The `scraper/` folder (gitignored) contains tools for scraping Field Nation:
 - `run_scraper.bat` - Windows batch file to run the scraper
 - `chrome_profile/` - Persistent Chrome profile (cookies/session saved here)
 
-**Persistent Session:**
+**Persistent Session & Browser Reconnection:**
 - Browser profile saved in `scraper/chrome_profile/`
 - First run: Log in and complete 2FA manually
 - Subsequent runs: Automatically logged in (session restored)
 - No need to re-authenticate each time!
+- **Browser stays open** (option 6): Uses Chrome remote debugging on port 9222
+- **Reconnection**: If browser is still open from previous run, script connects to it instead of opening a new window
+- Fast 2-second socket check detects if browser is running before attempting connection
 
 **Scraper Menu:**
 ```
 1. Scrape Completed work orders
 2. Scrape Assigned work orders
-3. Scrape In Progress work orders
+3. Scrape Pending work orders
 4. Scrape a specific work order by ID
-5. List work orders on current page
+5. Debug a single work order (verbose output)
 6. Exit (browser stays open)
 7. Exit and close browser
 ```
@@ -127,12 +140,53 @@ The `scraper/` folder (gitignored) contains tools for scraping Field Nation:
 5. Run `import_to_api.bat` to push data to work tracking system
 6. Imported entries appear as "Unassigned" for technician assignment
 
+**Tab Navigation:**
+- Scraper navigates between Field Nation tabs: Completed, Assigned, Pending
+- Note: Field Nation uses "Pending" not "In Progress" for the tab name
+- Tab clicking uses multiple XPath selectors for robustness
+- Waits for content to actually change after clicking (up to 15 seconds)
+- Tracks work order IDs before/after to detect when new tab content loads
+- Falls back to JavaScript click if normal click fails
+
+**Debug Mode (Option 5):**
+- Scrapes a single work order with verbose output
+- Saves page text to `scraper/output/debug_{wo_id}.txt`
+- Shows exactly what patterns are matching/failing
+- Use this when time entries aren't being extracted correctly
+
+**Time Entry Extraction Patterns:**
+The scraper uses multiple patterns to extract time entries from Field Nation pages:
+
+1. **Pattern 1 - Arrow format with hours prefix:**
+   `3.83 hours 1/7/2026 at 2:56 PM → 1/7/2026 at 6:46 PM`
+
+2. **Pattern 2 - Time Log section (most common):**
+   - Looks for "Time Log\n" section (NOT "Time Logged" which appears elsewhere)
+   - First tries datetime range with arrow: `10/27/2025 at 9:02 AM (CST) → 10/27/2025 at 12:02 PM (CST)`
+   - Falls back to separate datetime pairs on individual lines
+   - Handles timezone suffixes like `(CST)`, `(EST)`
+
+3. **Pattern 3 - Check-in/Check-out from Tasks:**
+   Extracts times from "Check in" and "Check out" task completions
+
+4. **Pattern 4 - Fallback:**
+   Uses any datetime pairs found and pairs with hours mentions
+
+**Key Extraction Lessons:**
+- "Time Log\n" (with newline) is the actual section header
+- "Time Logged" appears elsewhere on the page - don't match it!
+- Timezone format varies: `3:15 PM(CST)` or `3:15 PM (CST)` (with/without space)
+- Visual layout differs from extracted text (arrows may appear on same line visually but separate lines in text)
+
 **Status Mapping (Field Nation → Internal):**
 - Published, Routed, Requested → `pending`
 - Assigned, Confirmed, Scheduled → `assigned`
-- In Progress, On My Way, Checked In, Work Done → `in_progress`
+- Pending, On My Way, Checked In, Work Done → `in_progress`
 - Approved, Paid → `completed`
 - Cancelled → `cancelled`
+
+**Field Nation Tab Names:**
+- Completed, Assigned, Pending (not "In Progress")
 
 **Re-import Behavior:**
 - Jobs matched by external_url or ticket_number containing work order ID

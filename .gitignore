@@ -120,3 +120,7 @@ scraper/
 
 # Project documentation with sensitive info (keep local only)
 CLAUDE.md
+
+# Artifacts from Windows path issues
+%USERPROFILE%/
+nul

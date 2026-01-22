@@ -116,6 +116,12 @@ def register():
             "tech_id": 1  (optional)
         }
     """
+    # Rate limit user registration (even for admin)
+    client_ip = request.remote_addr
+    if rate_limiter.is_rate_limited(f"register:{client_ip}", max_attempts=10, window_seconds=300):
+        logger.warning(f"Rate limited user registration from {client_ip}")
+        return jsonify({'error': 'Too many registration attempts. Please try again later.'}), 429
+
     data = request.get_json()
 
     if not data:
@@ -186,10 +192,17 @@ def register():
 @jwt_required(refresh=True)
 def refresh():
     """Refresh access token using refresh token."""
+    # Rate limit token refresh attempts
+    client_ip = request.remote_addr
+    if rate_limiter.is_rate_limited(f"refresh:{client_ip}", max_attempts=20, window_seconds=60):
+        logger.warning(f"Rate limited token refresh from {client_ip}")
+        return jsonify({'error': 'Too many refresh attempts. Please try again later.'}), 429
+
     current_user_id = get_jwt_identity()
     user = User.query.get(int(current_user_id))
 
     if not user or user.status != 'active':
+        rate_limiter.record_attempt(f"refresh:{client_ip}")
         return jsonify({'error': 'User not found or inactive'}), 401
 
     access_token = create_access_token(identity=str(current_user_id))
@@ -232,9 +245,16 @@ def update_profile():
 
     # Handle password change
     if 'new_password' in data:
+        # Rate limit password change attempts
+        client_ip = request.remote_addr
+        if rate_limiter.is_rate_limited(f"password_change:{user.user_id}:{client_ip}", max_attempts=5, window_seconds=300):
+            logger.warning(f"Rate limited password change attempt for user {user.user_id} from {client_ip}")
+            return jsonify({'error': 'Too many password change attempts. Please try again later.'}), 429
+
         current_password = data.get('current_password', '')
 
         if not bcrypt.check_password_hash(user.password_hash, current_password):
+            rate_limiter.record_attempt(f"password_change:{user.user_id}:{client_ip}")
             return jsonify({'error': 'Current password is incorrect'}), 400
 
         is_valid, error_msg = validate_password_strength(data['new_password'])
@@ -362,6 +382,12 @@ def reset_user_password(user_id):
             "new_password": "newpassword123"
         }
     """
+    # Rate limit password resets (even for admin)
+    client_ip = request.remote_addr
+    if rate_limiter.is_rate_limited(f"admin_reset:{client_ip}", max_attempts=10, window_seconds=300):
+        logger.warning(f"Rate limited admin password reset from {client_ip}")
+        return jsonify({'error': 'Too many password reset attempts. Please try again later.'}), 429
+
     user = User.query.get_or_404(user_id)
     data = request.get_json()
 

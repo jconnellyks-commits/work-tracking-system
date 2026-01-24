@@ -96,5 +96,45 @@ def create_app(config_class=None):
     def missing_token_callback(error):
         return {'error': 'Authorization token required', 'code': 'token_required'}, 401
 
+    # Security headers
+    @app.after_request
+    def add_security_headers(response):
+        # Prevent clickjacking
+        response.headers['X-Frame-Options'] = 'DENY'
+
+        # Prevent MIME type sniffing
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+
+        # XSS protection (legacy, but still useful for older browsers)
+        response.headers['X-XSS-Protection'] = '1; mode=block'
+
+        # Referrer policy - don't leak referrer to other origins
+        response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+
+        # Permissions policy - restrict browser features
+        response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+
+        # Content Security Policy - restrict resource loading
+        # Adjust these values based on your frontend needs
+        csp_directives = [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self' 'unsafe-inline'",  # unsafe-inline often needed for CSS
+            "img-src 'self' data:",
+            "font-src 'self'",
+            "connect-src 'self'",
+            "frame-ancestors 'none'",
+            "base-uri 'self'",
+            "form-action 'self'",
+        ]
+        response.headers['Content-Security-Policy'] = '; '.join(csp_directives)
+
+        # HSTS - only enable in production with valid SSL
+        if app.config.get('SESSION_COOKIE_SECURE', False):
+            # 1 year max-age, include subdomains
+            response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+        return response
+
     logger.info("Application initialized successfully")
     return app

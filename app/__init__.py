@@ -115,11 +115,11 @@ def create_app(config_class=None):
         response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
 
         # Content Security Policy - restrict resource loading
-        # Adjust these values based on your frontend needs
+        # Note: unsafe-inline required for this vanilla JS app with inline scripts/styles
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self'",
-            "style-src 'self' 'unsafe-inline'",  # unsafe-inline often needed for CSS
+            "script-src 'self' 'unsafe-inline'",
+            "style-src 'self' 'unsafe-inline'",
             "img-src 'self' data:",
             "font-src 'self'",
             "connect-src 'self'",

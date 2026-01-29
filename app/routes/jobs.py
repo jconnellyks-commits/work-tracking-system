@@ -27,6 +27,8 @@ def list_jobs():
         - search: Search in ticket_number, description, client_name
         - from_date: Filter jobs on or after this date
         - to_date: Filter jobs on or before this date
+        - sort_by: Field to sort by (job_date, job_status, created_at)
+        - sort_order: asc or desc (default desc)
     """
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 25, type=int)
@@ -35,6 +37,8 @@ def list_jobs():
     search = request.args.get('search', '').strip()
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
+    sort_by = request.args.get('sort_by', 'job_date')
+    sort_order = request.args.get('sort_order', 'desc')
 
     query = Job.query
 
@@ -61,8 +65,19 @@ def list_jobs():
     if to_date:
         query = query.filter(Job.job_date <= to_date)
 
-    # Order by job date descending
-    query = query.order_by(Job.job_date.desc(), Job.created_at.desc())
+    # Sorting
+    sort_columns = {
+        'job_date': Job.job_date,
+        'job_status': Job.job_status,
+        'created_at': Job.created_at,
+        'ticket_number': Job.ticket_number,
+        'client_name': Job.client_name
+    }
+    sort_column = sort_columns.get(sort_by, Job.job_date)
+    if sort_order == 'asc':
+        query = query.order_by(sort_column.asc(), Job.created_at.desc())
+    else:
+        query = query.order_by(sort_column.desc(), Job.created_at.desc())
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 

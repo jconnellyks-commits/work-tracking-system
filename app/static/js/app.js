@@ -345,8 +345,8 @@ const Pages = {
                                 <th>Description</th>
                                 <th>Platform</th>
                                 <th>Client</th>
-                                <th>Date</th>
-                                <th>Status</th>
+                                <th class="sortable" data-sort="job_date">Date <span id="sort-date-icon"></span></th>
+                                <th class="sortable" data-sort="job_status">Status <span id="sort-status-icon"></span></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -358,6 +358,14 @@ const Pages = {
         `;
 
         container.innerHTML = html;
+
+        // Sort state
+        let currentSort = { by: 'job_date', order: 'desc' };
+
+        const updateSortIcons = () => {
+            document.getElementById('sort-date-icon').textContent = currentSort.by === 'job_date' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
+            document.getElementById('sort-status-icon').textContent = currentSort.by === 'job_status' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
+        };
 
         const loadJobs = async (page = 1) => {
             const params = { page, per_page: 20 };
@@ -372,6 +380,8 @@ const Pages = {
             if (search) params.search = search;
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
+            params.sort_by = currentSort.by;
+            params.sort_order = currentSort.order;
 
             const data = await API.jobs.list(params);
 
@@ -379,9 +389,13 @@ const Pages = {
             if (data.jobs.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="text-center">No jobs found</td></tr>';
             } else {
-                tbody.innerHTML = data.jobs.map(job => `
+                tbody.innerHTML = data.jobs.map(job => {
+                    const ticketCell = job.external_url
+                        ? `<a href="${job.external_url}" target="_blank" title="Open in platform">${job.ticket_number || '-'}</a>`
+                        : (job.ticket_number || '-');
+                    return `
                     <tr>
-                        <td>${job.ticket_number || '-'}</td>
+                        <td>${ticketCell}</td>
                         <td>${job.description}</td>
                         <td>${job.platform_name || '-'}</td>
                         <td>${job.client_name || '-'}</td>
@@ -393,8 +407,9 @@ const Pages = {
                             ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.editJob(${job.job_id})">Edit</button>` : ''}
                         </td>
                     </tr>
-                `).join('');
+                `}).join('');
             }
+            updateSortIcons();
 
             // Pagination
             const pagination = document.getElementById('jobs-pagination');
@@ -413,6 +428,21 @@ const Pages = {
         document.getElementById('job-from-date').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-to-date').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-search').addEventListener('input', debounce(() => loadJobs(1), 300));
+
+        // Sortable columns
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.style.cursor = 'pointer';
+            th.addEventListener('click', () => {
+                const sortBy = th.dataset.sort;
+                if (currentSort.by === sortBy) {
+                    currentSort.order = currentSort.order === 'desc' ? 'asc' : 'desc';
+                } else {
+                    currentSort.by = sortBy;
+                    currentSort.order = 'desc';
+                }
+                loadJobs(1);
+            });
+        });
 
         if (isManager) {
             document.getElementById('new-job-btn').addEventListener('click', () => Pages.editJob(null));

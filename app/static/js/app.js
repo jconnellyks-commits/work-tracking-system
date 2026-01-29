@@ -333,6 +333,8 @@ const Pages = {
                         <option value="">All Platforms</option>
                         ${App.getPlatformOptions()}
                     </select>
+                    <input type="date" class="form-control" id="job-from-date" title="From date">
+                    <input type="date" class="form-control" id="job-to-date" title="To date">
                     <input type="text" class="form-control" id="job-search" placeholder="Search...">
                 </div>
                 <div class="table-container">
@@ -362,10 +364,14 @@ const Pages = {
             const status = document.getElementById('job-status-filter').value;
             const platform = document.getElementById('job-platform-filter').value;
             const search = document.getElementById('job-search').value;
+            const fromDate = document.getElementById('job-from-date').value;
+            const toDate = document.getElementById('job-to-date').value;
 
             if (status) params.status = status;
             if (platform) params.platform_id = platform;
             if (search) params.search = search;
+            if (fromDate) params.from_date = fromDate;
+            if (toDate) params.to_date = toDate;
 
             const data = await API.jobs.list(params);
 
@@ -404,6 +410,8 @@ const Pages = {
         // Event listeners
         document.getElementById('job-status-filter').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-platform-filter').addEventListener('change', () => loadJobs(1));
+        document.getElementById('job-from-date').addEventListener('change', () => loadJobs(1));
+        document.getElementById('job-to-date').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-search').addEventListener('input', debounce(() => loadJobs(1), 300));
 
         if (isManager) {

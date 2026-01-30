@@ -111,12 +111,31 @@ def import_fieldnation():
             # Map Field Nation status to internal status
             mapped_status = map_fieldnation_status(wo.get('status', ''))
 
+            # Parse scheduled date (used for both new and existing jobs)
+            scheduled_date = None
+            if wo.get('scheduled_date'):
+                try:
+                    # Try different date formats
+                    for fmt in ['%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y']:
+                        try:
+                            scheduled_date = datetime.strptime(
+                                wo['scheduled_date'].split()[0],  # Handle "THU Nov 13" format
+                                fmt
+                            ).date()
+                            break
+                        except ValueError:
+                            continue
+                except Exception:
+                    pass
+
             if existing_job:
                 job = existing_job
-                # Update existing job with latest status and billing info
+                # Update existing job with latest status, billing, and date
                 job.job_status = mapped_status
                 if wo.get('total_pay'):
                     job.billing_amount = wo.get('total_pay')
+                if scheduled_date:
+                    job.job_date = scheduled_date
                 if wo.get('title') and len(wo.get('title', '')) > len(job.description or ''):
                     job.description = wo['title'][:500]
                 # Set completed_date if status changed to completed
@@ -125,23 +144,6 @@ def import_fieldnation():
                 results['updated_jobs'] += 1
             else:
                 # Create new job
-                # Parse scheduled date
-                scheduled_date = None
-                if wo.get('scheduled_date'):
-                    try:
-                        # Try different date formats
-                        for fmt in ['%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y']:
-                            try:
-                                scheduled_date = datetime.strptime(
-                                    wo['scheduled_date'].split()[0],  # Handle "THU Nov 13" format
-                                    fmt
-                                ).date()
-                                break
-                            except:
-                                continue
-                    except:
-                        pass
-
                 # Get or create Field Nation platform
                 platform = Platform.query.filter_by(name='Field Nation').first()
                 if not platform:
@@ -419,12 +421,30 @@ def import_workmarket():
             # Map WorkMarket status to internal status
             mapped_status = map_workmarket_status(assignment.get('status', ''))
 
+            # Parse scheduled date (used for both new and existing jobs)
+            scheduled_date = None
+            if assignment.get('scheduled_date'):
+                try:
+                    for fmt in ['%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y']:
+                        try:
+                            scheduled_date = datetime.strptime(
+                                assignment['scheduled_date'].split()[0],
+                                fmt
+                            ).date()
+                            break
+                        except ValueError:
+                            continue
+                except Exception:
+                    pass
+
             if existing_job:
                 job = existing_job
-                # Update existing job with latest status and billing info
+                # Update existing job with latest status, billing, and date
                 job.job_status = mapped_status
                 if assignment.get('total_pay'):
                     job.billing_amount = assignment.get('total_pay')
+                if scheduled_date:
+                    job.job_date = scheduled_date
                 if assignment.get('title') and len(assignment.get('title', '')) > len(job.description or ''):
                     job.description = assignment['title'][:500]
                 # Set completed_date if status changed to completed
@@ -433,22 +453,6 @@ def import_workmarket():
                 results['updated_jobs'] += 1
             else:
                 # Create new job
-                # Parse scheduled date
-                scheduled_date = None
-                if assignment.get('scheduled_date'):
-                    try:
-                        for fmt in ['%m/%d/%Y', '%Y-%m-%d', '%m/%d/%y']:
-                            try:
-                                scheduled_date = datetime.strptime(
-                                    assignment['scheduled_date'].split()[0],
-                                    fmt
-                                ).date()
-                                break
-                            except:
-                                continue
-                    except:
-                        pass
-
                 # Get or create WorkMarket platform
                 platform = Platform.query.filter_by(name='WorkMarket').first()
                 if not platform:

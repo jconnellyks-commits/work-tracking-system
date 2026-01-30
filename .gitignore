@@ -124,3 +124,4 @@ CLAUDE.md
 # Artifacts from Windows path issues
 %USERPROFILE%/
 nul
+dev/

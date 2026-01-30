@@ -1051,6 +1051,12 @@ const Pages = {
                                                     <button class="btn btn-sm btn-success" onclick="Pages.verifyEntry(${entry.entry_id})">Verify</button>
                                                     <button class="btn btn-sm btn-danger" onclick="Pages.rejectEntry(${entry.entry_id})">Reject</button>
                                                 ` : ''}
+                                                ${isManager ? `
+                                                    <button class="btn btn-sm btn-secondary" onclick="Pages.copyEntry(${entry.entry_id})">Copy</button>
+                                                    <button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entry.entry_id})">Delete</button>
+                                                ` : (entry.status === 'draft' ? `
+                                                    <button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entry.entry_id})">Delete</button>
+                                                ` : '')}
                                             </td>
                                         </tr>
                                     `}).join('')}

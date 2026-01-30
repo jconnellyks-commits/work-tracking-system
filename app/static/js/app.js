@@ -966,6 +966,7 @@ const Pages = {
         };
 
         Pages.entriesPage = loadEntries;
+        Pages.entriesGroupedPage = null; // Will be set after loadGroupedEntries is defined
 
         // Grouped view loader
         const loadGroupedEntries = async () => {
@@ -1076,6 +1077,18 @@ const Pages = {
             }
 
             document.getElementById('entries-pagination').innerHTML = `<span style="padding: 0.5rem;">Showing ${data.total_jobs} jobs with ${data.total_entries} entries</span>`;
+        };
+
+        Pages.entriesGroupedPage = loadGroupedEntries;
+
+        // Smart reload - checks which view is active
+        Pages.reloadEntries = () => {
+            const groupedView = document.getElementById('entries-grouped-view');
+            if (groupedView && groupedView.style.display !== 'none') {
+                loadGroupedEntries();
+            } else {
+                loadEntries(1);
+            }
         };
 
         // Toggle view handler
@@ -1319,7 +1332,11 @@ const Pages = {
         try {
             await API.timeEntries.delete(entryId);
             App.showAlert('Entry deleted', 'success');
-            Pages.entriesPage(1);
+            if (Pages.reloadEntries) {
+                Pages.reloadEntries();
+            } else {
+                Pages.entriesPage(1);
+            }
         } catch (error) {
             App.showAlert(error.message);
         }
@@ -1468,7 +1485,11 @@ const Pages = {
             await API.timeEntries.create(data);
             App.showAlert('Time entry copied successfully', 'success');
             App.hideModal();
-            Pages.entriesPage(1);
+            if (Pages.reloadEntries) {
+                Pages.reloadEntries();
+            } else {
+                Pages.entriesPage(1);
+            }
         } catch (error) {
             App.showAlert(error.message);
         }

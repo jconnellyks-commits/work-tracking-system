@@ -184,9 +184,14 @@ const App = {
         setTimeout(() => alert.remove(), 5000);
     },
 
-    // Format date
+    // Format date (handles YYYY-MM-DD without timezone shift)
     formatDate(dateStr) {
         if (!dateStr) return '-';
+        // Parse YYYY-MM-DD as local date, not UTC
+        const [year, month, day] = dateStr.split('-');
+        if (year && month && day) {
+            return new Date(year, month - 1, day).toLocaleDateString();
+        }
         return new Date(dateStr).toLocaleDateString();
     },
 

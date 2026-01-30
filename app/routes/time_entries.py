@@ -53,6 +53,8 @@ def list_time_entries():
         - status: Filter by entry status
         - period_id: Filter by pay period
         - from_date, to_date: Date range filter
+        - sort_by: Field to sort by (date_worked, hours_worked, status)
+        - sort_order: asc or desc (default desc)
     """
     user = g.current_user
     page = request.args.get('page', 1, type=int)
@@ -64,6 +66,8 @@ def list_time_entries():
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     unassigned = request.args.get('unassigned', '').lower() == 'true'
+    sort_by = request.args.get('sort_by', 'date_worked')
+    sort_order = request.args.get('sort_order', 'desc')
 
     query = TimeEntry.query
 
@@ -93,7 +97,17 @@ def list_time_entries():
     if to_date:
         query = query.filter(TimeEntry.date_worked <= to_date)
 
-    query = query.order_by(TimeEntry.date_worked.desc(), TimeEntry.created_at.desc())
+    # Sorting
+    sort_columns = {
+        'date_worked': TimeEntry.date_worked,
+        'hours_worked': TimeEntry.hours_worked,
+        'status': TimeEntry.status,
+    }
+    sort_column = sort_columns.get(sort_by, TimeEntry.date_worked)
+    if sort_order == 'asc':
+        query = query.order_by(sort_column.asc(), TimeEntry.created_at.desc())
+    else:
+        query = query.order_by(sort_column.desc(), TimeEntry.created_at.desc())
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 

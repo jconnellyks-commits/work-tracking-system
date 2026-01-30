@@ -410,6 +410,7 @@ const Pages = {
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
                             <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
                             ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.editJob(${job.job_id})">Edit</button>` : ''}
+                            ${isManager ? `<button class="btn btn-sm btn-danger" onclick="Pages.deleteJob(${job.job_id})">Delete</button>` : ''}
                         </td>
                     </tr>
                 `}).join('');
@@ -808,6 +809,21 @@ const Pages = {
         App.showModal(`Add Time - ${job.ticket_number || 'Job ' + jobId}`, body, footer);
     },
 
+    // Delete job
+    async deleteJob(jobId) {
+        if (!confirm('Are you sure you want to delete this job? This cannot be undone.\n\nNote: Jobs with time entries cannot be deleted.')) {
+            return;
+        }
+
+        try {
+            await API.jobs.delete(jobId);
+            App.showAlert('Job deleted', 'success');
+            Pages.jobsPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
     // Time entries page
     async timeEntries(container) {
         const isManager = ['admin', 'manager'].includes(App.user.role);
@@ -845,13 +861,13 @@ const Pages = {
                         <thead>
                             <tr>
                                 <th><input type="checkbox" id="select-all-entries"></th>
-                                <th>Date</th>
+                                <th class="sortable" data-sort="date_worked">Date <span id="sort-date-icon"></span></th>
                                 <th>Job</th>
                                 ${isManager ? '<th>Technician</th>' : ''}
                                 <th>Time In</th>
                                 <th>Time Out</th>
-                                <th>Hours</th>
-                                <th>Status</th>
+                                <th class="sortable" data-sort="hours_worked">Hours <span id="sort-hours-icon"></span></th>
+                                <th class="sortable" data-sort="status">Status <span id="sort-status-icon"></span></th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
@@ -866,9 +882,16 @@ const Pages = {
         container.innerHTML = html;
 
         let isGroupedView = false;
+        let currentSort = { by: 'date_worked', order: 'desc' };
+
+        const updateSortIcons = () => {
+            document.getElementById('sort-date-icon').textContent = currentSort.by === 'date_worked' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
+            document.getElementById('sort-hours-icon').textContent = currentSort.by === 'hours_worked' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
+            document.getElementById('sort-status-icon').textContent = currentSort.by === 'status' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
+        };
 
         const loadEntries = async (page = 1) => {
-            const params = { page, per_page: 20 };
+            const params = { page, per_page: 20, sort_by: currentSort.by, sort_order: currentSort.order };
             const status = document.getElementById('entry-status-filter').value;
             const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
             const fromDate = document.getElementById('entry-from-date').value;
@@ -884,6 +907,7 @@ const Pages = {
             if (toDate) params.to_date = toDate;
 
             const data = await API.timeEntries.list(params);
+            updateSortIcons();
 
             const tbody = document.getElementById('entries-table');
             const colSpan = isManager ? 10 : 9;
@@ -923,7 +947,10 @@ const Pages = {
                             ` : ''}
                             ${isManager ? `
                                 <button class="btn btn-sm btn-secondary" onclick="Pages.copyEntry(${entry.entry_id})">Copy</button>
-                            ` : ''}
+                                <button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entry.entry_id})">Delete</button>
+                            ` : (entry.status === 'draft' ? `
+                                <button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entry.entry_id})">Delete</button>
+                            ` : '')}
                         </td>
                     </tr>
                 `}).join('');
@@ -1072,6 +1099,20 @@ const Pages = {
         }
         document.getElementById('entry-from-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
         document.getElementById('entry-to-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
+
+        // Sortable columns
+        document.querySelectorAll('#entries-list-view .sortable').forEach(th => {
+            th.addEventListener('click', () => {
+                const sortBy = th.dataset.sort;
+                if (currentSort.by === sortBy) {
+                    currentSort.order = currentSort.order === 'desc' ? 'asc' : 'desc';
+                } else {
+                    currentSort.by = sortBy;
+                    currentSort.order = 'desc';
+                }
+                loadEntries(1);
+            });
+        });
         document.getElementById('new-entry-btn').addEventListener('click', () => Pages.editEntry(null));
 
         // Select all checkbox
@@ -1257,6 +1298,21 @@ const Pages = {
         try {
             await API.timeEntries.reject(entryId, reason);
             App.showAlert('Entry rejected', 'success');
+            Pages.entriesPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Delete entry
+    async deleteEntry(entryId) {
+        if (!confirm('Are you sure you want to delete this time entry? This cannot be undone.')) {
+            return;
+        }
+
+        try {
+            await API.timeEntries.delete(entryId);
+            App.showAlert('Entry deleted', 'success');
             Pages.entriesPage(1);
         } catch (error) {
             App.showAlert(error.message);

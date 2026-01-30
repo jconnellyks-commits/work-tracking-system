@@ -1189,13 +1189,16 @@ const Pages = {
 
         const isManager = ['admin', 'manager'].includes(App.user.role);
 
-        // Get jobs for dropdown (exclude cancelled jobs)
-        const jobsData = await API.jobs.list({ per_page: 100 });
-        const jobOptions = jobsData.jobs
-            .filter(j => j.job_status !== 'cancelled')
-            .map(j =>
-                `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
-            ).join('');
+        // Get jobs for dropdown (exclude cancelled and completed, but keep current job if editing)
+        const jobsData = await API.jobs.list({ per_page: 200 });
+        const openStatuses = ['pending', 'assigned', 'in_progress'];
+        const getJobOptions = (includeCompleted = false) => jobsData.jobs
+            .filter(j => j.job_status !== 'cancelled' &&
+                (includeCompleted || openStatuses.includes(j.job_status) || j.job_id == entry.job_id))
+            .map(j => {
+                const statusTag = j.job_status === 'completed' ? ' [Completed]' : '';
+                return `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}${statusTag}</option>`;
+            }).join('');
 
         // Technician field - only show for managers/admins (optional for imported entries)
         const techField = isManager ? `
@@ -1213,10 +1216,14 @@ const Pages = {
             <form id="entry-form">
                 <div class="form-group">
                     <label>Job *</label>
-                    <select class="form-control" name="job_id" required>
+                    <select class="form-control" name="job_id" id="entry-job-select" required>
                         <option value="">Select Job</option>
-                        ${jobOptions}
+                        ${getJobOptions(false)}
                     </select>
+                    <label style="margin-top: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="show-completed-jobs" style="margin-right: 0.5rem;">
+                        Show completed jobs
+                    </label>
                 </div>
                 ${techField}
                 <div class="form-group">
@@ -1264,6 +1271,14 @@ const Pages = {
         `;
 
         App.showModal(entryId ? 'Edit Time Entry' : 'New Time Entry', body, footer);
+
+        // Add event listener for show completed jobs checkbox
+        document.getElementById('show-completed-jobs').addEventListener('change', (e) => {
+            const select = document.getElementById('entry-job-select');
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">Select Job</option>' + getJobOptions(e.target.checked);
+            if (currentValue) select.value = currentValue;
+        });
     },
 
     // Save time entry
@@ -1405,22 +1420,29 @@ const Pages = {
         const data = await API.timeEntries.get(entryId);
         const entry = data.time_entry;
 
-        // Get jobs for dropdown
-        const jobsData = await API.jobs.list({ per_page: 100 });
-        const jobOptions = jobsData.jobs
-            .filter(j => j.job_status !== 'cancelled')
-            .map(j =>
-                `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}</option>`
-            ).join('');
+        // Get jobs for dropdown (exclude cancelled and completed, but keep current job if copying)
+        const jobsData = await API.jobs.list({ per_page: 200 });
+        const openStatuses = ['pending', 'assigned', 'in_progress'];
+        const getJobOptions = (includeCompleted = false) => jobsData.jobs
+            .filter(j => j.job_status !== 'cancelled' &&
+                (includeCompleted || openStatuses.includes(j.job_status) || j.job_id == entry.job_id))
+            .map(j => {
+                const statusTag = j.job_status === 'completed' ? ' [Completed]' : '';
+                return `<option value="${j.job_id}" ${j.job_id == entry.job_id ? 'selected' : ''}>${j.ticket_number || j.job_id} - ${j.description.slice(0, 30)}${statusTag}</option>`;
+            }).join('');
 
         const body = `
             <form id="copy-entry-form">
                 <p class="text-muted">Creating a copy of this time entry. Select a different technician if needed (e.g., for multiple techs on the same job).</p>
                 <div class="form-group">
                     <label>Job *</label>
-                    <select class="form-control" name="job_id" required>
-                        ${jobOptions}
+                    <select class="form-control" name="job_id" id="copy-job-select" required>
+                        ${getJobOptions(false)}
                     </select>
+                    <label style="margin-top: 0.5rem; font-weight: normal; cursor: pointer;">
+                        <input type="checkbox" id="copy-show-completed-jobs" style="margin-right: 0.5rem;">
+                        Show completed jobs
+                    </label>
                 </div>
                 <div class="form-group">
                     <label>Technician *</label>
@@ -1473,6 +1495,14 @@ const Pages = {
         `;
 
         App.showModal('Copy Time Entry', body, footer);
+
+        // Add event listener for show completed jobs checkbox
+        document.getElementById('copy-show-completed-jobs').addEventListener('change', (e) => {
+            const select = document.getElementById('copy-job-select');
+            const currentValue = select.value;
+            select.innerHTML = getJobOptions(e.target.checked);
+            if (currentValue) select.value = currentValue;
+        });
     },
 
     // Save copied entry

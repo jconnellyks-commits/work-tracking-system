@@ -50,6 +50,7 @@ def list_time_entries():
         - page, per_page: Pagination
         - tech_id: Filter by technician
         - job_id: Filter by job
+        - job_search: Search by job ticket number or client name
         - status: Filter by entry status
         - period_id: Filter by pay period
         - from_date, to_date: Date range filter
@@ -61,6 +62,7 @@ def list_time_entries():
     per_page = request.args.get('per_page', 25, type=int)
     tech_id = request.args.get('tech_id', type=int)
     job_id = request.args.get('job_id', type=int)
+    job_search = request.args.get('job_search', '').strip()
     status = request.args.get('status')
     period_id = request.args.get('period_id', type=int)
     from_date = request.args.get('from_date')
@@ -84,6 +86,14 @@ def list_time_entries():
 
     if job_id:
         query = query.filter(TimeEntry.job_id == job_id)
+
+    if job_search:
+        query = query.join(Job).filter(
+            db.or_(
+                Job.ticket_number.ilike(f'%{job_search}%'),
+                Job.client_name.ilike(f'%{job_search}%')
+            )
+        )
 
     if status:
         query = query.filter(TimeEntry.status == status)
@@ -606,6 +616,7 @@ def list_time_entries_grouped():
         - status: Filter by entry status
         - unassigned: If 'true', show only unassigned entries
         - from_date, to_date: Date range filter
+        - job_search: Search by job ticket number or client name
     """
     user = g.current_user
     tech_id = request.args.get('tech_id', type=int)
@@ -613,6 +624,7 @@ def list_time_entries_grouped():
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     unassigned = request.args.get('unassigned', '').lower() == 'true'
+    job_search = request.args.get('job_search', '').strip()
 
     query = TimeEntry.query
 
@@ -634,6 +646,14 @@ def list_time_entries_grouped():
 
     if to_date:
         query = query.filter(TimeEntry.date_worked <= to_date)
+
+    if job_search:
+        query = query.join(Job).filter(
+            db.or_(
+                Job.ticket_number.ilike(f'%{job_search}%'),
+                Job.client_name.ilike(f'%{job_search}%')
+            )
+        )
 
     # Get all matching entries
     entries = query.order_by(TimeEntry.date_worked.desc()).all()

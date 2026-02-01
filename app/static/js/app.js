@@ -852,6 +852,7 @@ const Pages = {
                     ` : ''}
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
+                    <input type="text" class="form-control" id="entry-job-search" placeholder="Search job...">
                     <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
                     <button class="btn btn-secondary btn-sm" id="toggle-group-btn"><i class="fas fa-layer-group"></i> Group by Job</button>
@@ -897,6 +898,7 @@ const Pages = {
             const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
+            const jobSearch = document.getElementById('entry-job-search').value;
 
             if (status) params.status = status;
             if (techFilter === 'unassigned') {
@@ -906,6 +908,7 @@ const Pages = {
             }
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
+            if (jobSearch) params.job_search = jobSearch;
 
             const data = await API.timeEntries.list(params);
             updateSortIcons();
@@ -977,6 +980,7 @@ const Pages = {
             const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
+            const jobSearch = document.getElementById('entry-job-search').value;
 
             if (status) params.status = status;
             if (techFilter === 'unassigned') {
@@ -986,6 +990,7 @@ const Pages = {
             }
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
+            if (jobSearch) params.job_search = jobSearch;
 
             const data = await API.timeEntries.groupedByJob(params);
             const groupedView = document.getElementById('entries-grouped-view');
@@ -1122,6 +1127,7 @@ const Pages = {
         }
         document.getElementById('entry-from-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
         document.getElementById('entry-to-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
+        document.getElementById('entry-job-search').addEventListener('input', debounce(() => isGroupedView ? loadGroupedEntries() : loadEntries(1), 300));
 
         // Sortable columns
         document.querySelectorAll('#entries-list-view .sortable').forEach(th => {

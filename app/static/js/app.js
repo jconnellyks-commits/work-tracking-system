@@ -867,6 +867,7 @@ const Pages = {
                                 <th>Time In</th>
                                 <th>Time Out</th>
                                 <th class="sortable" data-sort="hours_worked">Hours <span id="sort-hours-icon"></span></th>
+                                <th>Mileage</th>
                                 <th class="sortable" data-sort="status">Status <span id="sort-status-icon"></span></th>
                                 <th>Actions</th>
                             </tr>
@@ -910,7 +911,7 @@ const Pages = {
             updateSortIcons();
 
             const tbody = document.getElementById('entries-table');
-            const colSpan = isManager ? 10 : 9;
+            const colSpan = isManager ? 11 : 10;
             if (data.time_entries.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="${colSpan}" class="text-center">No entries found</td></tr>`;
             } else {
@@ -928,6 +929,7 @@ const Pages = {
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
                         <td>${entry.hours_worked || '-'}</td>
+                        <td>${entry.mileage || '-'}</td>
                         <td>${App.getStatusBadge(entry.status)}</td>
                         <td>
                             ${entry.status === 'draft' && !isUnassigned ? `
@@ -1017,6 +1019,7 @@ const Pages = {
                                         <th>Time In</th>
                                         <th>Time Out</th>
                                         <th>Hours</th>
+                                        <th>Mileage</th>
                                         <th>Status</th>
                                         <th>Actions</th>
                                     </tr>
@@ -1035,6 +1038,7 @@ const Pages = {
                                             <td>${App.formatTime(entry.time_in)}</td>
                                             <td>${App.formatTime(entry.time_out)}</td>
                                             <td>${entry.hours_worked || '-'}</td>
+                                            <td>${entry.mileage || '-'}</td>
                                             <td>${App.getStatusBadge(entry.status)}</td>
                                             <td>
                                                 ${entry.status === 'draft' && !isUnassigned ? `

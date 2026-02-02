@@ -2096,6 +2096,13 @@ const Pages = {
                 ? `${App.formatDate(data.from_date)} - ${App.formatDate(data.to_date)}`
                 : 'All Time';
 
+            // Calculate totals
+            const totals = data.data.reduce((acc, row) => ({
+                jobs: acc.jobs + row.job_count,
+                billing: acc.billing + row.total_billing,
+                hours: acc.hours + row.total_hours
+            }), { jobs: 0, billing: 0, hours: 0 });
+
             let html = `
                 <p style="margin: 1rem 0; color: var(--gray-500);">Showing: ${dateRange}</p>
                 <div class="table-container">
@@ -2118,6 +2125,14 @@ const Pages = {
                                 </tr>
                             `).join('')}
                         </tbody>
+                        <tfoot>
+                            <tr style="background: #f8f9fa; font-weight: bold;">
+                                <td>Total</td>
+                                <td>${totals.jobs}</td>
+                                <td>$${totals.billing.toFixed(2)}</td>
+                                <td>${totals.hours.toFixed(2)}</td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             `;

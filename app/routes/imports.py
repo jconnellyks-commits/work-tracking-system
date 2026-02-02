@@ -193,12 +193,28 @@ def import_fieldnation():
                     if te.get('time_out'):
                         time_out = parse_time(te['time_out'])
 
-                    # Check if similar entry already exists
-                    existing_entry = TimeEntry.query.filter_by(
-                        job_id=job.job_id,
-                        date_worked=entry_date,
-                        hours_worked=te.get('hours', 0)
-                    ).first()
+                    # Check if similar entry already exists - robust matching
+                    existing_entry = None
+                    hours = te.get('hours', 0) or 0
+
+                    # First try exact match on time_in/time_out if available
+                    if time_in and time_out:
+                        existing_entry = TimeEntry.query.filter_by(
+                            job_id=job.job_id,
+                            date_worked=entry_date,
+                            time_in=time_in,
+                            time_out=time_out
+                        ).first()
+
+                    # If no exact time match, try hours-based match with tolerance
+                    if not existing_entry and hours > 0:
+                        similar_entries = TimeEntry.query.filter(
+                            TimeEntry.job_id == job.job_id,
+                            TimeEntry.date_worked == entry_date,
+                            TimeEntry.hours_worked.between(hours - 0.1, hours + 0.1)
+                        ).all()
+                        if similar_entries:
+                            existing_entry = similar_entries[0]
 
                     if existing_entry:
                         results['skipped_entries'] += 1
@@ -210,7 +226,7 @@ def import_fieldnation():
                         date_worked=entry_date,
                         time_in=time_in,
                         time_out=time_out,
-                        hours_worked=te.get('hours', 0),
+                        hours_worked=hours,
                         mileage=te.get('mileage', 0),
                         status='draft',
                         notes=f"Imported from Field Nation WO#{wo_id}",
@@ -502,12 +518,28 @@ def import_workmarket():
                     if te.get('time_out'):
                         time_out = parse_time(te['time_out'])
 
-                    # Check if similar entry already exists
-                    existing_entry = TimeEntry.query.filter_by(
-                        job_id=job.job_id,
-                        date_worked=entry_date,
-                        hours_worked=te.get('hours', 0)
-                    ).first()
+                    # Check if similar entry already exists - robust matching
+                    existing_entry = None
+                    hours = te.get('hours', 0) or 0
+
+                    # First try exact match on time_in/time_out if available
+                    if time_in and time_out:
+                        existing_entry = TimeEntry.query.filter_by(
+                            job_id=job.job_id,
+                            date_worked=entry_date,
+                            time_in=time_in,
+                            time_out=time_out
+                        ).first()
+
+                    # If no exact time match, try hours-based match with tolerance
+                    if not existing_entry and hours > 0:
+                        similar_entries = TimeEntry.query.filter(
+                            TimeEntry.job_id == job.job_id,
+                            TimeEntry.date_worked == entry_date,
+                            TimeEntry.hours_worked.between(hours - 0.1, hours + 0.1)
+                        ).all()
+                        if similar_entries:
+                            existing_entry = similar_entries[0]
 
                     if existing_entry:
                         results['skipped_entries'] += 1
@@ -519,7 +551,7 @@ def import_workmarket():
                         date_worked=entry_date,
                         time_in=time_in,
                         time_out=time_out,
-                        hours_worked=te.get('hours', 0),
+                        hours_worked=hours,
                         mileage=te.get('mileage', 0),
                         status='draft',
                         notes=f"Imported from WorkMarket #{a_id}",

@@ -661,7 +661,9 @@ const Pages = {
         const body = `
             <div class="form-group">
                 <label>Ticket Number</label>
-                <p>${job.ticket_number || '-'}</p>
+                <p>${job.external_url
+                    ? `<a href="${job.external_url}" target="_blank" rel="noopener noreferrer">${job.ticket_number || '-'} <i class="fas fa-external-link-alt" style="font-size: 0.8em;"></i></a>`
+                    : (job.ticket_number || '-')}</p>
             </div>
             <div class="form-group">
                 <label>Description</label>

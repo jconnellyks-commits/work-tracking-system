@@ -57,7 +57,8 @@ const App = {
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
-            { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] }
+            { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] },
+            { id: 'backups', icon: 'fas fa-database', label: 'Backups', roles: ['admin'] }
         ];
 
         nav.innerHTML = menuItems
@@ -104,7 +105,8 @@ const App = {
             'reports': 'Reports',
             'technicians': 'Technician Management',
             'users': 'User Management',
-            'pay-periods': 'Pay Periods'
+            'pay-periods': 'Pay Periods',
+            'backups': 'Backup & Recovery'
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
 
@@ -134,6 +136,9 @@ const App = {
                     break;
                 case 'pay-periods':
                     await Pages.payPeriods(content);
+                    break;
+                case 'backups':
+                    await Pages.backups(content);
                     break;
                 default:
                     await Pages.dashboard(content);
@@ -2773,6 +2778,216 @@ const Pages = {
             await API.reports.deletePayPeriod(periodId);
             App.showAlert('Pay period deleted', 'success');
             await this.loadPayPeriods();
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // ============ Backup & Recovery ============
+
+    async backups(container) {
+        const isAdmin = App.user.role === 'admin';
+        if (!isAdmin) {
+            container.innerHTML = '<div class="alert alert-error">Access denied - Admin only</div>';
+            return;
+        }
+
+        // Check safe mode status
+        let safeModeStatus = { active: false };
+        try {
+            safeModeStatus = await API.settings.getSafeModeStatus();
+        } catch (e) {
+            console.log('Could not get safe mode status:', e);
+        }
+
+        const safeModeClass = safeModeStatus.active ? 'btn-warning' : 'btn-success';
+        const safeModeIcon = safeModeStatus.active ? 'fa-shield-alt' : 'fa-shield-alt';
+        const safeModeText = safeModeStatus.active ? 'Safe Mode Active' : 'Enter Safe Mode';
+
+        container.innerHTML = `
+            <div class="card" style="margin-bottom: 1rem; ${safeModeStatus.active ? 'border: 2px solid var(--warning);' : ''}">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-shield-alt"></i> Safe Mode</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    ${safeModeStatus.active ? `
+                        <div class="alert alert-warning" style="margin-bottom: 1rem;">
+                            <strong>Safe Mode Active</strong> - A snapshot was taken at ${App.formatDate(safeModeStatus.started_at?.split('T')[0])}.
+                            You can revert all changes or commit them to make permanent.
+                        </div>
+                        <button class="btn btn-success" onclick="Pages.commitSafeMode()">
+                            <i class="fas fa-check"></i> Commit Changes
+                        </button>
+                        <button class="btn btn-danger" onclick="Pages.revertSafeMode()">
+                            <i class="fas fa-undo"></i> Revert to Snapshot
+                        </button>
+                    ` : `
+                        <p style="margin-bottom: 1rem;">Enter Safe Mode to create a snapshot before making changes.
+                        If something goes wrong, you can revert to the snapshot.</p>
+                        <button class="btn btn-success" onclick="Pages.enterSafeMode()">
+                            <i class="fas fa-shield-alt"></i> Enter Safe Mode
+                        </button>
+                    `}
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-database"></i> Database Backups</h3>
+                    <button class="btn btn-primary" onclick="Pages.createBackup()">
+                        <i class="fas fa-plus"></i> Create Backup
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Filename</th>
+                                <th>Created</th>
+                                <th>Size</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="backups-table">
+                            <tr><td colspan="4" class="text-center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        await this.loadBackups();
+    },
+
+    async loadBackups() {
+        try {
+            const data = await API.settings.listBackups();
+            const tbody = document.getElementById('backups-table');
+
+            if (data.backups.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center">No backups found</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = data.backups.map(backup => `
+                <tr ${backup.is_safe_mode ? 'style="background: #fff3cd;"' : ''}>
+                    <td>
+                        ${backup.filename}
+                        ${backup.is_safe_mode ? '<span class="badge badge-warning">Safe Mode</span>' : ''}
+                    </td>
+                    <td>${new Date(backup.created_at).toLocaleString()}</td>
+                    <td>${backup.size_mb} MB</td>
+                    <td>
+                        <button class="btn btn-sm btn-warning" onclick="Pages.restoreBackup('${backup.filename}')">
+                            <i class="fas fa-undo"></i> Restore
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="Pages.downloadBackup('${backup.filename}')">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        ${!backup.is_safe_mode ? `
+                            <button class="btn btn-sm btn-danger" onclick="Pages.deleteBackup('${backup.filename}')">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `).join('');
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async createBackup() {
+        const label = prompt('Enter a label for this backup (optional):');
+        if (label === null) return; // Cancelled
+
+        try {
+            const result = await API.settings.createBackup(label);
+            App.showAlert(`Backup created: ${result.backup.filename}`, 'success');
+            await this.loadBackups();
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async restoreBackup(filename) {
+        if (!confirm(`Are you sure you want to restore from "${filename}"?\n\nThis will OVERWRITE the current database with the backup. This cannot be undone.`)) {
+            return;
+        }
+
+        if (!confirm('FINAL WARNING: All data since this backup was created will be lost. Continue?')) {
+            return;
+        }
+
+        try {
+            await API.settings.restoreBackup(filename);
+            App.showAlert('Database restored successfully. Please refresh the page.', 'success');
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async deleteBackup(filename) {
+        if (!confirm(`Delete backup "${filename}"? This cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            await API.settings.deleteBackup(filename);
+            App.showAlert('Backup deleted', 'success');
+            await this.loadBackups();
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    downloadBackup(filename) {
+        // Open in new tab - server will need a download endpoint
+        window.open(`/api/settings/backups/${filename}/download`, '_blank');
+    },
+
+    async enterSafeMode() {
+        if (!confirm('Enter Safe Mode?\n\nA snapshot of the database will be created. You can make changes and then either commit them or revert to the snapshot.')) {
+            return;
+        }
+
+        try {
+            const result = await API.settings.enterSafeMode();
+            App.showAlert(result.message, 'success');
+            // Refresh the page to show safe mode status
+            await this.backups(document.getElementById('content'));
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async commitSafeMode() {
+        if (!confirm('Commit changes and exit Safe Mode?\n\nThe snapshot will be deleted and your changes will be permanent.')) {
+            return;
+        }
+
+        try {
+            const result = await API.settings.commitSafeMode();
+            App.showAlert(result.message, 'success');
+            await this.backups(document.getElementById('content'));
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async revertSafeMode() {
+        if (!confirm('Revert to snapshot and exit Safe Mode?\n\nALL CHANGES since entering Safe Mode will be LOST.')) {
+            return;
+        }
+
+        if (!confirm('FINAL WARNING: This will restore the database to the snapshot. All recent changes will be lost. Continue?')) {
+            return;
+        }
+
+        try {
+            const result = await API.settings.revertSafeMode();
+            App.showAlert(result.message, 'success');
+            await this.backups(document.getElementById('content'));
         } catch (error) {
             App.showAlert(error.message);
         }

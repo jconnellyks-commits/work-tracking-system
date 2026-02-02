@@ -464,6 +464,53 @@ const API = {
         async getTechPay(techId, params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/settings/pay/technician/${techId}${query ? '?' + query : ''}`);
+        },
+
+        // Backup/Restore
+        async listBackups() {
+            return API.request('/settings/backups');
+        },
+
+        async createBackup(label = '') {
+            return API.request('/settings/backups', {
+                method: 'POST',
+                body: JSON.stringify({ label })
+            });
+        },
+
+        async restoreBackup(filename) {
+            return API.request(`/settings/backups/${filename}/restore`, {
+                method: 'POST'
+            });
+        },
+
+        async deleteBackup(filename) {
+            return API.request(`/settings/backups/${filename}`, {
+                method: 'DELETE'
+            });
+        },
+
+        // Safe Mode
+        async getSafeModeStatus() {
+            return API.request('/settings/safe-mode');
+        },
+
+        async enterSafeMode() {
+            return API.request('/settings/safe-mode/enter', {
+                method: 'POST'
+            });
+        },
+
+        async commitSafeMode() {
+            return API.request('/settings/safe-mode/commit', {
+                method: 'POST'
+            });
+        },
+
+        async revertSafeMode() {
+            return API.request('/settings/safe-mode/revert', {
+                method: 'POST'
+            });
         }
     }
 };

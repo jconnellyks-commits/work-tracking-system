@@ -184,6 +184,29 @@ const App = {
         setTimeout(() => alert.remove(), 5000);
     },
 
+    // Show error in modal form (doesn't close modal)
+    showFormError(message) {
+        // Remove any existing form error
+        const existing = document.getElementById('form-error-alert');
+        if (existing) existing.remove();
+
+        // Create error alert at top of modal body
+        const modalBody = document.querySelector('.modal-body');
+        if (modalBody) {
+            const errorDiv = document.createElement('div');
+            errorDiv.id = 'form-error-alert';
+            errorDiv.className = 'alert alert-error';
+            errorDiv.style.marginBottom = '1rem';
+            errorDiv.innerHTML = `<strong>Error:</strong> ${message}`;
+            modalBody.insertBefore(errorDiv, modalBody.firstChild);
+            // Scroll to top of modal to show error
+            modalBody.scrollTop = 0;
+        } else {
+            // Fallback to regular alert if not in modal
+            this.showAlert(message);
+        }
+    },
+
     // Format date (handles YYYY-MM-DD without timezone shift)
     formatDate(dateStr) {
         if (!dateStr) return '-';
@@ -732,7 +755,7 @@ const Pages = {
             App.hideModal();
             Pages.jobsPage(1);
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -1324,7 +1347,7 @@ const Pages = {
             App.hideModal();
             Pages.entriesPage(1);
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -1427,7 +1450,7 @@ const Pages = {
         const techId = form.querySelector('[name="tech_id"]').value;
 
         if (!techId) {
-            App.showAlert('Please select a technician');
+            App.showFormError('Please select a technician');
             return;
         }
 
@@ -1437,7 +1460,7 @@ const Pages = {
             App.hideModal();
             Pages.entriesPage(1);
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -1547,7 +1570,7 @@ const Pages = {
                 Pages.entriesPage(1);
             }
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -2282,7 +2305,7 @@ const Pages = {
             App.technicians = techData.technicians;
             Pages.techniciansPage(1);
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -2322,7 +2345,7 @@ const Pages = {
             App.hideModal();
             Pages.techniciansPage(1);
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 
@@ -2481,7 +2504,7 @@ const Pages = {
             App.hideModal();
             Pages.loadUsers();
         } catch (error) {
-            App.showAlert(error.message);
+            App.showFormError(error.message);
         }
     },
 

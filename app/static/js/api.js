@@ -66,19 +66,23 @@ const API = {
             const data = await response.json();
 
             if (!response.ok) {
-                // Handle token expiration
-                if (response.status === 401 && data.code === 'token_expired') {
-                    const refreshed = await this.refreshToken();
-                    if (refreshed) {
-                        // Retry the request with new token
-                        return this.request(endpoint, options);
-                    } else {
-                        this.clearTokens();
-                        window.location.href = '/login';
-                        return;
+                // Handle authentication errors
+                if (response.status === 401) {
+                    // Try to refresh token first
+                    if (data.code === 'token_expired' || data.error?.includes('expired')) {
+                        const refreshed = await this.refreshToken();
+                        if (refreshed) {
+                            // Retry the request with new token
+                            return this.request(endpoint, options);
+                        }
                     }
+                    // Refresh failed or other auth error - redirect to login
+                    this.clearTokens();
+                    window.location.href = '/login';
+                    return;
                 }
-                throw new Error(data.error || 'Request failed');
+                // For non-auth errors, throw with the actual error message
+                throw new Error(data.error || data.message || 'Request failed');
             }
 
             return data;

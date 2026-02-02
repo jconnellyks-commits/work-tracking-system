@@ -286,7 +286,7 @@ def update_time_entry(entry_id):
     if 'time_out' in data:
         entry.time_out = datetime.strptime(data['time_out'], '%H:%M').time() if data['time_out'] else None
 
-    if 'hours_worked' in data:
+    if 'hours_worked' in data and data['hours_worked']:
         entry.hours_worked = data['hours_worked']
     elif entry.time_in and entry.time_out:
         entry.hours_worked = calculate_hours(entry.time_in, entry.time_out)

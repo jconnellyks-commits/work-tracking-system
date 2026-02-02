@@ -1289,6 +1289,22 @@ const Pages = {
             select.innerHTML = '<option value="">Select Job</option>' + getJobOptions(e.target.checked);
             if (currentValue) select.value = currentValue;
         });
+
+        // Auto-calculate hours when time fields change
+        const calculateHours = () => {
+            const timeIn = document.querySelector('input[name="time_in"]').value;
+            const timeOut = document.querySelector('input[name="time_out"]').value;
+            if (timeIn && timeOut) {
+                const [inH, inM] = timeIn.split(':').map(Number);
+                const [outH, outM] = timeOut.split(':').map(Number);
+                let minutes = (outH * 60 + outM) - (inH * 60 + inM);
+                if (minutes < 0) minutes += 24 * 60; // Handle overnight
+                const hours = (minutes / 60).toFixed(2);
+                document.querySelector('input[name="hours_worked"]').value = hours;
+            }
+        };
+        document.querySelector('input[name="time_in"]').addEventListener('change', calculateHours);
+        document.querySelector('input[name="time_out"]').addEventListener('change', calculateHours);
     },
 
     // Save time entry

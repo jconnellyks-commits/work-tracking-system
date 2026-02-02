@@ -976,3 +976,130 @@ def close_pay_period(period_id):
         'message': 'Pay period closed',
         'pay_period': period.to_dict()
     }), 200
+
+
+@reports_bp.route('/pay-periods/generate', methods=['POST'])
+@manager_required
+def generate_pay_periods():
+    """
+    Generate multiple recurring pay periods.
+
+    Request body:
+        {
+            "anchor_end_date": "2026-01-21",  # End date of a known period
+            "period_length_days": 14,         # Length of each period
+            "count_back": 6,                  # How many past periods to generate
+            "count_forward": 2                # How many future periods to generate
+        }
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    anchor_end = datetime.strptime(data.get('anchor_end_date'), '%Y-%m-%d').date()
+    period_length = data.get('period_length_days', 14)
+    count_back = data.get('count_back', 6)
+    count_forward = data.get('count_forward', 2)
+
+    created = []
+    skipped = []
+
+    # Generate periods going backwards
+    for i in range(count_back, 0, -1):
+        end_date = anchor_end - timedelta(days=period_length * i)
+        start_date = end_date - timedelta(days=period_length - 1)
+
+        # Check for existing
+        existing = PayPeriod.query.filter(
+            and_(
+                PayPeriod.start_date <= end_date,
+                PayPeriod.end_date >= start_date
+            )
+        ).first()
+
+        if existing:
+            skipped.append(f"{start_date} to {end_date}")
+            continue
+
+        period_name = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+        period = PayPeriod(start_date=start_date, end_date=end_date, period_name=period_name)
+        db.session.add(period)
+        created.append(period_name)
+
+    # Generate the anchor period
+    start_date = anchor_end - timedelta(days=period_length - 1)
+    existing = PayPeriod.query.filter(
+        and_(
+            PayPeriod.start_date <= anchor_end,
+            PayPeriod.end_date >= start_date
+        )
+    ).first()
+
+    if not existing:
+        period_name = f"{start_date.strftime('%b %d')} - {anchor_end.strftime('%b %d, %Y')}"
+        period = PayPeriod(start_date=start_date, end_date=anchor_end, period_name=period_name)
+        db.session.add(period)
+        created.append(period_name)
+    else:
+        skipped.append(f"{start_date} to {anchor_end}")
+
+    # Generate periods going forward
+    for i in range(1, count_forward + 1):
+        start_date = anchor_end + timedelta(days=1) + timedelta(days=period_length * (i - 1))
+        end_date = start_date + timedelta(days=period_length - 1)
+
+        existing = PayPeriod.query.filter(
+            and_(
+                PayPeriod.start_date <= end_date,
+                PayPeriod.end_date >= start_date
+            )
+        ).first()
+
+        if existing:
+            skipped.append(f"{start_date} to {end_date}")
+            continue
+
+        period_name = f"{start_date.strftime('%b %d')} - {end_date.strftime('%b %d, %Y')}"
+        period = PayPeriod(start_date=start_date, end_date=end_date, period_name=period_name)
+        db.session.add(period)
+        created.append(period_name)
+
+    db.session.commit()
+
+    # Assign time entries to their periods
+    all_periods = PayPeriod.query.all()
+    assigned_count = 0
+    for period in all_periods:
+        unassigned = TimeEntry.query.filter(
+            TimeEntry.period_id.is_(None),
+            TimeEntry.date_worked >= period.start_date,
+            TimeEntry.date_worked <= period.end_date
+        ).all()
+        for entry in unassigned:
+            entry.period_id = period.period_id
+            assigned_count += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'message': f'Generated {len(created)} pay periods',
+        'created': created,
+        'skipped': skipped,
+        'entries_assigned': assigned_count
+    }), 201
+
+
+@reports_bp.route('/pay-periods/<int:period_id>', methods=['DELETE'])
+@manager_required
+def delete_pay_period(period_id):
+    """Delete a pay period."""
+    period = PayPeriod.query.get_or_404(period_id)
+
+    # Unassign entries from this period
+    TimeEntry.query.filter(TimeEntry.period_id == period_id).update({'period_id': None})
+
+    db.session.delete(period)
+    db.session.commit()
+
+    return jsonify({'message': 'Pay period deleted'}), 200

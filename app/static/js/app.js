@@ -103,7 +103,8 @@ const App = {
             'time-entries': 'Time Entries',
             'reports': 'Reports',
             'technicians': 'Technician Management',
-            'users': 'User Management'
+            'users': 'User Management',
+            'pay-periods': 'Pay Periods'
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
 
@@ -130,6 +131,9 @@ const App = {
                     break;
                 case 'users':
                     await Pages.users(content);
+                    break;
+                case 'pay-periods':
+                    await Pages.payPeriods(content);
                     break;
                 default:
                     await Pages.dashboard(content);
@@ -1610,6 +1614,20 @@ const Pages = {
         const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
         const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
 
+        // Fetch recent pay periods for quick-fill
+        let periodButtons = '';
+        try {
+            const periodsData = await API.reports.payPeriods({ per_page: 4 });
+            if (periodsData.pay_periods && periodsData.pay_periods.length > 0) {
+                periodButtons = periodsData.pay_periods.slice(0, 2).map(p =>
+                    `<button class="btn btn-secondary btn-sm" onclick="Pages.fillPayPeriod('${p.start_date}', '${p.end_date}')">${p.period_name}</button>`
+                ).join('');
+                periodButtons = `<span style="margin-right: 0.5rem;">Quick fill:</span>${periodButtons}`;
+            }
+        } catch (e) {
+            console.log('Could not load pay periods:', e);
+        }
+
         content.innerHTML = `
             <div class="card">
                 <div class="card-header">
@@ -1624,6 +1642,10 @@ const Pages = {
                     </div>
                 </div>
                 <div class="filters no-print">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        ${periodButtons}
+                        <a href="#pay-periods" style="margin-left: auto; font-size: 0.9rem;"><i class="fas fa-cog"></i> Manage Pay Periods</a>
+                    </div>
                     <input type="date" class="form-control" id="payroll-from" value="${firstDay}">
                     <input type="date" class="form-control" id="payroll-to" value="${lastDay}">
                     <button class="btn btn-primary" onclick="Pages.loadPayrollReport()">Generate</button>
@@ -1631,6 +1653,12 @@ const Pages = {
                 <div id="payroll-results"></div>
             </div>
         `;
+    },
+
+    fillPayPeriod(startDate, endDate) {
+        document.getElementById('payroll-from').value = startDate;
+        document.getElementById('payroll-to').value = endDate;
+        Pages.loadPayrollReport();
     },
 
     // Store last payroll data for export
@@ -2516,6 +2544,147 @@ const Pages = {
         try {
             await API.auth.resetPassword(userId, newPassword);
             App.showAlert('Password reset successfully', 'success');
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Pay Periods Management
+    async payPeriods(container) {
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+        if (!isManager) {
+            container.innerHTML = '<div class="alert alert-error">Access denied</div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Pay Periods</h3>
+                    <button class="btn btn-primary" onclick="Pages.showGeneratePeriodsModal()">
+                        <i class="fas fa-magic"></i> Generate Periods
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Period Name</th>
+                                <th>Start Date</th>
+                                <th>End Date</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="pay-periods-table"></tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        await this.loadPayPeriods();
+    },
+
+    async loadPayPeriods() {
+        const data = await API.reports.payPeriods({ per_page: 50 });
+        const tbody = document.getElementById('pay-periods-table');
+
+        if (data.pay_periods.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center">No pay periods defined. Click "Generate Periods" to create them.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.pay_periods.map(period => `
+            <tr>
+                <td>${period.period_name}</td>
+                <td>${App.formatDate(period.start_date)}</td>
+                <td>${App.formatDate(period.end_date)}</td>
+                <td>${App.getStatusBadge(period.status)}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary" onclick="Pages.fillPayPeriod('${period.start_date}', '${period.end_date}'); window.location.hash='reports'; setTimeout(() => Pages.showPayrollReport(), 100);">
+                        <i class="fas fa-file-invoice-dollar"></i> Payroll
+                    </button>
+                    ${period.status === 'open' ? `
+                        <button class="btn btn-sm btn-warning" onclick="Pages.closePayPeriod(${period.period_id})">Close</button>
+                    ` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="Pages.deletePayPeriod(${period.period_id})">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    },
+
+    showGeneratePeriodsModal() {
+        const body = `
+            <form id="generate-periods-form">
+                <div class="form-group">
+                    <label>Anchor End Date (end date of a known period)</label>
+                    <input type="date" class="form-control" name="anchor_end_date" value="2026-01-21" required>
+                    <small class="text-muted">The most recent pay period ends on this date</small>
+                </div>
+                <div class="form-group">
+                    <label>Period Length (days)</label>
+                    <input type="number" class="form-control" name="period_length_days" value="14" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Periods Back</label>
+                        <input type="number" class="form-control" name="count_back" value="6" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Periods Forward</label>
+                        <input type="number" class="form-control" name="count_forward" value="4" required>
+                    </div>
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.generatePeriods()">Generate</button>
+        `;
+
+        App.showModal('Generate Pay Periods', body, footer);
+    },
+
+    async generatePeriods() {
+        const form = document.getElementById('generate-periods-form');
+        const formData = new FormData(form);
+        const data = {
+            anchor_end_date: formData.get('anchor_end_date'),
+            period_length_days: parseInt(formData.get('period_length_days')),
+            count_back: parseInt(formData.get('count_back')),
+            count_forward: parseInt(formData.get('count_forward'))
+        };
+
+        try {
+            const result = await API.reports.generatePayPeriods(data);
+            App.showAlert(`Generated ${result.created.length} pay periods, assigned ${result.entries_assigned} time entries`, 'success');
+            App.hideModal();
+            await this.loadPayPeriods();
+        } catch (error) {
+            App.showFormError(error.message);
+        }
+    },
+
+    async closePayPeriod(periodId) {
+        if (!confirm('Close this pay period? This prevents further edits to entries in this period.')) return;
+
+        try {
+            await API.reports.closePayPeriod(periodId);
+            App.showAlert('Pay period closed', 'success');
+            await this.loadPayPeriods();
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async deletePayPeriod(periodId) {
+        if (!confirm('Delete this pay period? Time entries will be unassigned from the period.')) return;
+
+        try {
+            await API.reports.deletePayPeriod(periodId);
+            App.showAlert('Pay period deleted', 'success');
+            await this.loadPayPeriods();
         } catch (error) {
             App.showAlert(error.message);
         }

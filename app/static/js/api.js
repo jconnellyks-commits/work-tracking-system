@@ -356,6 +356,19 @@ const API = {
             return API.request(`/reports/pay-periods/${periodId}/close`, {
                 method: 'POST'
             });
+        },
+
+        async generatePayPeriods(data) {
+            return API.request('/reports/pay-periods/generate', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async deletePayPeriod(periodId) {
+            return API.request(`/reports/pay-periods/${periodId}`, {
+                method: 'DELETE'
+            });
         }
     },
 

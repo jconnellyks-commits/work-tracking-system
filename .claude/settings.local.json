@@ -4,7 +4,31 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ssh -i \"$HOME/.ssh/gcp_work_tracking\" claude-code@34.27.146.58 \"cd /opt/work-tracking && sudo git pull && sudo systemctl restart work-tracking && echo ''Done!''\")",
+      "Bash(git restore:*)",
+      "Bash(ssh -i \"$HOME/.ssh/gcp_work_tracking\" claude-code@34.27.146.58 \"cd /opt/work-tracking && sudo git pull && sudo mysql work_tracking_db < /opt/work-tracking/database/migrations/005_nullable_tech_id.sql && sudo systemctl restart work-tracking && echo ''Deployed and migrated!''\")",
+      "WebFetch(domain:developer.fieldnation.com)",
+      "WebSearch",
+      "Bash(where:*)",
+      "Bash(cmd.exe /c \"where node\")",
+      "Bash(py:*)",
+      "Bash(cmd.exe /c \"python --version\")",
+      "Bash(ssh -i \"$HOME/.ssh/gcp_work_tracking\" claude-code@34.27.146.58 \"cd /opt/work-tracking && sudo git pull && sudo systemctl restart work-tracking && echo ''Deployed!''\")",
+      "Bash(ssh:*)",
+      "Bash(curl:*)",
+      "Bash(gcloud compute ssh:*)",
+      "Bash(dir /b \"C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\deploy\")",
+      "Bash(ls -la \"C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper\"\"*.bat 2>/dev/null || echo \"No batch files found \")",
+      "Bash(python -m py_compile:*)",
+      "Bash(git rm:*)",
+      "Bash(test:*)",
+      "Bash(ls -la \"C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper\"\" 2>/dev/null || dir /b \"C:UsersJeremiahprojectstimesheetswork-tracking-systemscraper\"\")",
+      "Bash(dir /b \"C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper\")",
+      "Bash(del import_to_api.bat)",
+      "Bash(del import_workmarket.bat)",
+      "Bash(cmd /c \"cd /d C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper && del import_to_api.bat && del import_workmarket.bat\")",
+      "Bash(cmd /c:*)"
     ]
   }
 }

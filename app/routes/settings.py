@@ -4,6 +4,7 @@ System settings and pay calculation routes.
 import os
 import subprocess
 import glob
+import shutil
 from datetime import datetime
 from flask import Blueprint, request, jsonify, g, current_app
 from app import db
@@ -18,6 +19,32 @@ logger = get_logger(__name__)
 # Backup directory
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'backups')
 SAFE_MODE_FILE = os.path.join(BACKUP_DIR, '.safe_mode')
+
+# MySQL binary paths - try common locations
+def get_mysql_binary(name):
+    """Find MySQL binary (mysqldump or mysql) in common locations."""
+    # First try shutil.which (checks PATH)
+    path = shutil.which(name)
+    if path:
+        return path
+
+    # Common locations on Linux
+    common_paths = [
+        f'/usr/bin/{name}',
+        f'/usr/local/bin/{name}',
+        f'/usr/local/mysql/bin/{name}',
+        f'/opt/mysql/bin/{name}',
+    ]
+
+    for p in common_paths:
+        if os.path.exists(p) and os.access(p, os.X_OK):
+            return p
+
+    # Last resort - just return the name and hope it's in PATH
+    return name
+
+MYSQLDUMP_PATH = get_mysql_binary('mysqldump')
+MYSQL_PATH = get_mysql_binary('mysql')
 
 
 # ============ System Settings ============
@@ -325,7 +352,7 @@ def create_backup():
     try:
         # Run mysqldump
         cmd = [
-            'mysqldump',
+            MYSQLDUMP_PATH,
             f'--host={creds["host"]}',
             f'--port={creds["port"]}',
             f'--user={creds["user"]}',
@@ -396,7 +423,7 @@ def restore_backup(filename):
     try:
         # Run mysql restore
         cmd = [
-            'mysql',
+            MYSQL_PATH,
             f'--host={creds["host"]}',
             f'--port={creds["port"]}',
             f'--user={creds["user"]}',
@@ -519,7 +546,7 @@ def enter_safe_mode():
 
     try:
         cmd = [
-            'mysqldump',
+            MYSQLDUMP_PATH,
             f'--host={creds["host"]}',
             f'--port={creds["port"]}',
             f'--user={creds["user"]}',
@@ -613,7 +640,7 @@ def revert_safe_mode():
 
     try:
         cmd = [
-            'mysql',
+            MYSQL_PATH,
             f'--host={creds["host"]}',
             f'--port={creds["port"]}',
             f'--user={creds["user"]}',

@@ -2056,43 +2056,76 @@ const Pages = {
     // Show platform report
     async showPlatformReport() {
         const content = document.getElementById('report-content');
+        const today = new Date();
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+
+        content.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Platform Summary</h3>
+                </div>
+                <div class="filters">
+                    <input type="date" class="form-control" id="platform-from" value="${firstDay}">
+                    <input type="date" class="form-control" id="platform-to" value="${lastDay}">
+                    <button class="btn btn-primary" onclick="Pages.loadPlatformReport()">Generate</button>
+                    <button class="btn btn-secondary" onclick="Pages.loadPlatformReport(true)">All Time</button>
+                </div>
+                <div id="platform-results"></div>
+            </div>
+        `;
+
+        // Auto-load with current month
+        await this.loadPlatformReport();
+    },
+
+    async loadPlatformReport(allTime = false) {
+        const resultsDiv = document.getElementById('platform-results');
+        resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+
+        const params = {};
+        if (!allTime) {
+            params.from_date = document.getElementById('platform-from').value;
+            params.to_date = document.getElementById('platform-to').value;
+        }
 
         try {
-            const data = await API.reports.platformSummary({});
+            const data = await API.reports.platformSummary(params);
+
+            const dateRange = data.from_date && data.to_date
+                ? `${App.formatDate(data.from_date)} - ${App.formatDate(data.to_date)}`
+                : 'All Time';
 
             let html = `
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">Platform Summary</h3>
-                    </div>
-                    <div class="table-container">
-                        <table>
-                            <thead>
+                <p style="margin: 1rem 0; color: var(--gray-500);">Showing: ${dateRange}</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Platform</th>
+                                <th>Jobs</th>
+                                <th>Total Billing</th>
+                                <th>Total Hours</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${data.data.map(row => `
                                 <tr>
-                                    <th>Platform</th>
-                                    <th>Jobs</th>
-                                    <th>Total Billing</th>
-                                    <th>Total Hours</th>
+                                    <td>${row.name}</td>
+                                    <td>${row.job_count}</td>
+                                    <td>$${row.total_billing.toFixed(2)}</td>
+                                    <td>${row.total_hours.toFixed(2)}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                ${data.data.map(row => `
-                                    <tr>
-                                        <td>${row.name}</td>
-                                        <td>${row.job_count}</td>
-                                        <td>$${row.total_billing.toFixed(2)}</td>
-                                        <td>${row.total_hours.toFixed(2)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
+                            `).join('')}
+                        </tbody>
+                    </table>
                 </div>
             `;
 
-            content.innerHTML = html;
+            resultsDiv.innerHTML = html;
         } catch (error) {
             App.showAlert(error.message);
+            resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;
         }
     },
 

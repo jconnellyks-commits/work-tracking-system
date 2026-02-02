@@ -7,8 +7,27 @@ from app.models import db, Job, TimeEntry, Technician, Platform
 from app.utils.auth import jwt_required_with_user, admin_required
 from datetime import datetime
 import re
+import hashlib
 
 imports_bp = Blueprint('imports', __name__)
+
+
+def generate_source_hash(platform, external_id, date, time_in=None, time_out=None, hours=None):
+    """
+    Generate a unique hash for a scraped time entry.
+    Used for duplicate detection regardless of how entries are split between technicians.
+
+    Format: {platform}:{external_id}:{date}:{time_in}:{time_out}
+    If no times, uses hours: {platform}:{external_id}:{date}:hours:{hours}
+    """
+    if time_in and time_out:
+        source = f"{platform}:{external_id}:{date}:{time_in}:{time_out}"
+    elif hours:
+        source = f"{platform}:{external_id}:{date}:hours:{hours}"
+    else:
+        source = f"{platform}:{external_id}:{date}"
+
+    return hashlib.sha256(source.encode()).hexdigest()[:32]
 
 
 def map_fieldnation_status(fn_status):
@@ -193,30 +212,21 @@ def import_fieldnation():
                     if te.get('time_out'):
                         time_out = parse_time(te['time_out'])
 
-                    # Check if similar entry already exists - robust matching
-                    existing_entry = None
                     hours = te.get('hours', 0) or 0
 
-                    # First try exact match on time_in/time_out if available
-                    if time_in and time_out:
-                        existing_entry = TimeEntry.query.filter_by(
-                            job_id=job.job_id,
-                            date_worked=entry_date,
-                            time_in=time_in,
-                            time_out=time_out
-                        ).first()
+                    # Generate source hash for duplicate detection
+                    source_hash = generate_source_hash(
+                        'FN',
+                        wo_id,
+                        entry_date.isoformat() if entry_date else '',
+                        te.get('time_in', ''),
+                        te.get('time_out', ''),
+                        hours
+                    )
 
-                    # If no exact time match, try hours-based match with tolerance
-                    if not existing_entry and hours > 0:
-                        similar_entries = TimeEntry.query.filter(
-                            TimeEntry.job_id == job.job_id,
-                            TimeEntry.date_worked == entry_date,
-                            TimeEntry.hours_worked.between(hours - 0.1, hours + 0.1)
-                        ).all()
-                        if similar_entries:
-                            existing_entry = similar_entries[0]
-
-                    if existing_entry:
+                    # Check if this exact scraped entry already exists (by hash)
+                    existing_by_hash = TimeEntry.query.filter_by(source_hash=source_hash).first()
+                    if existing_by_hash:
                         results['skipped_entries'] += 1
                         continue
 
@@ -230,6 +240,7 @@ def import_fieldnation():
                         mileage=te.get('mileage', 0),
                         status='draft',
                         notes=f"Imported from Field Nation WO#{wo_id}",
+                        source_hash=source_hash,
                         created_by=user.user_id,
                         updated_by=user.user_id
                     )
@@ -518,30 +529,21 @@ def import_workmarket():
                     if te.get('time_out'):
                         time_out = parse_time(te['time_out'])
 
-                    # Check if similar entry already exists - robust matching
-                    existing_entry = None
                     hours = te.get('hours', 0) or 0
 
-                    # First try exact match on time_in/time_out if available
-                    if time_in and time_out:
-                        existing_entry = TimeEntry.query.filter_by(
-                            job_id=job.job_id,
-                            date_worked=entry_date,
-                            time_in=time_in,
-                            time_out=time_out
-                        ).first()
+                    # Generate source hash for duplicate detection
+                    source_hash = generate_source_hash(
+                        'WM',
+                        a_id,
+                        entry_date.isoformat() if entry_date else '',
+                        te.get('time_in', ''),
+                        te.get('time_out', ''),
+                        hours
+                    )
 
-                    # If no exact time match, try hours-based match with tolerance
-                    if not existing_entry and hours > 0:
-                        similar_entries = TimeEntry.query.filter(
-                            TimeEntry.job_id == job.job_id,
-                            TimeEntry.date_worked == entry_date,
-                            TimeEntry.hours_worked.between(hours - 0.1, hours + 0.1)
-                        ).all()
-                        if similar_entries:
-                            existing_entry = similar_entries[0]
-
-                    if existing_entry:
+                    # Check if this exact scraped entry already exists (by hash)
+                    existing_by_hash = TimeEntry.query.filter_by(source_hash=source_hash).first()
+                    if existing_by_hash:
                         results['skipped_entries'] += 1
                         continue
 
@@ -555,6 +557,7 @@ def import_workmarket():
                         mileage=te.get('mileage', 0),
                         status='draft',
                         notes=f"Imported from WorkMarket #{a_id}",
+                        source_hash=source_hash,
                         created_by=user.user_id,
                         updated_by=user.user_id
                     )
@@ -623,3 +626,59 @@ def preview_workmarket_import():
             })
 
     return jsonify(preview)
+
+
+@imports_bp.route('/backfill-hashes', methods=['POST'])
+@jwt_required_with_user
+@admin_required
+def backfill_source_hashes():
+    """
+    Generate source_hash for existing time entries that were imported but don't have a hash.
+    This is a one-time migration helper.
+    """
+    # Find all entries without a source_hash that have import-related notes
+    entries = TimeEntry.query.filter(
+        TimeEntry.source_hash.is_(None),
+        db.or_(
+            TimeEntry.notes.like('%Imported from Field Nation%'),
+            TimeEntry.notes.like('%Imported from WorkMarket%')
+        )
+    ).all()
+
+    updated = 0
+    for entry in entries:
+        # Extract platform and external ID from notes
+        platform = None
+        external_id = None
+
+        if entry.notes:
+            fn_match = re.search(r'Field Nation WO#(\d+)', entry.notes)
+            wm_match = re.search(r'WorkMarket #(\d+)', entry.notes)
+
+            if fn_match:
+                platform = 'FN'
+                external_id = fn_match.group(1)
+            elif wm_match:
+                platform = 'WM'
+                external_id = wm_match.group(1)
+
+        if platform and external_id:
+            # Generate hash based on available data
+            source_hash = generate_source_hash(
+                platform,
+                external_id,
+                entry.date_worked.isoformat() if entry.date_worked else '',
+                entry.time_in.strftime('%I:%M %p') if entry.time_in else '',
+                entry.time_out.strftime('%I:%M %p') if entry.time_out else '',
+                float(entry.hours_worked) if entry.hours_worked else 0
+            )
+            entry.source_hash = source_hash
+            updated += 1
+
+    db.session.commit()
+
+    return jsonify({
+        'message': f'Backfilled {updated} entries with source hashes',
+        'updated': updated,
+        'total_checked': len(entries)
+    })

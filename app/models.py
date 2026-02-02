@@ -183,6 +183,7 @@ class TimeEntry(db.Model):
         default='draft'
     )
     notes = db.Column(db.Text)
+    source_hash = db.Column(db.String(64))  # For duplicate detection on imports
 
     # Verification
     verified_by = db.Column(db.Integer)

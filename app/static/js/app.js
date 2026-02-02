@@ -1892,6 +1892,11 @@ const Pages = {
                     </div>
                 </div>
                 <div class="filters no-print">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span>Quick:</span>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.setIncomeDates('thisMonth')">This Month</button>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.setIncomeDates('lastMonth')">Last Month</button>
+                    </div>
                     <input type="date" class="form-control" id="income-from" value="${firstDay}">
                     <input type="date" class="form-control" id="income-to" value="${lastDay}">
                     <button class="btn btn-primary" onclick="Pages.loadIncomeReport()">Generate</button>
@@ -1899,6 +1904,21 @@ const Pages = {
                 <div id="income-results"></div>
             </div>
         `;
+    },
+
+    setIncomeDates(period) {
+        const today = new Date();
+        let firstDay, lastDay;
+        if (period === 'thisMonth') {
+            firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        } else if (period === 'lastMonth') {
+            firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+        }
+        document.getElementById('income-from').value = firstDay.toISOString().split('T')[0];
+        document.getElementById('income-to').value = lastDay.toISOString().split('T')[0];
+        this.loadIncomeReport();
     },
 
     lastIncomeData: null,
@@ -2066,10 +2086,15 @@ const Pages = {
                     <h3 class="card-title">Platform Summary</h3>
                 </div>
                 <div class="filters">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span>Quick:</span>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.setPlatformDates('thisMonth')">This Month</button>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.setPlatformDates('lastMonth')">Last Month</button>
+                        <button class="btn btn-secondary btn-sm" onclick="Pages.loadPlatformReport(true)">All Time</button>
+                    </div>
                     <input type="date" class="form-control" id="platform-from" value="${firstDay}">
                     <input type="date" class="form-control" id="platform-to" value="${lastDay}">
                     <button class="btn btn-primary" onclick="Pages.loadPlatformReport()">Generate</button>
-                    <button class="btn btn-secondary" onclick="Pages.loadPlatformReport(true)">All Time</button>
                 </div>
                 <div id="platform-results"></div>
             </div>
@@ -2077,6 +2102,21 @@ const Pages = {
 
         // Auto-load with current month
         await this.loadPlatformReport();
+    },
+
+    setPlatformDates(period) {
+        const today = new Date();
+        let firstDay, lastDay;
+        if (period === 'thisMonth') {
+            firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+            lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+        } else if (period === 'lastMonth') {
+            firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+            lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
+        }
+        document.getElementById('platform-from').value = firstDay.toISOString().split('T')[0];
+        document.getElementById('platform-to').value = lastDay.toISOString().split('T')[0];
+        this.loadPlatformReport();
     },
 
     async loadPlatformReport(allTime = false) {

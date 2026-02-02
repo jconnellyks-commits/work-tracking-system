@@ -267,6 +267,73 @@ const App = {
         return this.technicians.map(t =>
             `<option value="${t.tech_id}" ${t.tech_id == selectedId ? 'selected' : ''}>${t.name}</option>`
         ).join('');
+    },
+
+    // Get technician checkboxes HTML for multi-select
+    getTechnicianCheckboxes() {
+        return this.technicians.map(t =>
+            `<label><input type="checkbox" value="${t.tech_id}"> ${t.name}</label>`
+        ).join('');
+    },
+
+    // Toggle multi-select dropdown
+    toggleMultiSelect(id) {
+        const container = document.getElementById(id);
+        const isOpen = container.classList.contains('open');
+
+        // Close all other multi-selects
+        document.querySelectorAll('.multi-select.open').forEach(el => {
+            if (el.id !== id) el.classList.remove('open');
+        });
+
+        container.classList.toggle('open', !isOpen);
+    },
+
+    // Get selected values from multi-select
+    getMultiSelectValues(id) {
+        const container = document.getElementById(id);
+        if (!container) return [];
+        const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+        return Array.from(checkboxes).map(cb => cb.value);
+    },
+
+    // Update multi-select display text
+    updateMultiSelectDisplay(id, defaultText) {
+        const container = document.getElementById(id);
+        if (!container) return;
+        const values = this.getMultiSelectValues(id);
+        const displayEl = container.querySelector('.multi-select-text');
+
+        if (values.length === 0) {
+            displayEl.textContent = defaultText;
+        } else if (values.length === 1) {
+            // Show the label text for single selection
+            const checkbox = container.querySelector(`input[value="${values[0]}"]`);
+            displayEl.textContent = checkbox?.parentElement?.textContent?.trim() || values[0];
+        } else {
+            displayEl.textContent = `${values.length} selected`;
+        }
+    },
+
+    // Initialize multi-select event handlers
+    initMultiSelect(id, defaultText, onChange) {
+        const container = document.getElementById(id);
+        if (!container) return;
+
+        // Add change handlers to checkboxes
+        container.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                this.updateMultiSelectDisplay(id, defaultText);
+                if (onChange) onChange();
+            });
+        });
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!container.contains(e.target)) {
+                container.classList.remove('open');
+            }
+        });
     }
 };
 
@@ -867,20 +934,30 @@ const Pages = {
                     <button class="btn btn-primary" id="new-entry-btn"><i class="fas fa-plus"></i> New Entry</button>
                 </div>
                 <div class="filters">
-                    <select class="form-control" id="entry-status-filter">
-                        <option value="">All Statuses</option>
-                        <option value="draft">Draft</option>
-                        <option value="submitted">Submitted</option>
-                        <option value="verified">Verified</option>
-                        <option value="billed">Billed</option>
-                        <option value="paid">Paid</option>
-                    </select>
+                    <div class="multi-select" id="entry-status-filter">
+                        <div class="multi-select-display" onclick="App.toggleMultiSelect('entry-status-filter')">
+                            <span class="multi-select-text">All Statuses</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown">
+                            <label><input type="checkbox" value="draft"> Draft</label>
+                            <label><input type="checkbox" value="submitted"> Submitted</label>
+                            <label><input type="checkbox" value="verified"> Verified</label>
+                            <label><input type="checkbox" value="billed"> Billed</label>
+                            <label><input type="checkbox" value="paid"> Paid</label>
+                        </div>
+                    </div>
                     ${isManager ? `
-                    <select class="form-control" id="entry-tech-filter">
-                        <option value="">All Technicians</option>
-                        <option value="unassigned">Unassigned</option>
-                        ${App.getTechnicianOptions()}
-                    </select>
+                    <div class="multi-select" id="entry-tech-filter">
+                        <div class="multi-select-display" onclick="App.toggleMultiSelect('entry-tech-filter')">
+                            <span class="multi-select-text">All Technicians</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown">
+                            <label><input type="checkbox" value="unassigned"> Unassigned</label>
+                            ${App.getTechnicianCheckboxes()}
+                        </div>
+                    </div>
                     ` : ''}
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
@@ -926,17 +1003,19 @@ const Pages = {
 
         const loadEntries = async (page = 1) => {
             const params = { page, per_page: 20, sort_by: currentSort.by, sort_order: currentSort.order };
-            const status = document.getElementById('entry-status-filter').value;
-            const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
+            const statuses = App.getMultiSelectValues('entry-status-filter');
+            const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
             const jobSearch = document.getElementById('entry-job-search').value;
 
-            if (status) params.status = status;
-            if (techFilter === 'unassigned') {
+            if (statuses.length > 0) params.status = statuses.join(',');
+            if (techFilters.includes('unassigned')) {
                 params.unassigned = 'true';
-            } else if (techFilter) {
-                params.tech_id = techFilter;
+                const techIds = techFilters.filter(t => t !== 'unassigned');
+                if (techIds.length > 0) params.tech_id = techIds.join(',');
+            } else if (techFilters.length > 0) {
+                params.tech_id = techFilters.join(',');
             }
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
@@ -1008,17 +1087,19 @@ const Pages = {
         // Grouped view loader
         const loadGroupedEntries = async () => {
             const params = {};
-            const status = document.getElementById('entry-status-filter').value;
-            const techFilter = isManager ? document.getElementById('entry-tech-filter').value : null;
+            const statuses = App.getMultiSelectValues('entry-status-filter');
+            const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
             const jobSearch = document.getElementById('entry-job-search').value;
 
-            if (status) params.status = status;
-            if (techFilter === 'unassigned') {
+            if (statuses.length > 0) params.status = statuses.join(',');
+            if (techFilters.includes('unassigned')) {
                 params.unassigned = 'true';
-            } else if (techFilter) {
-                params.tech_id = techFilter;
+                const techIds = techFilters.filter(t => t !== 'unassigned');
+                if (techIds.length > 0) params.tech_id = techIds.join(',');
+            } else if (techFilters.length > 0) {
+                params.tech_id = techFilters.join(',');
             }
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
@@ -1152,14 +1233,15 @@ const Pages = {
             }
         });
 
-        // Event listeners
-        document.getElementById('entry-status-filter').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
+        // Event listeners - multi-select filters
+        const reloadEntries = () => isGroupedView ? loadGroupedEntries() : loadEntries(1);
+        App.initMultiSelect('entry-status-filter', 'All Statuses', reloadEntries);
         if (isManager) {
-            document.getElementById('entry-tech-filter').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
+            App.initMultiSelect('entry-tech-filter', 'All Technicians', reloadEntries);
         }
-        document.getElementById('entry-from-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
-        document.getElementById('entry-to-date').addEventListener('change', () => isGroupedView ? loadGroupedEntries() : loadEntries(1));
-        document.getElementById('entry-job-search').addEventListener('input', debounce(() => isGroupedView ? loadGroupedEntries() : loadEntries(1), 300));
+        document.getElementById('entry-from-date').addEventListener('change', reloadEntries);
+        document.getElementById('entry-to-date').addEventListener('change', reloadEntries);
+        document.getElementById('entry-job-search').addEventListener('input', debounce(reloadEntries, 300));
 
         // Sortable columns
         document.querySelectorAll('#entries-list-view .sortable').forEach(th => {

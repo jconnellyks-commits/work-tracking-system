@@ -60,16 +60,26 @@ def list_time_entries():
     user = g.current_user
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 25, type=int)
-    tech_id = request.args.get('tech_id', type=int)
+    tech_id_param = request.args.get('tech_id', '')
     job_id = request.args.get('job_id', type=int)
     job_search = request.args.get('job_search', '').strip()
-    status = request.args.get('status')
+    status_param = request.args.get('status', '')
     period_id = request.args.get('period_id', type=int)
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     unassigned = request.args.get('unassigned', '').lower() == 'true'
     sort_by = request.args.get('sort_by', 'date_worked')
     sort_order = request.args.get('sort_order', 'desc')
+
+    # Parse multiple tech_ids (comma-separated)
+    tech_ids = []
+    if tech_id_param:
+        tech_ids = [int(t) for t in tech_id_param.split(',') if t.strip().isdigit()]
+
+    # Parse multiple statuses (comma-separated)
+    statuses = []
+    if status_param:
+        statuses = [s.strip() for s in status_param.split(',') if s.strip()]
 
     query = TimeEntry.query
 
@@ -78,11 +88,17 @@ def list_time_entries():
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
         query = query.filter(TimeEntry.tech_id == user.tech_id)
+    elif unassigned and tech_ids:
+        # Both unassigned and specific techs selected
+        query = query.filter(db.or_(
+            TimeEntry.tech_id.is_(None),
+            TimeEntry.tech_id.in_(tech_ids)
+        ))
     elif unassigned:
         # Filter for entries without a technician assigned
         query = query.filter(TimeEntry.tech_id.is_(None))
-    elif tech_id:
-        query = query.filter(TimeEntry.tech_id == tech_id)
+    elif tech_ids:
+        query = query.filter(TimeEntry.tech_id.in_(tech_ids))
 
     if job_id:
         query = query.filter(TimeEntry.job_id == job_id)
@@ -95,8 +111,8 @@ def list_time_entries():
             )
         )
 
-    if status:
-        query = query.filter(TimeEntry.status == status)
+    if statuses:
+        query = query.filter(TimeEntry.status.in_(statuses))
 
     if period_id:
         query = query.filter(TimeEntry.period_id == period_id)
@@ -619,12 +635,22 @@ def list_time_entries_grouped():
         - job_search: Search by job ticket number or client name
     """
     user = g.current_user
-    tech_id = request.args.get('tech_id', type=int)
-    status = request.args.get('status')
+    tech_id_param = request.args.get('tech_id', '')
+    status_param = request.args.get('status', '')
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
     unassigned = request.args.get('unassigned', '').lower() == 'true'
     job_search = request.args.get('job_search', '').strip()
+
+    # Parse multiple tech_ids (comma-separated)
+    tech_ids = []
+    if tech_id_param:
+        tech_ids = [int(t) for t in tech_id_param.split(',') if t.strip().isdigit()]
+
+    # Parse multiple statuses (comma-separated)
+    statuses = []
+    if status_param:
+        statuses = [s.strip() for s in status_param.split(',') if s.strip()]
 
     query = TimeEntry.query
 
@@ -633,13 +659,19 @@ def list_time_entries_grouped():
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
         query = query.filter(TimeEntry.tech_id == user.tech_id)
+    elif unassigned and tech_ids:
+        # Both unassigned and specific techs selected
+        query = query.filter(db.or_(
+            TimeEntry.tech_id.is_(None),
+            TimeEntry.tech_id.in_(tech_ids)
+        ))
     elif unassigned:
         query = query.filter(TimeEntry.tech_id.is_(None))
-    elif tech_id:
-        query = query.filter(TimeEntry.tech_id == tech_id)
+    elif tech_ids:
+        query = query.filter(TimeEntry.tech_id.in_(tech_ids))
 
-    if status:
-        query = query.filter(TimeEntry.status == status)
+    if statuses:
+        query = query.filter(TimeEntry.status.in_(statuses))
 
     if from_date:
         query = query.filter(TimeEntry.date_worked >= from_date)

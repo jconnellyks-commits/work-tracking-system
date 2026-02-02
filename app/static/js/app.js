@@ -1707,7 +1707,7 @@ const Pages = {
                                     <tr style="background: #f8f9fa;">
                                         <th colspan="3">Totals</th>
                                         <th>${tech.totals.total_hours.toFixed(2)}</th>
-                                        <th></th>
+                                        <th>${tech.totals.total_hours > 0 ? '$' + (tech.totals.total_base_pay / tech.totals.total_hours).toFixed(2) + ' avg' : '-'}</th>
                                         <th>$${tech.totals.total_base_pay.toFixed(2)}</th>
                                         <th>$${tech.totals.total_mileage_pay.toFixed(2)}</th>
                                         <th>$${tech.totals.total_per_diem.toFixed(2)}</th>

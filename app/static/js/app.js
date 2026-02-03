@@ -2126,12 +2126,13 @@ const Pages = {
 
             resultsDiv.innerHTML = html;
 
-            // Create the chart
-            const ctx = document.getElementById('income-chart').getContext('2d');
-            if (window.incomeChart) {
-                window.incomeChart.destroy();
-            }
-            window.incomeChart = new Chart(ctx, {
+            // Create the chart (if Chart.js is loaded)
+            if (typeof Chart !== 'undefined') {
+                const ctx = document.getElementById('income-chart').getContext('2d');
+                if (window.incomeChart) {
+                    window.incomeChart.destroy();
+                }
+                window.incomeChart = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: chartLabels,
@@ -2188,7 +2189,11 @@ const Pages = {
                         }
                     }
                 }
-            });
+                });
+            } else {
+                // Chart.js not loaded - hide chart container
+                document.getElementById('income-chart').parentElement.style.display = 'none';
+            }
         } catch (error) {
             App.showAlert(error.message);
             resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;

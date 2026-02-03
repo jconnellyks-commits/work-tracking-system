@@ -2039,6 +2039,25 @@ const Pages = {
 
             const profitClass = data.totals.net_profit >= 0 ? 'text-success' : 'text-danger';
 
+            // Aggregate data by date for chart
+            const dailyData = {};
+            data.jobs.forEach(job => {
+                const date = job.job_date || 'Unknown';
+                if (!dailyData[date]) {
+                    dailyData[date] = { income: 0, expenses: 0, profit: 0 };
+                }
+                dailyData[date].income += job.billing;
+                dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
+                dailyData[date].profit += job.net_profit;
+            });
+
+            // Sort dates and prepare chart data
+            const sortedDates = Object.keys(dailyData).sort();
+            const chartLabels = sortedDates.map(d => App.formatDate(d));
+            const incomeData = sortedDates.map(d => dailyData[d].income);
+            const expenseData = sortedDates.map(d => dailyData[d].expenses);
+            const profitData = sortedDates.map(d => dailyData[d].profit);
+
             let html = `
                 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
                     <h4 style="margin-bottom: 0.5rem;">Period Summary: ${fromDate} to ${toDate}</h4>
@@ -2050,6 +2069,10 @@ const Pages = {
                         <div><small>Tech Pay</small><br><strong>$${data.totals.tech_pay.toFixed(2)}</strong></div>
                         <div><small>Net Profit</small><br><strong class="${profitClass}">$${data.totals.net_profit.toFixed(2)}</strong><br><small>(${data.profit_margin.toFixed(1)}%)</small></div>
                     </div>
+                </div>
+
+                <div style="background: white; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; max-height: 300px;">
+                    <canvas id="income-chart"></canvas>
                 </div>
 
                 <div class="table-container">
@@ -2102,6 +2125,70 @@ const Pages = {
             `;
 
             resultsDiv.innerHTML = html;
+
+            // Create the chart
+            const ctx = document.getElementById('income-chart').getContext('2d');
+            if (window.incomeChart) {
+                window.incomeChart.destroy();
+            }
+            window.incomeChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: chartLabels,
+                    datasets: [
+                        {
+                            label: 'Income',
+                            data: incomeData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.7)',
+                            borderColor: 'rgb(16, 185, 129)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Expenses',
+                            data: expenseData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                            borderColor: 'rgb(239, 68, 68)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: 'Profit',
+                            data: profitData,
+                            type: 'line',
+                            borderColor: 'rgb(37, 99, 235)',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': $' + context.raw.toFixed(2);
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
         } catch (error) {
             App.showAlert(error.message);
             resultsDiv.innerHTML = `<p class="text-center text-danger">${error.message}</p>`;

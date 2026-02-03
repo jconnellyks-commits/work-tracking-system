@@ -2039,24 +2039,33 @@ const Pages = {
 
             const profitClass = data.totals.net_profit >= 0 ? 'text-success' : 'text-danger';
 
+            // Generate all dates in range
+            const allDates = [];
+            const startDate = new Date(fromDate);
+            const endDate = new Date(toDate);
+            for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+                allDates.push(d.toISOString().split('T')[0]);
+            }
+
             // Aggregate data by date for chart
             const dailyData = {};
+            allDates.forEach(date => {
+                dailyData[date] = { income: 0, expenses: 0, profit: 0 };
+            });
             data.jobs.forEach(job => {
-                const date = job.job_date || 'Unknown';
-                if (!dailyData[date]) {
-                    dailyData[date] = { income: 0, expenses: 0, profit: 0 };
+                const date = job.job_date;
+                if (date && dailyData[date]) {
+                    dailyData[date].income += job.billing;
+                    dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
+                    dailyData[date].profit += job.net_profit;
                 }
-                dailyData[date].income += job.billing;
-                dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
-                dailyData[date].profit += job.net_profit;
             });
 
-            // Sort dates and prepare chart data
-            const sortedDates = Object.keys(dailyData).sort();
-            const chartLabels = sortedDates.map(d => App.formatDate(d));
-            const incomeData = sortedDates.map(d => dailyData[d].income);
-            const expenseData = sortedDates.map(d => dailyData[d].expenses);
-            const profitData = sortedDates.map(d => dailyData[d].profit);
+            // Prepare chart data
+            const chartLabels = allDates.map(d => App.formatDate(d));
+            const incomeData = allDates.map(d => dailyData[d].income);
+            const expenseData = allDates.map(d => dailyData[d].expenses);
+            const profitData = allDates.map(d => dailyData[d].profit);
 
             let html = `
                 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">

@@ -682,3 +682,91 @@ def backfill_source_hashes():
         'updated': updated,
         'total_checked': len(entries)
     })
+
+
+@imports_bp.route('/check-existing', methods=['POST'])
+@jwt_required_with_user
+def check_existing_jobs():
+    """
+    Check which job IDs already exist as completed jobs.
+    Used by batch scraper to avoid re-scraping completed work orders.
+
+    Request JSON:
+    {
+        "platform": "fieldnation" or "workmarket",
+        "ids": ["12345", "67890", ...]
+    }
+
+    Response:
+    {
+        "already_completed": ["12345"],  # Skip these - already done
+        "to_scrape": ["67890", ...]      # Scrape these - new or status changed
+    }
+    """
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+
+    platform_name = data.get('platform', '').lower()
+    ids = data.get('ids', [])
+
+    if not platform_name:
+        return jsonify({'error': 'Platform is required'}), 400
+
+    if not ids:
+        return jsonify({'already_completed': [], 'to_scrape': []})
+
+    # Map platform name to code
+    platform_map = {
+        'fieldnation': 'FN',
+        'field_nation': 'FN',
+        'fn': 'FN',
+        'workmarket': 'WM',
+        'work_market': 'WM',
+        'wm': 'WM',
+    }
+
+    platform_code = platform_map.get(platform_name)
+    if not platform_code:
+        return jsonify({'error': f'Unknown platform: {platform_name}'}), 400
+
+    # Get platform
+    platform = Platform.query.filter_by(code=platform_code).first()
+    if not platform:
+        # No jobs for this platform yet - all are new
+        return jsonify({'already_completed': [], 'to_scrape': ids})
+
+    # Query jobs for this platform with these IDs
+    existing_jobs = Job.query.filter(
+        Job.platform_id == platform.platform_id,
+        Job.platform_job_code.in_(ids)
+    ).all()
+
+    # Separate into completed vs needs-update
+    already_completed = []
+    existing_not_completed = []
+
+    for job in existing_jobs:
+        if job.job_status == 'completed':
+            already_completed.append(job.platform_job_code)
+        else:
+            existing_not_completed.append(job.platform_job_code)
+
+    # IDs not in database at all
+    existing_ids = set(j.platform_job_code for j in existing_jobs)
+    new_ids = [id for id in ids if id not in existing_ids]
+
+    # to_scrape = new + existing but not completed
+    to_scrape = new_ids + existing_not_completed
+
+    return jsonify({
+        'already_completed': already_completed,
+        'to_scrape': to_scrape,
+        'summary': {
+            'total_checked': len(ids),
+            'already_completed': len(already_completed),
+            'existing_needs_update': len(existing_not_completed),
+            'new': len(new_ids)
+        }
+    })

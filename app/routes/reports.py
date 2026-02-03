@@ -639,28 +639,50 @@ def platform_summary_report():
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
 
+    # Build job filter
+    job_filters = []
+    if from_date:
+        job_filters.append(Job.job_date >= from_date)
+    if to_date:
+        job_filters.append(Job.job_date <= to_date)
+
+    # Query jobs grouped by platform (for job count and billing)
+    jobs_query = db.session.query(
+        Job.platform_id,
+        func.count(Job.job_id).label('job_count'),
+        func.sum(Job.billing_amount).label('total_billing')
+    )
+    if job_filters:
+        jobs_query = jobs_query.filter(*job_filters)
+    jobs_query = jobs_query.group_by(Job.platform_id)
+    jobs_subquery = jobs_query.subquery()
+
+    # Query time entries grouped by platform (for hours)
+    hours_query = db.session.query(
+        Job.platform_id,
+        func.sum(TimeEntry.hours_worked).label('total_hours')
+    ).join(
+        TimeEntry, TimeEntry.job_id == Job.job_id
+    ).filter(
+        TimeEntry.status.in_(['verified', 'billed', 'paid'])
+    )
+    if job_filters:
+        hours_query = hours_query.filter(*job_filters)
+    hours_query = hours_query.group_by(Job.platform_id)
+    hours_subquery = hours_query.subquery()
+
+    # Combine with platforms
     query = db.session.query(
         Platform.platform_id,
         Platform.name,
-        func.count(func.distinct(Job.job_id)).label('job_count'),
-        func.sum(Job.billing_amount).label('total_billing'),
-        func.sum(TimeEntry.hours_worked).label('total_hours')
+        func.coalesce(jobs_subquery.c.job_count, 0).label('job_count'),
+        func.coalesce(jobs_subquery.c.total_billing, 0).label('total_billing'),
+        func.coalesce(hours_subquery.c.total_hours, 0).label('total_hours')
     ).outerjoin(
-        Job, Job.platform_id == Platform.platform_id
+        jobs_subquery, jobs_subquery.c.platform_id == Platform.platform_id
     ).outerjoin(
-        TimeEntry, and_(
-            TimeEntry.job_id == Job.job_id,
-            TimeEntry.status.in_(['verified', 'billed', 'paid'])
-        )
+        hours_subquery, hours_subquery.c.platform_id == Platform.platform_id
     )
-
-    if from_date:
-        query = query.filter(Job.job_date >= from_date)
-
-    if to_date:
-        query = query.filter(Job.job_date <= to_date)
-
-    query = query.group_by(Platform.platform_id, Platform.name)
 
     results = query.all()
 

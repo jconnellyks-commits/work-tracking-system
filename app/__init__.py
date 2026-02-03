@@ -116,12 +116,13 @@ def create_app(config_class=None):
 
         # Content Security Policy - restrict resource loading
         # Note: unsafe-inline required for this vanilla JS app with inline scripts/styles
+        # CDNs allowed: jsdelivr (Chart.js), cdnjs (Font Awesome)
         csp_directives = [
             "default-src 'self'",
-            "script-src 'self' 'unsafe-inline'",
-            "style-src 'self' 'unsafe-inline'",
+            "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+            "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
             "img-src 'self' data:",
-            "font-src 'self'",
+            "font-src 'self' https://cdnjs.cloudflare.com",
             "connect-src 'self'",
             "frame-ancestors 'none'",
             "base-uri 'self'",

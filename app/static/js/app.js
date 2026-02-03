@@ -2071,7 +2071,7 @@ const Pages = {
                     </div>
                 </div>
 
-                <div style="background: white; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; max-height: 300px;">
+                <div style="background: white; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem; height: 300px; position: relative;">
                     <canvas id="income-chart"></canvas>
                 </div>
 

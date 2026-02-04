@@ -2047,17 +2047,21 @@ const Pages = {
                 allDates.push(d.toISOString().split('T')[0]);
             }
 
-            // Aggregate data by date for chart
+            // Aggregate data by date for chart (exclude projected jobs)
             const dailyData = {};
             allDates.forEach(date => {
-                dailyData[date] = { income: 0, expenses: 0, profit: 0 };
+                dailyData[date] = { income: 0, expenses: 0, profit: 0, projected: 0 };
             });
             data.jobs.forEach(job => {
                 const date = job.job_date;
                 if (date && dailyData[date]) {
-                    dailyData[date].income += job.billing;
-                    dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
-                    dailyData[date].profit += job.net_profit;
+                    if (job.is_projected) {
+                        dailyData[date].projected += job.billing;
+                    } else {
+                        dailyData[date].income += job.billing;
+                        dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
+                        dailyData[date].profit += job.net_profit;
+                    }
                 }
             });
 
@@ -2067,12 +2071,14 @@ const Pages = {
             const expenseData = allDates.map(d => dailyData[d].expenses);
             const profitData = allDates.map(d => dailyData[d].profit);
 
+            const hasProjected = data.projected && data.projected.job_count > 0;
+
             let html = `
                 <div style="background: #f8f9fa; padding: 1rem; border-radius: 4px; margin-bottom: 1.5rem;">
                     <h4 style="margin-bottom: 0.5rem;">Period Summary: ${fromDate} to ${toDate}</h4>
                     <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; text-align: center;">
-                        <div><small>Jobs</small><br><strong>${data.job_count}</strong></div>
-                        <div><small>Income</small><br><strong style="color: var(--success);">$${data.totals.billing.toFixed(2)}</strong></div>
+                        <div><small>Jobs</small><br><strong>${data.job_count}</strong>${hasProjected ? `<br><small style="color: var(--warning);">(+${data.projected.job_count} projected)</small>` : ''}</div>
+                        <div><small>Income</small><br><strong style="color: var(--success);">$${data.totals.billing.toFixed(2)}</strong>${hasProjected ? `<br><small style="color: var(--warning);">(+$${data.projected.billing.toFixed(2)} projected)</small>` : ''}</div>
                         <div><small>Job Expenses</small><br><strong>$${data.totals.job_expenses.toFixed(2)}</strong></div>
                         <div><small>Commissions</small><br><strong>$${data.totals.commissions.toFixed(2)}</strong></div>
                         <div><small>Tech Pay</small><br><strong>$${data.totals.tech_pay.toFixed(2)}</strong></div>
@@ -2101,9 +2107,11 @@ const Pages = {
                         <tbody>
                             ${data.jobs.map(job => {
                                 const profitColor = job.net_profit >= 0 ? 'var(--success)' : 'var(--danger)';
+                                const rowStyle = job.is_projected ? 'background: #fff8e6; opacity: 0.85;' : '';
+                                const projectedBadge = job.is_projected ? '<span style="background: var(--warning); color: white; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; margin-left: 0.3rem;">PROJECTED</span>' : '';
                                 return `
-                                <tr>
-                                    <td>${job.job_date ? App.formatDate(job.job_date) : '-'}</td>
+                                <tr style="${rowStyle}">
+                                    <td>${job.job_date ? App.formatDate(job.job_date) : '-'}${projectedBadge}</td>
                                     <td>
                                         <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary);">
                                             ${job.ticket_number || 'Job #' + job.job_id}
@@ -2111,11 +2119,11 @@ const Pages = {
                                         <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
                                     </td>
                                     <td>${job.platform || '-'}</td>
-                                    <td style="text-align: right; color: var(--success);">$${job.billing.toFixed(2)}</td>
-                                    <td style="text-align: right;">$${job.job_expenses.toFixed(2)}</td>
-                                    <td style="text-align: right;">$${job.commissions.toFixed(2)}</td>
-                                    <td style="text-align: right;">$${job.tech_pay.toFixed(2)}</td>
-                                    <td style="text-align: right; color: ${profitColor}; font-weight: bold;">$${job.net_profit.toFixed(2)}</td>
+                                    <td style="text-align: right; color: ${job.is_projected ? 'var(--warning)' : 'var(--success)'};">$${job.billing.toFixed(2)}</td>
+                                    <td style="text-align: right;">${job.is_projected ? '-' : '$' + job.job_expenses.toFixed(2)}</td>
+                                    <td style="text-align: right;">${job.is_projected ? '-' : '$' + job.commissions.toFixed(2)}</td>
+                                    <td style="text-align: right;">${job.is_projected ? '-' : '$' + job.tech_pay.toFixed(2)}</td>
+                                    <td style="text-align: right; color: ${job.is_projected ? 'var(--gray-400)' : profitColor}; font-weight: bold;">${job.is_projected ? '-' : '$' + job.net_profit.toFixed(2)}</td>
                                 </tr>
                             `}).join('')}
                         </tbody>

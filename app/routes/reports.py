@@ -2,7 +2,7 @@
 Reporting routes for generating various work tracking reports.
 Includes payroll, job billing, technician hours, and audit reports.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from decimal import Decimal
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import func, and_
@@ -322,12 +322,16 @@ def income_expense_report():
         - to_date: End date (required)
 
     Returns breakdown of income, expenses, and net profit.
+    Jobs with future dates are marked as projected and excluded from net profit.
     """
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
 
     if not from_date or not to_date:
         return jsonify({'error': 'Date range required'}), 400
+
+    # Get today's date for projected detection
+    today = date.today()
 
     # Get jobs in date range with verified time entries
     jobs_query = Job.query.filter(
@@ -344,8 +348,15 @@ def income_expense_report():
         'total_expenses': Decimal('0'),
         'net_profit': Decimal('0')
     }
+    projected_totals = {
+        'billing': Decimal('0'),
+        'job_count': 0
+    }
 
     for job in jobs_query:
+        # Check if job is in the future (projected)
+        is_projected = job.job_date and job.job_date > today
+
         # Calculate tech pay for this job
         pay_data = calculate_job_pay(job.job_id)
         tech_pay = Decimal('0')
@@ -369,17 +380,22 @@ def income_expense_report():
             'commissions': float(commissions),
             'tech_pay': float(tech_pay),
             'total_expenses': float(total_expenses),
-            'net_profit': float(net_profit)
+            'net_profit': float(net_profit),
+            'is_projected': is_projected
         }
         jobs_data.append(job_entry)
 
-        # Update totals
-        totals['billing'] += billing
-        totals['job_expenses'] += job_expenses
-        totals['commissions'] += commissions
-        totals['tech_pay'] += tech_pay
-        totals['total_expenses'] += total_expenses
-        totals['net_profit'] += net_profit
+        # Update totals - only include non-projected jobs in actual totals
+        if is_projected:
+            projected_totals['billing'] += billing
+            projected_totals['job_count'] += 1
+        else:
+            totals['billing'] += billing
+            totals['job_expenses'] += job_expenses
+            totals['commissions'] += commissions
+            totals['tech_pay'] += tech_pay
+            totals['total_expenses'] += total_expenses
+            totals['net_profit'] += net_profit
 
     # Sort by date
     jobs_data.sort(key=lambda j: j['job_date'] or '')
@@ -391,6 +407,8 @@ def income_expense_report():
         user_id=g.user_id
     )
 
+    actual_job_count = len(jobs_data) - projected_totals['job_count']
+
     return jsonify({
         'report_type': 'income_expense',
         'from_date': from_date,
@@ -398,7 +416,12 @@ def income_expense_report():
         'generated_at': datetime.utcnow().isoformat(),
         'jobs': jobs_data,
         'totals': {k: float(v) for k, v in totals.items()},
-        'job_count': len(jobs_data),
+        'projected': {
+            'billing': float(projected_totals['billing']),
+            'job_count': projected_totals['job_count']
+        },
+        'job_count': actual_job_count,
+        'total_job_count': len(jobs_data),
         'profit_margin': float((totals['net_profit'] / totals['billing'] * 100) if totals['billing'] > 0 else 0)
     }), 200
 

@@ -3481,12 +3481,12 @@ const Pages = {
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Vonage API Key</label>
+                                <label>Apidaze API Key</label>
                                 <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API key'}">
                                 <small class="text-muted">Leave blank to keep existing</small>
                             </div>
                             <div class="form-group">
-                                <label>Vonage API Secret</label>
+                                <label>Apidaze API Secret</label>
                                 <input type="password" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API secret'}">
                                 <small class="text-muted">Leave blank to keep existing</small>
                             </div>
@@ -3495,7 +3495,7 @@ const Pages = {
                         <div class="form-group">
                             <label>From Number</label>
                             <input type="text" class="form-control" name="from_number" value="${smsSettings.from_number || ''}" placeholder="+1234567890">
-                            <small class="text-muted">The phone number SMS messages will be sent from (must be registered with Vonage)</small>
+                            <small class="text-muted">The phone number SMS messages will be sent from (must be registered with Apidaze/Sangoma)</small>
                         </div>
 
                         <div style="display: flex; gap: 1rem; margin-top: 1rem;">
@@ -3516,9 +3516,9 @@ const Pages = {
                 </div>
                 <div style="padding: 1rem;">
                     <ol style="margin-left: 1.5rem; line-height: 1.8;">
-                        <li>Create a <a href="https://www.vonage.com/" target="_blank">Vonage</a> account (formerly Nexmo)</li>
-                        <li>Navigate to your dashboard and find your API Key and API Secret</li>
-                        <li>Purchase or register a phone number for sending SMS</li>
+                        <li>Log in to your <a href="https://voipinnovations.com/" target="_blank">VoIP Innovations</a> / Sangoma account</li>
+                        <li>Navigate to Apidaze settings and find your API Key and API Secret</li>
+                        <li>Register a phone number for sending SMS</li>
                         <li>Enter the credentials above and enable SMS notifications</li>
                         <li>Test the configuration using the "Send Test SMS" button</li>
                     </ol>

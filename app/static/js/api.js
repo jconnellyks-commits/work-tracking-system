@@ -511,6 +511,63 @@ const API = {
             return API.request('/settings/safe-mode/revert', {
                 method: 'POST'
             });
+        },
+
+        // SMS Settings
+        async getSmsSettings() {
+            return API.request('/settings/sms');
+        },
+
+        async updateSmsSettings(data) {
+            return API.request('/settings/sms', {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async testSms(phoneNumber) {
+            return API.request('/settings/sms/test', {
+                method: 'POST',
+                body: JSON.stringify({ phone_number: phoneNumber })
+            });
+        }
+    },
+
+    // Assignments endpoints
+    assignments: {
+        async getJobAssignments(jobId) {
+            return API.request(`/assignments/job/${jobId}`);
+        },
+
+        async getTechAssignments(techId) {
+            return API.request(`/assignments/technician/${techId}`);
+        },
+
+        async getMyAssignedJobs() {
+            return API.request('/assignments/my-jobs');
+        },
+
+        async assignTechnicians(jobId, techIds, sendSms = true, notes = '') {
+            return API.request(`/assignments/job/${jobId}`, {
+                method: 'POST',
+                body: JSON.stringify({ tech_ids: techIds, send_sms: sendSms, notes })
+            });
+        },
+
+        async removeAssignment(assignmentId) {
+            return API.request(`/assignments/${assignmentId}`, {
+                method: 'DELETE'
+            });
+        },
+
+        async resendAssignmentSms(assignmentId) {
+            return API.request(`/assignments/${assignmentId}/resend-sms`, {
+                method: 'POST'
+            });
+        },
+
+        async getSmsStatus() {
+            return API.request('/assignments/sms-status');
         }
     }
 };

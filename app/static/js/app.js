@@ -58,6 +58,7 @@ const App = {
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
             { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] },
+            { id: 'settings', icon: 'fas fa-cog', label: 'Settings', roles: ['admin'] },
             { id: 'backups', icon: 'fas fa-database', label: 'Backups', roles: ['admin'] }
         ];
 
@@ -106,6 +107,7 @@ const App = {
             'technicians': 'Technician Management',
             'users': 'User Management',
             'pay-periods': 'Pay Periods',
+            'settings': 'System Settings',
             'backups': 'Backup & Recovery'
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
@@ -136,6 +138,9 @@ const App = {
                     break;
                 case 'pay-periods':
                     await Pages.payPeriods(content);
+                    break;
+                case 'settings':
+                    await Pages.settings(content);
                     break;
                 case 'backups':
                     await Pages.backups(content);
@@ -411,7 +416,72 @@ const Pages = {
             </div>
         `;
 
+        // My Assigned Jobs section (for technicians)
+        if (!isManager) {
+            html += `
+                <div class="card" id="my-assigned-jobs-card">
+                    <div class="card-header">
+                        <h3 class="card-title"><i class="fas fa-tasks"></i> My Assigned Jobs</h3>
+                    </div>
+                    <div id="my-assigned-jobs-content">
+                        <div class="loading"><div class="spinner"></div>Loading...</div>
+                    </div>
+                </div>
+            `;
+        }
+
         container.innerHTML = html;
+
+        // Load assigned jobs for technicians
+        if (!isManager) {
+            try {
+                const assignedData = await API.assignments.getMyAssignedJobs();
+                const jobs = assignedData.jobs || [];
+                const contentDiv = document.getElementById('my-assigned-jobs-content');
+
+                if (jobs.length === 0) {
+                    contentDiv.innerHTML = '<p class="text-muted" style="padding: 1rem;">No jobs currently assigned to you.</p>';
+                } else {
+                    contentDiv.innerHTML = `
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Ticket</th>
+                                        <th>Client</th>
+                                        <th>Date</th>
+                                        <th>Location</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${jobs.map(job => `
+                                        <tr>
+                                            <td>${job.external_url
+                                                ? `<a href="${job.external_url}" target="_blank">${job.ticket_number || '-'}</a>`
+                                                : (job.ticket_number || '-')}</td>
+                                            <td>${job.client_name || '-'}</td>
+                                            <td>${App.formatDate(job.job_date)}</td>
+                                            <td>${job.location || '-'}</td>
+                                            <td>${App.getStatusBadge(job.job_status)}</td>
+                                            <td>
+                                                <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
+                                                <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('Failed to load assigned jobs:', e);
+                document.getElementById('my-assigned-jobs-content').innerHTML =
+                    '<p class="text-muted" style="padding: 1rem;">Could not load assigned jobs.</p>';
+            }
+        }
     },
 
     // Jobs page
@@ -508,6 +578,7 @@ const Pages = {
                         <td>
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
                             <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
+                            ${isManager ? `<button class="btn btn-sm btn-info" onclick="Pages.assignTechniciansToJob(${job.job_id})" title="Assign Technicians"><i class="fas fa-user-plus"></i></button>` : ''}
                             ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.editJob(${job.job_id})">Edit</button>` : ''}
                             ${isManager ? `<button class="btn btn-sm btn-danger" onclick="Pages.deleteJob(${job.job_id})">Delete</button>` : ''}
                         </td>
@@ -565,8 +636,74 @@ const Pages = {
         const entriesData = await API.jobs.getTimeEntries(jobId);
         const entries = entriesData.time_entries || [];
 
-        // Fetch pay calculation (managers only)
+        // Fetch job assignments (managers only)
         const isManager = ['admin', 'manager'].includes(App.user.role);
+        let assignmentsHtml = '';
+        if (isManager) {
+            try {
+                const assignmentsData = await API.assignments.getJobAssignments(jobId);
+                const assignments = assignmentsData.assignments || [];
+                if (assignments.length > 0) {
+                    assignmentsHtml = `
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label>Assigned Technicians (${assignments.length})
+                                <button class="btn btn-sm btn-info" style="margin-left: 1rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                                    <i class="fas fa-user-plus"></i> Assign More
+                                </button>
+                            </label>
+                            <div class="table-container" style="max-height: 150px; overflow-y: auto;">
+                                <table style="font-size: 0.85rem;">
+                                    <thead>
+                                        <tr>
+                                            <th>Technician</th>
+                                            <th>Phone</th>
+                                            <th>Status</th>
+                                            <th>SMS</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${assignments.map(a => {
+                                            const smsStatusBadge = a.sms_sent_at
+                                                ? (a.sms_status === 'delivered' ? '<span class="badge badge-success">Delivered</span>'
+                                                    : a.sms_status === 'failed' ? '<span class="badge badge-danger">Failed</span>'
+                                                    : '<span class="badge badge-warning">Sent</span>')
+                                                : '<span class="badge badge-secondary">Not Sent</span>';
+                                            return `
+                                            <tr>
+                                                <td>${a.tech_name}</td>
+                                                <td>${a.tech_phone || '-'}</td>
+                                                <td>${App.getStatusBadge(a.status)}</td>
+                                                <td>${smsStatusBadge}</td>
+                                                <td>
+                                                    ${a.sms_status === 'failed' || !a.sms_sent_at ? `<button class="btn btn-sm btn-warning" onclick="Pages.resendAssignmentSms(${a.assignment_id}, ${jobId})">Resend SMS</button>` : ''}
+                                                    <button class="btn btn-sm btn-danger" onclick="Pages.removeAssignment(${a.assignment_id}, ${jobId})">Remove</button>
+                                                </td>
+                                            </tr>
+                                        `}).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    assignmentsHtml = `
+                        <div class="form-group" style="margin-top: 1rem;">
+                            <label>Assigned Technicians</label>
+                            <p class="text-muted">No technicians assigned yet
+                                <button class="btn btn-sm btn-info" style="margin-left: 0.5rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                                    <i class="fas fa-user-plus"></i> Assign
+                                </button>
+                            </p>
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                console.error('Failed to load assignments:', e);
+            }
+        }
+
+        // Fetch pay calculation (managers only)
         let payHtml = '';
         if (isManager && entries.length > 0) {
             try {
@@ -709,12 +846,16 @@ const Pages = {
                     <p>$${job.commissions || 0}</p>
                 </div>
             </div>
+            ${assignmentsHtml}
             ${entriesHtml}
             ${payHtml}
         `;
 
         const footer = `
             <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
+            ${isManager ? `<button class="btn btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                <i class="fas fa-user-plus"></i> Assign Techs
+            </button>` : ''}
             <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
                 <i class="fas fa-plus"></i> Add Time Entry
             </button>
@@ -920,6 +1061,127 @@ const Pages = {
             await API.jobs.delete(jobId);
             App.showAlert('Job deleted', 'success');
             Pages.jobsPage(1);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Assign technicians to job modal
+    async assignTechniciansToJob(jobId) {
+        const jobData = await API.jobs.get(jobId);
+        const job = jobData.job;
+
+        // Get existing assignments
+        let existingTechIds = [];
+        try {
+            const assignmentsData = await API.assignments.getJobAssignments(jobId);
+            existingTechIds = (assignmentsData.assignments || []).map(a => a.tech_id);
+        } catch (e) {
+            console.error('Failed to load existing assignments:', e);
+        }
+
+        // Get active technicians (filter out already assigned)
+        const availableTechs = App.technicians.filter(t => t.status === 'active' && !existingTechIds.includes(t.tech_id));
+
+        if (availableTechs.length === 0) {
+            App.showAlert('All active technicians are already assigned to this job', 'info');
+            return;
+        }
+
+        const body = `
+            <form id="assign-techs-form">
+                <p>Assign technicians to job: <strong>${job.ticket_number || 'Job #' + jobId}</strong></p>
+                <p class="text-muted">${job.description}</p>
+
+                <div class="form-group">
+                    <label>Select Technicians</label>
+                    <div style="max-height: 200px; overflow-y: auto; border: 1px solid var(--gray-300); border-radius: 4px; padding: 0.5rem;">
+                        ${availableTechs.map(t => `
+                            <label style="display: block; padding: 0.25rem 0; cursor: pointer;">
+                                <input type="checkbox" name="tech_ids" value="${t.tech_id}" style="margin-right: 0.5rem;">
+                                ${t.name} ${t.phone ? `<small class="text-muted">(${t.phone})</small>` : '<small class="text-warning">(no phone)</small>'}
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="send_sms" checked style="margin-right: 0.5rem;">
+                        Send SMS notification to assigned technicians
+                    </label>
+                </div>
+
+                <div class="form-group">
+                    <label>Assignment Notes (optional)</label>
+                    <textarea class="form-control" name="notes" rows="2" placeholder="Additional instructions or details for the technicians..."></textarea>
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveJobAssignments(${jobId})">Assign</button>
+        `;
+
+        App.showModal('Assign Technicians', body, footer);
+    },
+
+    // Save job assignments
+    async saveJobAssignments(jobId) {
+        const form = document.getElementById('assign-techs-form');
+        const checkboxes = form.querySelectorAll('input[name="tech_ids"]:checked');
+        const techIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+        const sendSms = form.querySelector('input[name="send_sms"]').checked;
+        const notes = form.querySelector('textarea[name="notes"]').value;
+
+        if (techIds.length === 0) {
+            App.showFormError('Please select at least one technician');
+            return;
+        }
+
+        try {
+            const result = await API.assignments.assignTechnicians(jobId, techIds, sendSms, notes);
+            App.showAlert(`Assigned ${result.assignments.length} technician(s)`, 'success');
+            App.hideModal();
+            // Refresh jobs list if we're on jobs page
+            if (typeof Pages.jobsPage === 'function') {
+                Pages.jobsPage(1);
+            }
+        } catch (error) {
+            App.showFormError(error.message);
+        }
+    },
+
+    // Remove assignment
+    async removeAssignment(assignmentId, jobId) {
+        if (!confirm('Remove this technician from the job?')) {
+            return;
+        }
+
+        try {
+            await API.assignments.removeAssignment(assignmentId);
+            App.showAlert('Assignment removed', 'success');
+            // Refresh the job view modal
+            App.hideModal();
+            await Pages.viewJob(jobId);
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // Resend assignment SMS
+    async resendAssignmentSms(assignmentId, jobId) {
+        if (!confirm('Resend SMS notification to this technician?')) {
+            return;
+        }
+
+        try {
+            await API.assignments.resendAssignmentSms(assignmentId);
+            App.showAlert('SMS resent', 'success');
+            // Refresh the job view modal
+            App.hideModal();
+            await Pages.viewJob(jobId);
         } catch (error) {
             App.showAlert(error.message);
         }
@@ -3181,6 +3443,124 @@ const Pages = {
             const result = await API.settings.revertSafeMode();
             App.showAlert(result.message, 'success');
             await this.backups(document.getElementById('content'));
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    // ============ System Settings ============
+
+    async settings(container) {
+        const isAdmin = App.user.role === 'admin';
+        if (!isAdmin) {
+            container.innerHTML = '<div class="alert alert-error">Access denied - Admin only</div>';
+            return;
+        }
+
+        // Get current SMS settings
+        let smsSettings = { enabled: false, from_number: '', has_credentials: false };
+        try {
+            smsSettings = await API.settings.getSmsSettings();
+        } catch (e) {
+            console.error('Failed to load SMS settings:', e);
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-sms"></i> SMS Notification Settings</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <form id="sms-settings-form">
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" name="enabled" ${smsSettings.enabled ? 'checked' : ''} style="margin-right: 0.5rem;">
+                                Enable SMS notifications for job assignments
+                            </label>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>Vonage API Key</label>
+                                <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API key'}">
+                                <small class="text-muted">Leave blank to keep existing</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Vonage API Secret</label>
+                                <input type="password" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API secret'}">
+                                <small class="text-muted">Leave blank to keep existing</small>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>From Number</label>
+                            <input type="text" class="form-control" name="from_number" value="${smsSettings.from_number || ''}" placeholder="+1234567890">
+                            <small class="text-muted">The phone number SMS messages will be sent from (must be registered with Vonage)</small>
+                        </div>
+
+                        <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+                            <button type="button" class="btn btn-primary" onclick="Pages.saveSmsSettings()">
+                                <i class="fas fa-save"></i> Save Settings
+                            </button>
+                            <button type="button" class="btn btn-secondary" onclick="Pages.testSms()">
+                                <i class="fas fa-paper-plane"></i> Send Test SMS
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-info-circle"></i> SMS Setup Instructions</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <ol style="margin-left: 1.5rem; line-height: 1.8;">
+                        <li>Create a <a href="https://www.vonage.com/" target="_blank">Vonage</a> account (formerly Nexmo)</li>
+                        <li>Navigate to your dashboard and find your API Key and API Secret</li>
+                        <li>Purchase or register a phone number for sending SMS</li>
+                        <li>Enter the credentials above and enable SMS notifications</li>
+                        <li>Test the configuration using the "Send Test SMS" button</li>
+                    </ol>
+                    <p class="text-muted" style="margin-top: 1rem;">
+                        <strong>Note:</strong> SMS notifications are sent when technicians are assigned to jobs.
+                        Technicians must have a valid phone number in their profile to receive notifications.
+                    </p>
+                </div>
+            </div>
+        `;
+    },
+
+    async saveSmsSettings() {
+        const form = document.getElementById('sms-settings-form');
+        const formData = new FormData(form);
+
+        const data = {
+            enabled: form.querySelector('input[name="enabled"]').checked,
+            from_number: formData.get('from_number')
+        };
+
+        // Only include credentials if they were entered
+        const apiKey = formData.get('api_key');
+        const apiSecret = formData.get('api_secret');
+        if (apiKey) data.api_key = apiKey;
+        if (apiSecret) data.api_secret = apiSecret;
+
+        try {
+            await API.settings.updateSmsSettings(data);
+            App.showAlert('SMS settings saved', 'success');
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async testSms() {
+        const phoneNumber = prompt('Enter phone number to send test SMS to (e.g., +1234567890):');
+        if (!phoneNumber) return;
+
+        try {
+            const result = await API.settings.testSms(phoneNumber);
+            App.showAlert(result.message || 'Test SMS sent successfully', 'success');
         } catch (error) {
             App.showAlert(error.message);
         }

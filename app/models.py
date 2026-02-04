@@ -376,6 +376,107 @@ class MileageRateHistory(db.Model):
         return float(rate.rate_per_mile) if rate else 0.67  # Default IRS rate
 
 
+class JobAssignment(db.Model):
+    """Job assignment model for tracking technician assignments to jobs."""
+    __tablename__ = 'job_assignments'
+
+    assignment_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=False)
+    status = db.Column(
+        db.Enum('invited', 'accepted', 'declined', 'expired', 'cancelled'),
+        default='accepted'
+    )
+    is_primary = db.Column(db.Boolean, default=False)
+    assigned_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    assigned_at = db.Column(db.DateTime, default=datetime.utcnow)
+    responded_at = db.Column(db.DateTime)
+    sms_sent = db.Column(db.Boolean, default=False)
+    sms_sent_at = db.Column(db.DateTime)
+    sms_delivery_status = db.Column(db.String(50), default='pending')
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    job = db.relationship('Job', backref=db.backref('assignments', lazy='dynamic'))
+    technician = db.relationship('Technician', backref=db.backref('job_assignments', lazy='dynamic'))
+    assigned_by_user = db.relationship('User', foreign_keys=[assigned_by])
+
+    def to_dict(self):
+        return {
+            'assignment_id': self.assignment_id,
+            'job_id': self.job_id,
+            'job_ticket': self.job.ticket_number if self.job else None,
+            'job_description': self.job.description if self.job else None,
+            'job_client': self.job.client_name if self.job else None,
+            'job_location': self.job.location if self.job else None,
+            'job_date': self.job.job_date.isoformat() if self.job and self.job.job_date else None,
+            'job_status': self.job.job_status if self.job else None,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'tech_phone': self.technician.phone if self.technician else None,
+            'status': self.status,
+            'is_primary': self.is_primary,
+            'assigned_by': self.assigned_by,
+            'assigned_by_name': self.assigned_by_user.full_name if self.assigned_by_user else None,
+            'assigned_at': self.assigned_at.isoformat() if self.assigned_at else None,
+            'responded_at': self.responded_at.isoformat() if self.responded_at else None,
+            'sms_sent': self.sms_sent,
+            'sms_sent_at': self.sms_sent_at.isoformat() if self.sms_sent_at else None,
+            'sms_delivery_status': self.sms_delivery_status,
+            'notes': self.notes,
+        }
+
+
+class SMSNotification(db.Model):
+    """SMS notification audit log."""
+    __tablename__ = 'sms_notifications'
+
+    notification_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    notification_type = db.Column(
+        db.Enum('job_assignment', 'invitation', 'reminder', 'cancellation', 'update', 'other'),
+        nullable=False
+    )
+    assignment_id = db.Column(db.Integer, db.ForeignKey('job_assignments.assignment_id'))
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'))
+    phone_number = db.Column(db.String(20), nullable=False)
+    message_body = db.Column(db.Text, nullable=False)
+    status = db.Column(
+        db.Enum('pending', 'sent', 'delivered', 'failed'),
+        default='pending'
+    )
+    provider_message_id = db.Column(db.String(100))
+    provider_response = db.Column(db.Text)
+    error_message = db.Column(db.Text)
+    sent_at = db.Column(db.DateTime)
+    delivered_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    assignment = db.relationship('JobAssignment', backref=db.backref('sms_notifications', lazy='dynamic'))
+    technician = db.relationship('Technician', backref=db.backref('sms_notifications', lazy='dynamic'))
+
+    def to_dict(self):
+        # Mask phone number for privacy (show last 4 digits)
+        masked_phone = f"***-***-{self.phone_number[-4:]}" if self.phone_number and len(self.phone_number) >= 4 else "***"
+        return {
+            'notification_id': self.notification_id,
+            'notification_type': self.notification_type,
+            'assignment_id': self.assignment_id,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'phone_number': masked_phone,
+            'message_body': self.message_body,
+            'status': self.status,
+            'provider_message_id': self.provider_message_id,
+            'error_message': self.error_message,
+            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
+            'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class AuditLog(db.Model):
     """Audit log model for tracking all system actions."""
     __tablename__ = 'audit_logs'

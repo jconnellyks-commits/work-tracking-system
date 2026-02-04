@@ -670,3 +670,120 @@ def revert_safe_mode():
 
     except Exception as e:
         return jsonify({'error': f'Revert failed: {str(e)}'}), 500
+
+
+# ============ SMS Settings ============
+
+@settings_bp.route('/sms', methods=['GET'])
+@admin_required
+def get_sms_settings():
+    """Get SMS notification settings."""
+    # Get settings from database
+    enabled_setting = SystemSettings.query.filter_by(setting_key='sms_enabled').first()
+    from_number_setting = SystemSettings.query.filter_by(setting_key='sms_from_number').first()
+    api_key_setting = SystemSettings.query.filter_by(setting_key='sms_api_key').first()
+
+    return jsonify({
+        'enabled': enabled_setting.setting_value == 'true' if enabled_setting else False,
+        'from_number': from_number_setting.setting_value if from_number_setting else '',
+        'has_credentials': api_key_setting is not None and api_key_setting.setting_value
+    }), 200
+
+
+@settings_bp.route('/sms', methods=['PUT'])
+@admin_required
+def update_sms_settings():
+    """Update SMS notification settings."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    def set_setting(key, value, description=''):
+        setting = SystemSettings.query.filter_by(setting_key=key).first()
+        if setting:
+            setting.setting_value = str(value)
+        else:
+            setting = SystemSettings(
+                setting_key=key,
+                setting_value=str(value),
+                description=description
+            )
+            db.session.add(setting)
+        return setting
+
+    # Update enabled status
+    if 'enabled' in data:
+        set_setting('sms_enabled', 'true' if data['enabled'] else 'false', 'SMS notifications enabled')
+
+    # Update from number
+    if 'from_number' in data:
+        set_setting('sms_from_number', data['from_number'], 'SMS sender phone number')
+
+    # Update API credentials (only if provided)
+    if data.get('api_key'):
+        set_setting('sms_api_key', data['api_key'], 'Vonage API key')
+
+    if data.get('api_secret'):
+        set_setting('sms_api_secret', data['api_secret'], 'Vonage API secret')
+
+    db.session.commit()
+
+    audit_logger.log(
+        action_type='sms_settings_updated',
+        entity_type='system',
+        description='SMS settings updated',
+        user_id=g.user_id
+    )
+
+    return jsonify({'message': 'SMS settings updated'}), 200
+
+
+@settings_bp.route('/sms/test', methods=['POST'])
+@admin_required
+def test_sms():
+    """Send a test SMS message."""
+    data = request.get_json()
+    if not data or not data.get('phone_number'):
+        return jsonify({'error': 'Phone number required'}), 400
+
+    phone_number = data['phone_number']
+
+    # Get SMS credentials from settings
+    api_key_setting = SystemSettings.query.filter_by(setting_key='sms_api_key').first()
+    api_secret_setting = SystemSettings.query.filter_by(setting_key='sms_api_secret').first()
+    from_number_setting = SystemSettings.query.filter_by(setting_key='sms_from_number').first()
+
+    if not api_key_setting or not api_secret_setting:
+        return jsonify({'error': 'SMS API credentials not configured'}), 400
+
+    if not from_number_setting or not from_number_setting.setting_value:
+        return jsonify({'error': 'SMS from number not configured'}), 400
+
+    # Import SMS service and send test message
+    try:
+        from app.utils.sms_service import SMSService
+        sms = SMSService(
+            api_key=api_key_setting.setting_value,
+            api_secret=api_secret_setting.setting_value,
+            from_number=from_number_setting.setting_value
+        )
+
+        success, message_id_or_error = sms.send_sms(
+            to_number=phone_number,
+            message="Test SMS from Work Tracking System. If you received this, SMS is configured correctly."
+        )
+
+        if success:
+            audit_logger.log(
+                action_type='sms_test_sent',
+                entity_type='system',
+                description=f"Test SMS sent to {phone_number}",
+                user_id=g.user_id
+            )
+            return jsonify({'message': f'Test SMS sent successfully to {phone_number}'}), 200
+        else:
+            return jsonify({'error': f'Failed to send SMS: {message_id_or_error}'}), 500
+
+    except Exception as e:
+        logger.error(f"Failed to send test SMS: {str(e)}")
+        return jsonify({'error': f'Failed to send SMS: {str(e)}'}), 500

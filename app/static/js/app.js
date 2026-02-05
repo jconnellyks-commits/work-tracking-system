@@ -3482,12 +3482,12 @@ const Pages = {
                         <div class="form-row">
                             <div class="form-group">
                                 <label>Apidaze API Key</label>
-                                <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API key'}">
+                                <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API key'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
                                 <small class="text-muted">Leave blank to keep existing</small>
                             </div>
                             <div class="form-group">
                                 <label>Apidaze API Secret</label>
-                                <input type="password" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API secret'}">
+                                <input type="text" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API secret'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
                                 <small class="text-muted">Leave blank to keep existing</small>
                             </div>
                         </div>

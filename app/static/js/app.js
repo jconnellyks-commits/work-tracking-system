@@ -3533,24 +3533,38 @@ const Pages = {
 
     async saveSmsSettings() {
         const form = document.getElementById('sms-settings-form');
-        const formData = new FormData(form);
+        if (!form) {
+            App.showAlert('Form not found');
+            return;
+        }
+
+        const enabledCheckbox = form.querySelector('input[name="enabled"]');
+        const apiKeyInput = form.querySelector('input[name="api_key"]');
+        const apiSecretInput = form.querySelector('input[name="api_secret"]');
+        const fromNumberInput = form.querySelector('input[name="from_number"]');
 
         const data = {
-            enabled: form.querySelector('input[name="enabled"]').checked,
-            from_number: formData.get('from_number')
+            enabled: enabledCheckbox ? enabledCheckbox.checked : false,
+            from_number: fromNumberInput ? fromNumberInput.value.trim() : ''
         };
 
         // Only include credentials if they were entered
-        const apiKey = formData.get('api_key');
-        const apiSecret = formData.get('api_secret');
+        const apiKey = apiKeyInput ? apiKeyInput.value.trim() : '';
+        const apiSecret = apiSecretInput ? apiSecretInput.value.trim() : '';
         if (apiKey) data.api_key = apiKey;
         if (apiSecret) data.api_secret = apiSecret;
 
+        console.log('Saving SMS settings:', { ...data, api_key: apiKey ? '[SET]' : '[EMPTY]', api_secret: apiSecret ? '[SET]' : '[EMPTY]' });
+
         try {
-            await API.settings.updateSmsSettings(data);
+            const result = await API.settings.updateSmsSettings(data);
+            console.log('Save result:', result);
             App.showAlert('SMS settings saved', 'success');
+            // Refresh the page to show updated values
+            Pages.settings(document.getElementById('main-content'));
         } catch (error) {
-            App.showAlert(error.message);
+            console.error('Save error:', error);
+            App.showAlert(error.message || 'Failed to save settings');
         }
     },
 

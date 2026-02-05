@@ -695,13 +695,17 @@ def get_sms_settings():
 def update_sms_settings():
     """Update SMS notification settings."""
     data = request.get_json()
+    logger.info(f"SMS settings update received: enabled={data.get('enabled')}, from_number={data.get('from_number')}, api_key={'[SET]' if data.get('api_key') else '[EMPTY]'}, api_secret={'[SET]' if data.get('api_secret') else '[EMPTY]'}")
+
     if not data:
         return jsonify({'error': 'Request body required'}), 400
 
     def set_setting(key, value, description=''):
         setting = SystemSettings.query.filter_by(setting_key=key).first()
         if setting:
+            old_value = setting.setting_value
             setting.setting_value = str(value)
+            logger.info(f"Updated {key}: '{old_value[:20] if old_value else ''}...' -> '{str(value)[:20]}...'")
         else:
             setting = SystemSettings(
                 setting_key=key,
@@ -709,6 +713,7 @@ def update_sms_settings():
                 description=description
             )
             db.session.add(setting)
+            logger.info(f"Created {key}: '{str(value)[:20]}...'")
         return setting
 
     # Update enabled status
@@ -721,12 +726,13 @@ def update_sms_settings():
 
     # Update API credentials (only if provided)
     if data.get('api_key'):
-        set_setting('sms_api_key', data['api_key'], 'Vonage API key')
+        set_setting('sms_api_key', data['api_key'], 'Apidaze API key')
 
     if data.get('api_secret'):
-        set_setting('sms_api_secret', data['api_secret'], 'Vonage API secret')
+        set_setting('sms_api_secret', data['api_secret'], 'Apidaze API secret')
 
     db.session.commit()
+    logger.info("SMS settings committed to database")
 
     audit_logger.log(
         action_type='sms_settings_updated',

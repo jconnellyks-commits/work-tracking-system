@@ -761,19 +761,18 @@ def test_sms():
 
     # Import SMS service and send test message
     try:
-        from app.utils.sms_service import SMSService
-        sms = SMSService(
-            api_key=api_key_setting.setting_value,
-            api_secret=api_secret_setting.setting_value,
-            from_number=from_number_setting.setting_value
-        )
+        from app.utils.sms_service import get_sms_service, reload_sms_service
 
-        success, message_id_or_error = sms.send_sms(
+        # Reload config to pick up any recent changes
+        sms = reload_sms_service()
+
+        result = sms.send_sms(
             to_number=phone_number,
-            message="Test SMS from Work Tracking System. If you received this, SMS is configured correctly."
+            message="Test SMS from Work Tracking System. If you received this, SMS is configured correctly.",
+            notification_type='other'
         )
 
-        if success:
+        if result['success']:
             audit_logger.log(
                 action_type='sms_test_sent',
                 entity_type='system',
@@ -782,7 +781,7 @@ def test_sms():
             )
             return jsonify({'message': f'Test SMS sent successfully to {phone_number}'}), 200
         else:
-            return jsonify({'error': f'Failed to send SMS: {message_id_or_error}'}), 500
+            return jsonify({'error': f'Failed to send SMS: {result["error"]}'}), 500
 
     except Exception as e:
         logger.error(f"Failed to send test SMS: {str(e)}")

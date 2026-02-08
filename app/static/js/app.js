@@ -3481,21 +3481,21 @@ const Pages = {
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label>Apidaze API Key</label>
-                                <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API key'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
-                                <small class="text-muted">Leave blank to keep existing</small>
+                                <label>API Username</label>
+                                <input type="text" class="form-control" name="api_key" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter username'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
+                                <small class="text-muted">VoIP Innovations API username</small>
                             </div>
                             <div class="form-group">
-                                <label>Apidaze API Secret</label>
-                                <input type="text" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter API secret'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
-                                <small class="text-muted">Leave blank to keep existing</small>
+                                <label>API Password</label>
+                                <input type="text" class="form-control" name="api_secret" placeholder="${smsSettings.has_credentials ? '••••••••' : 'Enter password'}" autocomplete="off" data-lpignore="true" data-1p-ignore="true">
+                                <small class="text-muted">VoIP Innovations API password</small>
                             </div>
                         </div>
 
                         <div class="form-group">
-                            <label>From Number</label>
-                            <input type="text" class="form-control" name="from_number" value="${smsSettings.from_number || ''}" placeholder="+1234567890">
-                            <small class="text-muted">The phone number SMS messages will be sent from (must be registered with Apidaze/Sangoma)</small>
+                            <label>From Number (DID)</label>
+                            <input type="text" class="form-control" name="from_number" value="${smsSettings.from_number || ''}" placeholder="+13165551234">
+                            <small class="text-muted">Your SMS-enabled DID from VoIP Innovations</small>
                         </div>
 
                         <div style="display: flex; gap: 1rem; margin-top: 1rem;">
@@ -3516,11 +3516,11 @@ const Pages = {
                 </div>
                 <div style="padding: 1rem;">
                     <ol style="margin-left: 1.5rem; line-height: 1.8;">
-                        <li>Log in to your <a href="https://voipinnovations.com/" target="_blank">VoIP Innovations</a> / Sangoma account</li>
-                        <li>Navigate to Apidaze settings and find your API Key and API Secret</li>
-                        <li>Register a phone number for sending SMS</li>
-                        <li>Enter the credentials above and enable SMS notifications</li>
-                        <li>Test the configuration using the "Send Test SMS" button</li>
+                        <li>Log in to <a href="https://backoffice.voipinnovations.com/" target="_blank">VoIP Innovations Backoffice</a></li>
+                        <li>Go to API → API Users and create an API login</li>
+                        <li>Whitelist your server IP (34.27.146.58)</li>
+                        <li>Enable SMS on your DID (Add-Ons → Configure)</li>
+                        <li>Enter credentials above and test</li>
                     </ol>
                     <p class="text-muted" style="margin-top: 1rem;">
                         <strong>Note:</strong> SMS notifications are sent when technicians are assigned to jobs.

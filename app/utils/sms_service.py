@@ -1,8 +1,9 @@
 """
-SMS Service for sending notifications via Sangoma/Apidaze API.
+SMS Service for sending notifications via VoIP Innovations SOAP API.
 """
 import re
 import requests
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from flask import current_app
 from app import db
@@ -10,19 +11,23 @@ from app.models import SystemSettings, SMSNotification
 
 
 class SMSService:
-    """Service for sending SMS messages via Apidaze API."""
+    """Service for sending SMS messages via VoIP Innovations SOAP API."""
 
     # System settings keys for SMS configuration
     SETTINGS_KEYS = {
         'enabled': 'sms_enabled',
-        'api_key': 'sms_api_key',
-        'api_secret': 'sms_api_secret',
+        'api_key': 'sms_api_key',        # VoIP Innovations API username
+        'api_secret': 'sms_api_secret',  # VoIP Innovations API password
         'from_number': 'sms_from_number',
         'api_endpoint': 'sms_api_endpoint',
     }
 
-    # Default Apidaze endpoint
-    DEFAULT_ENDPOINT = 'https://api.apidaze.io'
+    # Default VoIP Innovations endpoint
+    DEFAULT_ENDPOINT = 'https://backoffice.voipinnovations.com/Services/APIService.asmx'
+
+    # SOAP namespace
+    SOAP_NS = 'http://schemas.xmlsoap.org/soap/envelope/'
+    VI_NS = 'http://tempuri.org/'
 
     def __init__(self):
         """Initialize SMS service with settings from database."""
@@ -31,8 +36,8 @@ class SMSService:
     def _load_config(self):
         """Load SMS configuration from SystemSettings."""
         self.enabled = SystemSettings.get_value(self.SETTINGS_KEYS['enabled'], 'false').lower() == 'true'
-        self.api_key = SystemSettings.get_value(self.SETTINGS_KEYS['api_key'], '')
-        self.api_secret = SystemSettings.get_value(self.SETTINGS_KEYS['api_secret'], '')
+        self.api_key = SystemSettings.get_value(self.SETTINGS_KEYS['api_key'], '')  # Username
+        self.api_secret = SystemSettings.get_value(self.SETTINGS_KEYS['api_secret'], '')  # Password
         self.from_number = SystemSettings.get_value(self.SETTINGS_KEYS['from_number'], '')
         self.api_endpoint = SystemSettings.get_value(
             self.SETTINGS_KEYS['api_endpoint'],
@@ -60,44 +65,123 @@ class SMSService:
             'has_api_key': bool(self.api_key),
             'has_api_secret': bool(self.api_secret),
             'has_from_number': bool(self.from_number),
-            'from_number': self.from_number[-4:] if self.from_number else None,  # Last 4 digits only
+            'from_number': self.from_number[-4:] if self.from_number else None,
             'api_endpoint': self.api_endpoint,
         }
 
     @staticmethod
-    def format_phone_number(phone):
+    def format_phone_number(phone, include_country_code=True):
         """
-        Format phone number to E.164 format for Apidaze.
+        Format phone number.
 
         Args:
             phone: Phone number in various formats
+            include_country_code: If True, return E.164 format (+1...), else just 10 digits
 
         Returns:
-            Phone number in E.164 format (e.g., +15551234567)
+            Formatted phone number
         """
         if not phone:
             return None
 
-        # Remove all non-numeric characters except leading +
-        cleaned = re.sub(r'[^\d+]', '', phone)
+        # Remove all non-numeric characters
+        cleaned = re.sub(r'[^\d]', '', phone)
 
-        # Handle various formats
-        if cleaned.startswith('+'):
-            # Already has country code
+        # Handle various formats - normalize to 10 digits for US
+        if cleaned.startswith('1') and len(cleaned) == 11:
+            cleaned = cleaned[1:]  # Remove leading 1
+
+        if len(cleaned) != 10:
+            # Not a valid US number, return as-is
+            if include_country_code:
+                return f'+1{cleaned}' if len(cleaned) == 10 else f'+{cleaned}'
             return cleaned
-        elif cleaned.startswith('1') and len(cleaned) == 11:
-            # US number with country code but no +
-            return f'+{cleaned}'
-        elif len(cleaned) == 10:
-            # US number without country code
+
+        if include_country_code:
             return f'+1{cleaned}'
-        else:
-            # Return as-is with + prefix if not already there
-            return f'+{cleaned}' if not cleaned.startswith('+') else cleaned
+        return cleaned
+
+    def _build_soap_envelope(self, did, to_number, message):
+        """
+        Build SOAP XML envelope for SMSsend method.
+
+        Args:
+            did: Source DID (10 digits)
+            to_number: Destination number (10 digits)
+            message: SMS message text
+
+        Returns:
+            XML string
+        """
+        return f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <soap:Body>
+    <SMSsend xmlns="http://tempuri.org/">
+      <login>{self.api_key}</login>
+      <secret>{self.api_secret}</secret>
+      <DID>{did}</DID>
+      <toNum>{to_number}</toNum>
+      <msg>{message}</msg>
+    </SMSsend>
+  </soap:Body>
+</soap:Envelope>'''
+
+    def _parse_soap_response(self, response_text):
+        """
+        Parse SOAP response from VoIP Innovations.
+
+        Args:
+            response_text: XML response string
+
+        Returns:
+            dict with success status and details
+        """
+        try:
+            # Parse XML
+            root = ET.fromstring(response_text)
+
+            # Find the SMSsendResult element
+            # Namespace handling for SOAP response
+            namespaces = {
+                'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
+                'vi': 'http://tempuri.org/'
+            }
+
+            # Try to find result with namespace
+            result = root.find('.//vi:SMSsendResult', namespaces)
+            if result is None:
+                # Try without namespace
+                result = root.find('.//{http://tempuri.org/}SMSsendResult')
+            if result is None:
+                # Try plain
+                result = root.find('.//SMSsendResult')
+
+            if result is not None:
+                result_text = result.text or ''
+                # VoIP Innovations typically returns "success" or an error message
+                if result_text.lower() in ['success', 'true', '1', 'ok']:
+                    return {'success': True, 'message': result_text}
+                else:
+                    return {'success': False, 'error': result_text}
+
+            # Check for SOAP Fault
+            fault = root.find('.//{http://schemas.xmlsoap.org/soap/envelope/}Fault')
+            if fault is not None:
+                fault_string = fault.find('faultstring')
+                error_msg = fault_string.text if fault_string is not None else 'SOAP Fault'
+                return {'success': False, 'error': error_msg}
+
+            # If we can't parse the result, return the raw response
+            return {'success': False, 'error': f'Unable to parse response: {response_text[:200]}'}
+
+        except ET.ParseError as e:
+            return {'success': False, 'error': f'XML parse error: {str(e)}'}
 
     def send_sms(self, to_number, message, notification_type='other', assignment_id=None, tech_id=None):
         """
-        Send an SMS message via Apidaze API.
+        Send an SMS message via VoIP Innovations SOAP API.
 
         Args:
             to_number: Destination phone number
@@ -109,29 +193,46 @@ class SMSService:
         Returns:
             dict with success status and notification record
         """
-        # Format phone number
-        formatted_number = self.format_phone_number(to_number)
-        if not formatted_number:
+        # Format phone numbers (10 digits only for VoIP Innovations)
+        formatted_to = self.format_phone_number(to_number, include_country_code=False)
+        formatted_from = self.format_phone_number(self.from_number, include_country_code=False)
+
+        if not formatted_to:
             return {
                 'success': False,
-                'error': 'Invalid phone number',
+                'error': 'Invalid destination phone number',
+                'notification': None
+            }
+
+        if not formatted_from:
+            return {
+                'success': False,
+                'error': 'Invalid from phone number',
                 'notification': None
             }
 
         # Truncate message to 160 characters for single SMS
         truncated_message = message[:160] if len(message) > 160 else message
 
+        # Escape XML special characters in message
+        escaped_message = (truncated_message
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+            .replace("'", '&apos;'))
+
         # Create notification record
         notification = SMSNotification(
             notification_type=notification_type,
             assignment_id=assignment_id,
             tech_id=tech_id,
-            phone_number=formatted_number,
+            phone_number=f'+1{formatted_to}',  # Store in E.164 format
             message_body=truncated_message,
             status='pending'
         )
         db.session.add(notification)
-        db.session.flush()  # Get the ID
+        db.session.flush()
 
         # Check if service is configured
         if not self.is_configured():
@@ -144,41 +245,48 @@ class SMSService:
                 'notification': notification
             }
 
-        # Send via Apidaze API
+        # Build and send SOAP request
         try:
-            url = f'{self.api_endpoint}/{self.api_key}/sms/send'
-            payload = {
-                'api_secret': self.api_secret,
-                'from': self.from_number,
-                'to': formatted_number,
-                'body': truncated_message
+            soap_body = self._build_soap_envelope(formatted_from, formatted_to, escaped_message)
+
+            headers = {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'http://tempuri.org/SMSsend'
             }
 
-            response = requests.post(url, data=payload, timeout=30)
-            response_data = response.json() if response.content else {}
+            response = requests.post(
+                self.api_endpoint,
+                data=soap_body.encode('utf-8'),
+                headers=headers,
+                timeout=30
+            )
 
-            if response.status_code == 200 and response_data.get('ok'):
+            # Log the raw response for debugging
+            response_text = response.text
+
+            # Parse response
+            result = self._parse_soap_response(response_text)
+
+            if result['success']:
                 notification.status = 'sent'
                 notification.sent_at = datetime.utcnow()
-                notification.provider_message_id = response_data.get('message_id')
-                notification.provider_response = str(response_data)
+                notification.provider_response = response_text[:500]
                 db.session.commit()
 
                 return {
                     'success': True,
-                    'message_id': response_data.get('message_id'),
+                    'message_id': None,
                     'notification': notification
                 }
             else:
-                error_msg = response_data.get('message') or response_data.get('error') or f'HTTP {response.status_code}'
                 notification.status = 'failed'
-                notification.error_message = error_msg
-                notification.provider_response = str(response_data)
+                notification.error_message = result.get('error', 'Unknown error')
+                notification.provider_response = response_text[:500]
                 db.session.commit()
 
                 return {
                     'success': False,
-                    'error': error_msg,
+                    'error': result.get('error', 'Unknown error'),
                     'notification': notification
                 }
 
@@ -234,7 +342,6 @@ class SMSService:
             }
 
         # Format the message (keep under 160 chars)
-        # Format: "New job assigned: FN-12345678\nDate: 02/15\nLocation: 123 Main St...\nClient: Example Corp"
         ticket = job.ticket_number or f'Job #{job.job_id}'
         date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
 

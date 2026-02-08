@@ -142,36 +142,58 @@ class SMSService:
             # Parse XML
             root = ET.fromstring(response_text)
 
-            # Find the SendSMSResult element
-            # Namespace handling for SOAP response
-            namespaces = {
-                'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
-                'vi': 'http://tempuri.org/'
-            }
-
-            # Try to find result with namespace
-            result = root.find('.//vi:SendSMSResult', namespaces)
-            if result is None:
-                # Try without namespace
-                result = root.find('.//{http://tempuri.org/}SendSMSResult')
-            if result is None:
-                # Try plain
-                result = root.find('.//SendSMSResult')
-
-            if result is not None:
-                result_text = result.text or ''
-                # VoIP Innovations returns "success" or an error message
-                if result_text.lower() in ['success', 'true', '1', 'ok', 'sent']:
-                    return {'success': True, 'message': result_text}
-                else:
-                    return {'success': False, 'error': result_text}
-
-            # Check for SOAP Fault
+            # Check for SOAP Fault first
             fault = root.find('.//{http://schemas.xmlsoap.org/soap/envelope/}Fault')
             if fault is not None:
                 fault_string = fault.find('faultstring')
                 error_msg = fault_string.text if fault_string is not None else 'SOAP Fault'
                 return {'success': False, 'error': error_msg}
+
+            # Find the SendSMSResult element - VoIP Innovations returns nested structure
+            # <SendSMSResult><responseCode>100</responseCode><responseMessage>Success</responseMessage>...</SendSMSResult>
+            result = root.find('.//{http://tempuri.org/}SendSMSResult')
+            if result is None:
+                result = root.find('.//SendSMSResult')
+
+            if result is not None:
+                # Check for nested responseCode and responseMessage
+                response_code = result.find('.//{http://tempuri.org/}responseCode')
+                if response_code is None:
+                    response_code = result.find('.//responseCode')
+
+                response_message = result.find('.//{http://tempuri.org/}responseMessage')
+                if response_message is None:
+                    response_message = result.find('.//responseMessage')
+
+                # Get the status from MsgDetails if available
+                status_elem = result.find('.//{http://tempuri.org/}status')
+                if status_elem is None:
+                    status_elem = result.find('.//status')
+
+                # Get UUID if available
+                uuid_elem = result.find('.//{http://tempuri.org/}uuid')
+                if uuid_elem is None:
+                    uuid_elem = result.find('.//uuid')
+
+                code = response_code.text if response_code is not None else ''
+                message = response_message.text if response_message is not None else ''
+                status = status_elem.text if status_elem is not None else ''
+                uuid = uuid_elem.text if uuid_elem is not None else ''
+
+                # Success if responseCode is 100 or status is SENT
+                if code == '100' or status.upper() == 'SENT' or message.lower() == 'success':
+                    return {
+                        'success': True,
+                        'message': message,
+                        'uuid': uuid,
+                        'response_code': code
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': message or f'Response code: {code}',
+                        'response_code': code
+                    }
 
             # If we can't parse the result, return the raw response
             return {'success': False, 'error': f'Unable to parse response: {response_text[:200]}'}
@@ -270,12 +292,13 @@ class SMSService:
             if result['success']:
                 notification.status = 'sent'
                 notification.sent_at = datetime.utcnow()
+                notification.provider_message_id = result.get('uuid')
                 notification.provider_response = response_text[:500]
                 db.session.commit()
 
                 return {
                     'success': True,
-                    'message_id': None,
+                    'message_id': result.get('uuid'),
                     'notification': notification
                 }
             else:

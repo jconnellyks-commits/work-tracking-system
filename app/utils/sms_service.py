@@ -103,7 +103,7 @@ class SMSService:
 
     def _build_soap_envelope(self, sender, recipient, message):
         """
-        Build SOAP XML envelope for SendSMS method.
+        Build SOAP XML envelope for SendSMSWithDLR method (with delivery reports).
 
         Args:
             sender: Source DID (10 digits)
@@ -118,13 +118,13 @@ class SMSService:
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <SendSMS xmlns="http://tempuri.org/">
+    <SendSMSWithDLR xmlns="http://tempuri.org/">
       <login>{self.api_key}</login>
       <secret>{self.api_secret}</secret>
       <sender>{sender}</sender>
       <recipient>{recipient}</recipient>
       <message>{message}</message>
-    </SendSMS>
+    </SendSMSWithDLR>
   </soap:Body>
 </soap:Envelope>'''
 
@@ -149,9 +149,14 @@ class SMSService:
                 error_msg = fault_string.text if fault_string is not None else 'SOAP Fault'
                 return {'success': False, 'error': error_msg}
 
-            # Find the SendSMSResult element - VoIP Innovations returns nested structure
-            # <SendSMSResult><responseCode>100</responseCode><responseMessage>Success</responseMessage>...</SendSMSResult>
-            result = root.find('.//{http://tempuri.org/}SendSMSResult')
+            # Find the SendSMSWithDLRResult element - VoIP Innovations returns nested structure
+            # <SendSMSWithDLRResult><responseCode>100</responseCode><responseMessage>Success</responseMessage>...</SendSMSWithDLRResult>
+            result = root.find('.//{http://tempuri.org/}SendSMSWithDLRResult')
+            if result is None:
+                result = root.find('.//SendSMSWithDLRResult')
+            if result is None:
+                # Fall back to SendSMSResult for compatibility
+                result = root.find('.//{http://tempuri.org/}SendSMSResult')
             if result is None:
                 result = root.find('.//SendSMSResult')
 
@@ -273,7 +278,7 @@ class SMSService:
 
             headers = {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': '"http://tempuri.org/SendSMS"'
+                'SOAPAction': '"http://tempuri.org/SendSMSWithDLR"'
             }
 
             response = requests.post(

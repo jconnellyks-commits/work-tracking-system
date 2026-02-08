@@ -101,30 +101,30 @@ class SMSService:
             return f'+1{cleaned}'
         return cleaned
 
-    def _build_soap_envelope(self, did, to_number, message):
+    def _build_soap_envelope(self, sender, recipient, message):
         """
-        Build SOAP XML envelope for SMSsend method.
+        Build SOAP XML envelope for SendSMS method.
 
         Args:
-            did: Source DID (10 digits)
-            to_number: Destination number (10 digits)
+            sender: Source DID (10 digits)
+            recipient: Destination number (10 digits)
             message: SMS message text
 
         Returns:
             XML string
         """
         return f'''<?xml version="1.0" encoding="utf-8"?>
-<soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-               xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
   <soap:Body>
-    <SMSsend xmlns="http://tempuri.org/">
+    <SendSMS xmlns="http://tempuri.org/">
       <login>{self.api_key}</login>
       <secret>{self.api_secret}</secret>
-      <DID>{did}</DID>
-      <toNum>{to_number}</toNum>
-      <msg>{message}</msg>
-    </SMSsend>
+      <sender>{sender}</sender>
+      <recipient>{recipient}</recipient>
+      <message>{message}</message>
+    </SendSMS>
   </soap:Body>
 </soap:Envelope>'''
 
@@ -142,7 +142,7 @@ class SMSService:
             # Parse XML
             root = ET.fromstring(response_text)
 
-            # Find the SMSsendResult element
+            # Find the SendSMSResult element
             # Namespace handling for SOAP response
             namespaces = {
                 'soap': 'http://schemas.xmlsoap.org/soap/envelope/',
@@ -150,18 +150,18 @@ class SMSService:
             }
 
             # Try to find result with namespace
-            result = root.find('.//vi:SMSsendResult', namespaces)
+            result = root.find('.//vi:SendSMSResult', namespaces)
             if result is None:
                 # Try without namespace
-                result = root.find('.//{http://tempuri.org/}SMSsendResult')
+                result = root.find('.//{http://tempuri.org/}SendSMSResult')
             if result is None:
                 # Try plain
-                result = root.find('.//SMSsendResult')
+                result = root.find('.//SendSMSResult')
 
             if result is not None:
                 result_text = result.text or ''
-                # VoIP Innovations typically returns "success" or an error message
-                if result_text.lower() in ['success', 'true', '1', 'ok']:
+                # VoIP Innovations returns "success" or an error message
+                if result_text.lower() in ['success', 'true', '1', 'ok', 'sent']:
                     return {'success': True, 'message': result_text}
                 else:
                     return {'success': False, 'error': result_text}
@@ -251,7 +251,7 @@ class SMSService:
 
             headers = {
                 'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': 'http://tempuri.org/SMSsend'
+                'SOAPAction': '"http://tempuri.org/SendSMS"'
             }
 
             response = requests.post(

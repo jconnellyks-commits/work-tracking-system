@@ -12,16 +12,42 @@ import hashlib
 imports_bp = Blueprint('imports', __name__)
 
 
+def normalize_time_str(t):
+    """Normalize a time string for consistent hashing.
+    Converts various formats to 'HH:MM AM/PM' (e.g., '01:35 PM').
+    """
+    if not t:
+        return ''
+    t = t.strip().upper()
+    # Remove timezone suffixes like (CST), (EST)
+    t = re.sub(r'\s*\([A-Z]{2,4}\)\s*$', '', t)
+    t = re.sub(r'\s+[A-Z]{2,4}\s*$', '', t)
+    # Try parsing to get consistent format
+    for fmt in ['%I:%M %p', '%I:%M%p', '%H:%M', '%I:%M:%S %p']:
+        try:
+            parsed = datetime.strptime(t, fmt)
+            return parsed.strftime('%I:%M %p')
+        except ValueError:
+            continue
+    return t
+
+
 def generate_source_hash(platform, external_id, date, time_in=None, time_out=None, hours=None):
     """
     Generate a unique hash for a scraped time entry.
     Used for duplicate detection regardless of how entries are split between technicians.
 
+    Time strings are normalized before hashing to prevent scraper formatting
+    differences from creating different hashes for the same entry.
+
     Format: {platform}:{external_id}:{date}:{time_in}:{time_out}
     If no times, uses hours: {platform}:{external_id}:{date}:hours:{hours}
     """
-    if time_in and time_out:
-        source = f"{platform}:{external_id}:{date}:{time_in}:{time_out}"
+    norm_in = normalize_time_str(time_in)
+    norm_out = normalize_time_str(time_out)
+
+    if norm_in and norm_out:
+        source = f"{platform}:{external_id}:{date}:{norm_in}:{norm_out}"
     elif hours:
         source = f"{platform}:{external_id}:{date}:hours:{hours}"
     else:
@@ -227,6 +253,19 @@ def import_fieldnation():
                     # Check if this exact scraped entry already exists (by hash)
                     existing_by_hash = TimeEntry.query.filter_by(source_hash=source_hash).first()
                     if existing_by_hash:
+                        results['skipped_entries'] += 1
+                        continue
+
+                    # Fallback: check by job + date + hours (catches entries with old/missing hashes)
+                    existing_by_fields = TimeEntry.query.filter_by(
+                        job_id=job.job_id,
+                        date_worked=entry_date,
+                        hours_worked=hours
+                    ).first()
+                    if existing_by_fields:
+                        # Update hash on the existing entry if it was missing
+                        if not existing_by_fields.source_hash:
+                            existing_by_fields.source_hash = source_hash
                         results['skipped_entries'] += 1
                         continue
 
@@ -544,6 +583,19 @@ def import_workmarket():
                     # Check if this exact scraped entry already exists (by hash)
                     existing_by_hash = TimeEntry.query.filter_by(source_hash=source_hash).first()
                     if existing_by_hash:
+                        results['skipped_entries'] += 1
+                        continue
+
+                    # Fallback: check by job + date + hours (catches entries with old/missing hashes)
+                    existing_by_fields = TimeEntry.query.filter_by(
+                        job_id=job.job_id,
+                        date_worked=entry_date,
+                        hours_worked=hours
+                    ).first()
+                    if existing_by_fields:
+                        # Update hash on the existing entry if it was missing
+                        if not existing_by_fields.source_hash:
+                            existing_by_fields.source_hash = source_hash
                         results['skipped_entries'] += 1
                         continue
 

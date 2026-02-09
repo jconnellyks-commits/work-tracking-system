@@ -477,6 +477,30 @@ class SMSNotification(db.Model):
         }
 
 
+class ContactSubmission(db.Model):
+    """Contact form submissions from the public contact page."""
+    __tablename__ = 'contact_submissions'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
+    subject = db.Column(db.String(200), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    is_read = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'email': self.email,
+            'subject': self.subject,
+            'message': self.message,
+            'is_read': self.is_read,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class AuditLog(db.Model):
     """Audit log model for tracking all system actions."""
     __tablename__ = 'audit_logs'

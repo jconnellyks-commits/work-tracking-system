@@ -16,3 +16,15 @@ def index():
 def login():
     """Serve the login page."""
     return render_template('login.html')
+
+
+@frontend_bp.route('/privacy')
+def privacy():
+    """Serve the privacy policy page (public, no auth required)."""
+    return render_template('privacy.html')
+
+
+@frontend_bp.route('/sms-terms')
+def sms_terms():
+    """Serve the SMS terms and conditions page (public, no auth required)."""
+    return render_template('sms_terms.html')

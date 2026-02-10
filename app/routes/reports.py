@@ -369,6 +369,13 @@ def income_expense_report():
         total_expenses = job_expenses + commissions + tech_pay
         net_profit = billing - total_expenses
 
+        # Get hours per date for multi-day job chart distribution
+        entry_hours_by_date = {}
+        for entry in job.time_entries:
+            if entry.date_worked and entry.hours_worked:
+                d = entry.date_worked.isoformat()
+                entry_hours_by_date[d] = entry_hours_by_date.get(d, 0) + float(entry.hours_worked)
+
         job_entry = {
             'job_id': job.job_id,
             'ticket_number': job.ticket_number,
@@ -381,7 +388,8 @@ def income_expense_report():
             'tech_pay': float(tech_pay),
             'total_expenses': float(total_expenses),
             'net_profit': float(net_profit),
-            'is_projected': is_projected
+            'is_projected': is_projected,
+            'entry_hours_by_date': entry_hours_by_date
         }
         jobs_data.append(job_entry)
 

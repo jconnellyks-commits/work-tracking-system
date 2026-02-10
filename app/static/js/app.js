@@ -2310,16 +2310,36 @@ const Pages = {
             }
 
             // Aggregate data by date for chart (exclude projected jobs)
+            // For multi-day jobs, distribute income/expenses/profit proportionally
+            // across time entry dates based on hours worked each day
             const dailyData = {};
             allDates.forEach(date => {
                 dailyData[date] = { income: 0, expenses: 0, profit: 0, projected: 0 };
             });
             data.jobs.forEach(job => {
-                const date = job.job_date;
-                if (date && dailyData[date]) {
-                    if (job.is_projected) {
+                const entryHours = job.entry_hours_by_date || {};
+                const entryDates = Object.keys(entryHours);
+                const totalEntryHours = entryDates.reduce((sum, d) => sum + entryHours[d], 0);
+
+                if (job.is_projected) {
+                    const date = job.job_date;
+                    if (date && dailyData[date]) {
                         dailyData[date].projected += job.billing;
-                    } else {
+                    }
+                } else if (totalEntryHours > 0 && entryDates.length > 1) {
+                    // Multi-day: distribute proportionally by hours
+                    entryDates.forEach(date => {
+                        if (dailyData[date]) {
+                            const ratio = entryHours[date] / totalEntryHours;
+                            dailyData[date].income += job.billing * ratio;
+                            dailyData[date].expenses += (job.job_expenses + job.commissions + job.tech_pay) * ratio;
+                            dailyData[date].profit += job.net_profit * ratio;
+                        }
+                    });
+                } else {
+                    // Single day or no entries: use job_date
+                    const date = job.job_date;
+                    if (date && dailyData[date]) {
                         dailyData[date].income += job.billing;
                         dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
                         dailyData[date].profit += job.net_profit;

@@ -1999,11 +1999,22 @@ const Pages = {
                     </div>
                     <input type="date" class="form-control" id="payroll-from" value="${firstDay}">
                     <input type="date" class="form-control" id="payroll-to" value="${lastDay}">
+                    <div class="multi-select" id="payroll-tech-filter">
+                        <div class="multi-select-display" onclick="App.toggleMultiSelect('payroll-tech-filter')">
+                            <span class="multi-select-text">All Technicians</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown">
+                            ${App.getTechnicianCheckboxes()}
+                        </div>
+                    </div>
                     <button class="btn btn-primary" onclick="Pages.loadPayrollReport()">Generate</button>
                 </div>
                 <div id="payroll-results"></div>
             </div>
         `;
+
+        App.initMultiSelect('payroll-tech-filter', 'All Technicians');
     },
 
     fillPayPeriod(startDate, endDate) {
@@ -2018,13 +2029,19 @@ const Pages = {
     async loadPayrollReport() {
         const fromDate = document.getElementById('payroll-from').value;
         const toDate = document.getElementById('payroll-to').value;
+        const techFilters = App.getMultiSelectValues('payroll-tech-filter');
         const resultsDiv = document.getElementById('payroll-results');
 
         resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
         document.getElementById('payroll-export-btns').style.display = 'none';
 
+        const params = { from_date: fromDate, to_date: toDate };
+        if (techFilters.length > 0) {
+            params.tech_id = techFilters.join(',');
+        }
+
         try {
-            const data = await API.reports.payrollDetail({ from_date: fromDate, to_date: toDate });
+            const data = await API.reports.payrollDetail(params);
 
             // Store for export
             this.lastPayrollData = data;
@@ -2077,7 +2094,7 @@ const Pages = {
                                         <th>Per Diem</th>
                                         <th>Expenses</th>
                                         <th>Total Pay</th>
-                                        <th>Job Profit</th>
+                                        <th>Profit</th>
                                     </tr>
                                 </thead>
                                 <tbody>

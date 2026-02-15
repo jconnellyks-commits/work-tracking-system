@@ -1,5 +1,120 @@
 # Work Tracking System - Session History
 
+## Session: February 13, 2026
+
+### Summary
+Fixed payroll report double-pay bug with entry-level pay calculation, added technician multi-select filter to payroll UI, cleaned up 15 phantom WorkMarket jobs, and started fixing batch scraper invitation detection.
+
+### Completed Tasks
+
+| Task | Status | Commit |
+|------|--------|--------|
+| Entry-level pay calculation in payroll report (fixes double-pay across periods) | Done | `cd59ae2` |
+| Multi-tech filter for payroll report (backend + frontend) | Done | `cd59ae2` |
+| Rename "Job Profit" column to "Profit" | Done | `cd59ae2` |
+| Delete 15 phantom WM jobs (invited, not assigned) from database | Done | DB cleanup |
+| Add invitation detection to workmarket_scraper.py | Done | local (scraper/) |
+| Add invitation filtering to batch_scraper.py | Done | local (scraper/) |
+
+### Technical Notes
+
+**Payroll Report Entry-Level Pay Calculation** (`cd59ae2`):
+- **Problem**: `payroll_detail_report()` called `calculate_job_pay(job_id)` which queries ALL time entries for a job regardless of date. If a job spans two pay periods, full pay appeared in BOTH reports.
+- **Fix**: Replaced with inline entry-level calculation scoped to the pay period date range:
+  - Precomputes `total_job_hours` per job (ALL entries, all time) for ratio calculation
+  - `hours_ratio = period_hours / total_job_hours`
+  - Prorates billing/expenses/commissions by hours_ratio
+  - Applies 50/50 split formula per entry: `tech_pool = max(0, (entry_net - deductions) / 2)`
+  - Minimum rate guarantee still applied
+  - `calculate_job_pay()` left intact — still used by income/expense report
+- **Multi-tech filter**: `tech_id` param now accepts comma-separated IDs (e.g., `tech_id=1,3,5`)
+- Frontend adds multi-select dropdown using existing `getTechnicianCheckboxes()`/`initMultiSelect()` pattern
+
+**Database Cleanup**:
+- Deleted 15 WM jobs: all had `assigned` or `in_progress` status with 0 time entries
+- These were invitation/available assignments picked up by batch scraper
+- Job IDs: 139, 146, 104, 105, 140, 137, 131, 113, 135, 141, 143, 145, 147, 142, 144
+
+**Batch Scraper Invitation Fix** (local scraper/ files, NOT YET TESTED):
+- Root cause: `get_assignment_ids_from_list()` grabs ALL `/assignments/details/` links on the page, including sidebar/recommended assignments
+- Additionally, `scrape_assignment_detail()` with `tab_status` param overrides the actual page status, masking invited jobs as "Active" or "In Progress"
+- Fix in `workmarket_scraper.py`:
+  - Detects actual page status independently (stored as `page_status`)
+  - Checks for Accept/Apply buttons on the detail page (`is_invitation` flag)
+  - Prints warning when invitation detected
+- Fix in `batch_scraper.py`:
+  - After scraping each assignment, checks `is_invitation` flag
+  - Skips invitations with log message and count
+
+### Files Modified
+- `app/routes/reports.py` - Entry-level pay calculation, multi-tech filter, MileageRateHistory import
+- `app/static/js/app.js` - Tech multi-select filter on payroll, renamed Profit column
+- `scraper/workmarket_scraper.py` - Invitation detection (Accept/Apply button check, page_status field)
+- `scraper/batch_scraper.py` - Skip invitations during scrape
+
+### Status
+- Payroll fix deployed and running (`cd59ae2`)
+- Batch scraper invitation fix needs testing — user will test next session
+- Individual WM scraper confirmed working correctly for Active tab
+
+### Next Steps
+- Test batch scraper invitation detection
+- If Accept/Apply button detection doesn't work reliably, may need alternative approach (e.g., tightening the link selector in `get_assignment_ids_from_list()`)
+
+---
+
+## Session: February 11, 2026
+
+### Summary
+Added WorkMarket "In Progress" tab support, and auto-import to the batch scraper so it imports scraped data automatically without needing a separate `import.bat` run.
+
+### Completed Tasks
+
+| Task | Status | Commit |
+|------|--------|--------|
+| Add WM "In Progress" tab to workmarket_scraper.py TAB_STATUSES | Done | local (scraper/) |
+| Add `--in-progress` CLI arg to batch_scraper.py | Done | local (scraper/) |
+| Add `in_progress` to batch scraper WM status_map | Done | local (scraper/) |
+| Remove old active-exclusion docstring from scrape_workmarket | Done | local (scraper/) |
+| Add auto-import after scraping (reuses import_single_file) | Done | local (scraper/) |
+| Add `--no-import` flag to skip auto-import | Done | local (scraper/) |
+| Move API_URL check from module-level to main() in import_to_api.py | Done | local (scraper/) |
+| Update run_batch_scraper.bat menu with new options | Done | local (scraper/) |
+
+### Technical Notes
+
+**WorkMarket "In Progress" Tab**:
+- URL hash: `#status/inprogress/managing`
+- Tab text on site says "Assigned" but URL uses `active`; "In Progress" uses `inprogress`
+- Both tabs hidden if empty (no assignments in that status)
+
+**Batch Scraper Auto-Import**:
+- Imports `import_single_file` from `import_to_api.py`
+- Auth now happens for both completed-check and auto-import (not just completed)
+- After all scraping, iterates `all_results` and imports each file with `skip_preview=True`
+- Files moved to `completed-imports/` on success (existing behavior from import_single_file)
+- `--no-import` flag skips auto-import; also skipped if auth fails
+- Had to move `sys.exit(1)` API_URL check from module-level to `main()` in import_to_api.py to prevent crash on import
+
+**run_batch_scraper.bat Menu (updated)**:
+- Options 1-6: status filters (added 3 for in-progress)
+- Options 7-8: platform filters
+- Option 9: dry run
+- Option S: scrape only (no auto-import)
+- Option 0: exit
+
+### Status
+- All changes in local `scraper/` directory (gitignored)
+- **Needs testing** - user will test tomorrow
+
+### Files Modified
+- `scraper/workmarket_scraper.py` - Added 'In Progress' tab
+- `scraper/batch_scraper.py` - In-progress support, auto-import, --no-import flag
+- `scraper/import_to_api.py` - Moved API_URL guard to main()
+- `scraper/run_batch_scraper.bat` - Updated menu
+
+---
+
 ## Session: February 9, 2026
 
 ### Summary

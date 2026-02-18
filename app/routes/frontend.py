@@ -32,6 +32,12 @@ def sms_terms():
     return render_template('sms_terms.html')
 
 
+@frontend_bp.route('/sms-opt-in')
+def sms_opt_in():
+    """Serve the SMS opt-in advertisement page (public, no auth required)."""
+    return render_template('sms_opt_in.html')
+
+
 @frontend_bp.route('/contact')
 def contact():
     """Serve the contact form page (public, no auth required)."""

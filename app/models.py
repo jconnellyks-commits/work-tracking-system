@@ -95,6 +95,7 @@ class Job(db.Model):
 
     # Dates
     job_date = db.Column(db.Date)
+    scheduled_start_time = db.Column(db.Time, nullable=True)
     due_date = db.Column(db.Date)
     completed_date = db.Column(db.Date)
 
@@ -123,6 +124,7 @@ class Job(db.Model):
             'external_url': self.external_url,
             'job_status': self.job_status,
             'job_date': self.job_date.isoformat() if self.job_date else None,
+            'scheduled_start_time': self.scheduled_start_time.strftime('%H:%M') if self.scheduled_start_time else None,
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'completed_date': self.completed_date.isoformat() if self.completed_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

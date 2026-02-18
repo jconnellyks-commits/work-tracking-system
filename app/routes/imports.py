@@ -173,6 +173,16 @@ def import_fieldnation():
                 except Exception:
                     pass
 
+            # Parse scheduled_start_time if provided
+            scheduled_start_time = None
+            if wo.get('scheduled_start_time'):
+                try:
+                    scheduled_start_time = datetime.strptime(
+                        str(wo['scheduled_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
             if existing_job:
                 job = existing_job
                 # Update existing job with latest status, billing, and date
@@ -181,6 +191,8 @@ def import_fieldnation():
                     job.billing_amount = wo.get('total_pay')
                 if scheduled_date:
                     job.job_date = scheduled_date
+                if scheduled_start_time:
+                    job.scheduled_start_time = scheduled_start_time
                 if wo.get('title') and len(wo.get('title', '')) > len(job.description or ''):
                     job.description = wo['title'][:500]
                 # Set completed_date if status changed to completed
@@ -201,6 +213,7 @@ def import_fieldnation():
                     description=title[:500] if title else f"Field Nation #{wo_id}",
                     client_name=company[:200] if company else 'Field Nation',
                     job_date=scheduled_date,
+                    scheduled_start_time=scheduled_start_time,
                     job_status=mapped_status,
                     billing_amount=wo.get('total_pay', 0),
                     external_url=url,
@@ -503,6 +516,16 @@ def import_workmarket():
                 except Exception:
                     pass
 
+            # Parse scheduled_start_time if provided
+            scheduled_start_time = None
+            if assignment.get('scheduled_start_time'):
+                try:
+                    scheduled_start_time = datetime.strptime(
+                        str(assignment['scheduled_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
             if existing_job:
                 job = existing_job
                 # Update existing job with latest status, billing, and date
@@ -511,6 +534,8 @@ def import_workmarket():
                     job.billing_amount = assignment.get('total_pay')
                 if scheduled_date:
                     job.job_date = scheduled_date
+                if scheduled_start_time:
+                    job.scheduled_start_time = scheduled_start_time
                 if assignment.get('title') and len(assignment.get('title', '')) > len(job.description or ''):
                     job.description = assignment['title'][:500]
                 # Set completed_date if status changed to completed
@@ -531,6 +556,7 @@ def import_workmarket():
                     description=title[:500] if title else f"WorkMarket #{a_id}",
                     client_name=company[:200] if company else 'WorkMarket',
                     job_date=scheduled_date,
+                    scheduled_start_time=scheduled_start_time,
                     job_status=mapped_status,
                     billing_amount=assignment.get('total_pay', 0),
                     external_url=url,

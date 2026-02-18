@@ -54,6 +54,7 @@ const App = {
         const menuItems = [
             { id: 'dashboard', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
             { id: 'jobs', icon: 'fas fa-briefcase', label: 'Jobs' },
+            { id: 'calendar', icon: 'fas fa-calendar-alt', label: 'Calendar' },
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
@@ -102,6 +103,7 @@ const App = {
         const titles = {
             'dashboard': 'Dashboard',
             'jobs': 'Jobs',
+            'calendar': 'Calendar',
             'time-entries': 'Time Entries',
             'reports': 'Reports',
             'technicians': 'Technician Management',
@@ -123,6 +125,9 @@ const App = {
                     break;
                 case 'jobs':
                     await Pages.jobs(content);
+                    break;
+                case 'calendar':
+                    await Pages.calendar(content);
                     break;
                 case 'time-entries':
                     await Pages.timeEntries(content);
@@ -232,10 +237,20 @@ const App = {
         return new Date(dateStr).toLocaleDateString();
     },
 
-    // Format time
+    // Format time (24h HH:MM → HH:MM display)
     formatTime(timeStr) {
         if (!timeStr) return '-';
         return timeStr.slice(0, 5);
+    },
+
+    // Format time as 12-hour (HH:MM → h:MM AM/PM)
+    format12Hour(timeStr) {
+        if (!timeStr) return '';
+        const [h, m] = timeStr.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) return timeStr;
+        const ampm = h >= 12 ? 'PM' : 'AM';
+        const hour = h % 12 || 12;
+        return `${hour}:${String(m).padStart(2, '0')} ${ampm}`;
     },
 
     // Get status badge
@@ -627,6 +642,158 @@ const Pages = {
         await loadJobs(1);
     },
 
+    // Calendar page
+    async calendar(container) {
+        // State: track current month/year
+        const state = {
+            year: new Date().getFullYear(),
+            month: new Date().getMonth(), // 0-indexed
+            jobs: [],
+            myJobIds: new Set()
+        };
+
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+
+        // Chip background colors by status
+        const chipColors = {
+            pending:     { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+            assigned:    { bg: '#dbeafe', border: '#2563eb', text: '#1e3a8a' },
+            in_progress: { bg: '#ffedd5', border: '#ea580c', text: '#7c2d12' },
+            completed:   { bg: '#d1fae5', border: '#10b981', text: '#064e3b' },
+            cancelled:   { bg: '#f3f4f6', border: '#9ca3af', text: '#6b7280' }
+        };
+
+        function formatMonthYear(year, month) {
+            return new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        }
+
+        async function loadJobs() {
+            // Build from/to dates for the full month (plus buffer for neighbor cells)
+            const firstDay = new Date(state.year, state.month, 1);
+            const lastDay = new Date(state.year, state.month + 1, 0);
+
+            // Fetch up to 200 jobs for the month
+            const fromDate = firstDay.toISOString().split('T')[0];
+            const toDate = lastDay.toISOString().split('T')[0];
+
+            const data = await API.jobs.list({ from_date: fromDate, to_date: toDate, per_page: 200, page: 1 });
+            state.jobs = data.jobs || [];
+
+            // For technicians, fetch their assigned job IDs
+            state.myJobIds = new Set();
+            if (!isManager) {
+                try {
+                    const assignedData = await API.assignments.getMyAssignedJobs();
+                    (assignedData.jobs || []).forEach(j => state.myJobIds.add(j.job_id));
+                } catch (e) {
+                    // Non-fatal
+                }
+            }
+        }
+
+        function buildCalendarHTML() {
+            const year = state.year;
+            const month = state.month;
+            const today = new Date();
+            const todayStr = today.toISOString().split('T')[0];
+
+            const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            // Group jobs by date
+            const jobsByDate = {};
+            for (const job of state.jobs) {
+                if (!job.job_date) continue;
+                if (!jobsByDate[job.job_date]) jobsByDate[job.job_date] = [];
+                jobsByDate[job.job_date].push(job);
+            }
+
+            const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+            let cells = '';
+            // Leading empty cells
+            for (let i = 0; i < firstDow; i++) {
+                cells += `<div class="calendar-day calendar-day--other-month"></div>`;
+            }
+            // Day cells
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isToday = dateStr === todayStr;
+                const dayJobs = jobsByDate[dateStr] || [];
+
+                const chips = dayJobs.map(job => {
+                    const isMine = state.myJobIds.has(job.job_id);
+                    const colors = chipColors[job.job_status] || chipColors.cancelled;
+                    const timeLabel = job.scheduled_start_time
+                        ? ` <span style="opacity:0.75;">(${App.format12Hour(job.scheduled_start_time)})</span>`
+                        : '';
+                    const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
+                    const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
+                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${job.description || ''}">${label}${timeLabel}</div>`;
+                }).join('');
+
+                cells += `
+                    <div class="calendar-day ${isToday ? 'calendar-day--today' : ''}">
+                        <div class="calendar-day-number">${d}</div>
+                        ${chips}
+                    </div>`;
+            }
+            // Trailing empty cells to complete the grid row
+            const totalCells = firstDow + daysInMonth;
+            const trailingCells = (7 - (totalCells % 7)) % 7;
+            for (let i = 0; i < trailingCells; i++) {
+                cells += `<div class="calendar-day calendar-day--other-month"></div>`;
+            }
+
+            return `
+                <div class="card">
+                    <div class="card-header" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                        <button class="btn btn-sm btn-secondary" id="cal-prev"><i class="fas fa-chevron-left"></i></button>
+                        <h3 class="card-title" style="margin: 0; min-width: 180px; text-align: center;" id="cal-month-label">${formatMonthYear(year, month)}</h3>
+                        <button class="btn btn-sm btn-secondary" id="cal-next"><i class="fas fa-chevron-right"></i></button>
+                        <button class="btn btn-sm btn-primary" id="cal-today">Today</button>
+                        <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${state.jobs.length} job${state.jobs.length !== 1 ? 's' : ''} this month</span>
+                    </div>
+                    <div style="padding: 0.5rem;">
+                        <div class="calendar-grid calendar-grid--header">
+                            ${dayHeaders.map(h => `<div class="calendar-day-header">${h}</div>`).join('')}
+                        </div>
+                        <div class="calendar-grid">
+                            ${cells}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function render() {
+            container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+            await loadJobs();
+            container.innerHTML = buildCalendarHTML();
+            attachEvents();
+        }
+
+        function attachEvents() {
+            document.getElementById('cal-prev').addEventListener('click', async () => {
+                state.month--;
+                if (state.month < 0) { state.month = 11; state.year--; }
+                await render();
+            });
+            document.getElementById('cal-next').addEventListener('click', async () => {
+                state.month++;
+                if (state.month > 11) { state.month = 0; state.year++; }
+                await render();
+            });
+            document.getElementById('cal-today').addEventListener('click', async () => {
+                state.year = new Date().getFullYear();
+                state.month = new Date().getMonth();
+                await render();
+            });
+        }
+
+        await render();
+    },
+
     // View job details
     async viewJob(jobId) {
         const data = await API.jobs.get(jobId);
@@ -829,7 +996,7 @@ const Pages = {
             <div class="form-row">
                 <div class="form-group">
                     <label>Job Date</label>
-                    <p>${App.formatDate(job.job_date)}</p>
+                    <p>${App.formatDate(job.job_date)}${job.scheduled_start_time ? ` <span class="badge badge-secondary">${App.format12Hour(job.scheduled_start_time)}</span>` : ''}</p>
                 </div>
                 <div class="form-group">
                     <label>Total Hours</label>
@@ -925,6 +1092,12 @@ const Pages = {
                         <label>Job Date</label>
                         <input type="date" class="form-control" name="job_date" value="${job.job_date || ''}">
                     </div>
+                    <div class="form-group">
+                        <label>Scheduled Start Time <small class="text-muted">(optional)</small></label>
+                        <input type="time" class="form-control" name="scheduled_start_time" value="${job.scheduled_start_time || ''}">
+                    </div>
+                </div>
+                <div class="form-row">
                     <div class="form-group">
                         <label>Status</label>
                         <select class="form-control" name="job_status">

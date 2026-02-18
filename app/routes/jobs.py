@@ -165,6 +165,17 @@ def create_job():
     expenses = data.get('expenses') or 0
     commissions = data.get('commissions') or 0
 
+    # Parse scheduled_start_time from "HH:MM" string
+    scheduled_start_time = None
+    if data.get('scheduled_start_time'):
+        try:
+            from datetime import time as time_type
+            scheduled_start_time = datetime.strptime(
+                data['scheduled_start_time'].strip(), '%H:%M'
+            ).time()
+        except (ValueError, AttributeError):
+            pass
+
     job = Job(
         platform_id=platform_id,
         platform_job_code=data.get('platform_job_code', '').strip() or None,
@@ -181,6 +192,7 @@ def create_job():
         external_url=data.get('external_url', '').strip() or None,
         job_status=data.get('job_status', 'pending'),
         job_date=job_date,
+        scheduled_start_time=scheduled_start_time,
         due_date=due_date
     )
 
@@ -234,6 +246,18 @@ def update_job(job_id):
             if isinstance(value, str):
                 value = value.strip() or None
             setattr(job, field, value)
+
+    # Handle scheduled_start_time separately (needs parsing)
+    if 'scheduled_start_time' in data:
+        if data['scheduled_start_time']:
+            try:
+                job.scheduled_start_time = datetime.strptime(
+                    str(data['scheduled_start_time']).strip(), '%H:%M'
+                ).time()
+            except (ValueError, AttributeError):
+                job.scheduled_start_time = None
+        else:
+            job.scheduled_start_time = None
 
     # Validate ticket number uniqueness if changed
     if 'ticket_number' in data and data['ticket_number']:

@@ -1,8 +1,10 @@
 # Work Tracking System - Project Context
 
 ## TODO - Next Session
-- [ ] SMS notifications for technicians
+- [ ] SMS notifications for technicians  ← NEXT
 - [x] Calendar view for assigned jobs
+- [x] Scheduled start time on jobs (scrapers extract it, shows on calendar chips + job modal)
+- [x] Update scraper batch files to use worktracking.sleepybear.tech + SSL=true
 - [ ] Time entries interface adjustments
 - [ ] Audit code
 - [ ] Automate entry for Techlink (has own web app + sends emails)

@@ -1,5 +1,28 @@
 # Work Tracking System - Session History
 
+## Session: February 18, 2026
+
+### Summary
+Fixed WorkMarket pay extraction for assigned jobs ("Total budget") and added case-insensitive matching for all WM pay patterns.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix WM "Total budget" pay extraction for assigned jobs | Done | Was matching "Total" only; added "Total budget" pattern with `re.IGNORECASE` |
+
+### Technical Notes
+
+**WM Pay Extraction**:
+- Assigned/in-progress jobs show `Total budget $277.25` (lowercase b) in Pricing Details
+- Old code only matched `Total $XXX` and `Flat Fee $XXX`
+- New priority order: `Total` → `Total budget` → `Flat Fee`, all with `re.IGNORECASE`
+
+### Files Modified
+- `scraper/workmarket_scraper.py` — pay extraction patterns
+
+---
+
 ## Session: February 17, 2026
 
 ### Summary

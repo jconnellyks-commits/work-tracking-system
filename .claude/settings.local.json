@@ -28,7 +28,17 @@
       "Bash(del import_to_api.bat)",
       "Bash(del import_workmarket.bat)",
       "Bash(cmd /c \"cd /d C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper && del import_to_api.bat && del import_workmarket.bat\")",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Bash(python batch_scraper.py:*)",
+      "Bash(API_URL=https://34.27.146.58/api API_VERIFY_SSL=false python:*)",
+      "Bash(git status:*)",
+      "Bash(python -c \"import sys,json; print\\(json.load\\(sys.stdin\\)[''access_token'']\\)\")",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:carrierservices.sangoma.com)",
+      "WebFetch(domain:backoffice.voipinnovations.com)",
+      "WebFetch(domain:sangomakb.atlassian.net)",
+      "Bash(dir \"C:\\\\Users\\\\Jeremiah\\\\projects\\\\timesheets\\\\work-tracking-system\\\\scraper\\\\output\"\" /a:-d 2>nul || echo \"No files or directory not found \")"
     ]
   }
 }

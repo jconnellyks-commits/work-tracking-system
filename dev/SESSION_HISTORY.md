@@ -1,5 +1,67 @@
 # Work Tracking System - Session History
 
+## Session: February 17, 2026
+
+### Summary
+Fixed batch scraper WorkMarket invitation filtering, added pagination support, improved page load timing for detail scraping, added rolling date cutoff, and fixed Field Nation "Total Estimate" pay extraction.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Tighten WM `get_assignment_ids_from_list()` selector | Done | CSS selector targets `#assignment_list_results .results-row` only |
+| Add pagination support to WM list scanning | Done | Handles multi-page results via `.wm-pagination` |
+| Add list-level date filtering with early cutoff | Done | Skips old assignments before scraping details; stops paginating when all items on page are old |
+| Improve WM invitation detection | Done | Visibility checks on buttons, text-based fallback phrases |
+| Fix WM detail page load timing | Done | Text stabilization polling replaces static 4s wait |
+| Rolling 45-day date cutoff | Done | `SCRAPER_CUTOFF_DAYS` env var in `.bat` file |
+| Fix FN "Total Estimate" pay extraction | Done | Regex now matches both "Total" and "Total Estimate" |
+| Full batch scrape + import test | Done | All statuses, both platforms, successful import |
+
+### Technical Notes
+
+**WM Invitation Filtering (root cause)**:
+- `get_assignment_ids_from_list()` used broad XPath `//a[contains(@href, '/assignments/details/')]` that grabbed ALL links on page
+- Fixed with targeted CSS selector: `#assignment_list_results .results-row a[href*='/assignments/details/']`
+- Fallback chain: `.assignmentId` divs → `.assignments-content` scoped search
+- Accept/Apply button detection improved but was secondary — tighter selector was the real fix
+
+**WM Pagination**:
+- Refactored into `_get_ids_from_current_page()` and `get_assignment_ids_from_list()`
+- Reads `.wm-pagination[data-max]` to know total pages
+- Clicks `.wm-pagination--next` arrow to advance
+
+**List-Level Date Filtering**:
+- `_parse_list_date()` parses list page dates like "Jan 26 09:15 AM CST" (infers year)
+- Each `.results-row .date` element checked against `min_date`
+- Stops paginating when entire page is before cutoff (paid assignments are reverse chronological)
+
+**Page Load Timing Fix**:
+- Old: Sequential waits for Schedule (5s) → Checked In (5s) → static 4s sleep
+- New: document.readyState → assignment ID in text → content section indicators → text stabilization polling (0.5s intervals until text length stable for 1s)
+- Fixed 86% failure rate on WM detail page scraping in batch mode
+
+**Rolling Date Cutoff**:
+- Default: `today - 45 days` (was fixed `2025-12-25`)
+- Configurable via `SCRAPER_CUTOFF_DAYS` env var in `run_batch_scraper.bat`
+- `--min-date` CLI arg still overrides, `--no-date-filter` disables
+
+**FN Pay Extraction**:
+- Regex changed from `Total\s*\$?` to `Total(?:\s+Estimate)?\s*\$?`
+- Matches "Total $250" (completed) and "Total Estimate $250" (assigned/in-progress)
+
+### Files Modified
+- `scraper/workmarket_scraper.py` — selector fix, pagination, date filtering, invitation detection, page load timing
+- `scraper/batch_scraper.py` — rolling cutoff, passes min_date to WM scanner
+- `scraper/run_batch_scraper.bat` — `SCRAPER_CUTOFF_DAYS` config
+- `scraper/fieldnation_scraper.py` — "Total Estimate" pay regex
+
+### Status
+- All fixes tested and working
+- Full batch scrape + import completed successfully
+
+---
+
 ## Session: February 13, 2026
 
 ### Summary

@@ -2,7 +2,7 @@
 
 ## TODO - Next Session
 - [ ] SMS notifications for technicians
-- [ ] Calendar view for assigned jobs
+- [x] Calendar view for assigned jobs
 - [ ] Time entries interface adjustments
 - [ ] Audit code
 - [ ] Automate entry for Techlink (has own web app + sends emails)
@@ -21,6 +21,7 @@ Flask-based work tracking and timesheet system for managing technician time entr
 - **Server**: GCP Compute Engine with Gunicorn + systemd
 
 ## Server Access
+- **URL**: https://worktracking.sleepybear.tech (SSL cert, valid domain)
 - **IP**: 34.27.146.58
 - **SSH Key**: `~/.ssh/gcp_work_tracking`
 - **SSH Command**: `ssh -i "$HOME/.ssh/gcp_work_tracking" claude-code@34.27.146.58`
@@ -442,5 +443,5 @@ import.bat
 ## Environment Notes
 - **Local dev**: Windows machine at `C:\Users\Jeremiah\projects\timesheets\work-tracking-system`
 - **Server**: Ubuntu on GCP, app at `/opt/work-tracking`
-- **API URL**: `https://34.27.146.58/api` (HTTPS required, self-signed cert)
+- **API URL**: `https://worktracking.sleepybear.tech/api` (SSL cert, also accessible via IP `34.27.146.58`)
 - **Git remote**: `https://github.com/jconnellyks-commits/work-tracking-system.git`

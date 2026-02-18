@@ -1,5 +1,58 @@
 # Work Tracking System - Session History
 
+## Session: February 18, 2026 (2nd session)
+
+### Summary
+Implemented calendar view page and scheduled start time field for jobs. Full implementation across DB, model, API, imports, and frontend.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Migration 009: scheduled_start_time on jobs | Done | `TIME NULL` column |
+| Job model: scheduled_start_time field + to_dict | Done | Returns `HH:MM` string |
+| Jobs API: accept scheduled_start_time on create/update | Done | Parsed from `HH:MM` string |
+| Imports API: accept scheduled_start_time from scrapers | Done | Both FN and WM |
+| Frontend: editJob modal — scheduled start time input | Done | `<input type="time">` field |
+| Frontend: viewJob modal — show time badge next to date | Done | Uses `App.format12Hour()` |
+| Frontend: App.format12Hour() utility | Done | 24h → 12h AM/PM display |
+| Frontend: Calendar page (`Pages.calendar`) | Done | Vanilla JS, no external lib |
+| Frontend: Calendar nav menu entry | Done | `fas fa-calendar-alt` icon |
+| Frontend: Calendar CSS styles | Done | grid, day, chip, header |
+| Scrapers: FN `extract_scheduled_time()` | Done | Captures time from date range patterns |
+| Scrapers: WM `extract_scheduled_time()` | Done | Captures time from day/time line patterns |
+| DB migration run on server | Done | `ALTER TABLE jobs ADD COLUMN scheduled_start_time TIME NULL` |
+| Deploy + service restart | Done | Commit 33d2bec |
+
+### Technical Notes
+
+**Calendar Architecture**:
+- Pure vanilla JS, no external calendar library
+- State object tracks `{year, month, jobs, myJobIds}`
+- `loadJobs()` fetches via `API.jobs.list({ from_date, to_date, per_page: 200 })`
+- Chips colored by job status using inline styles (bg/border/text)
+- Technician's own jobs: gold left border + bold font weight
+- `Pages.calendar` function is self-contained with `loadJobs`, `buildCalendarHTML`, `attachEvents` inner functions
+
+**Scheduled Start Time**:
+- Stored as MySQL `TIME NULL` in jobs table
+- API accepts `HH:MM` string, parsed with `datetime.strptime(..., '%H:%M').time()`
+- Displayed in viewJob as a badge next to job date: "2/27/2026 [9:00 AM]"
+- Shown on calendar chips as "(9:00 AM)" in muted text
+- Scrapers: FN extracts from "date, time →" patterns; WM from day-of-week + time-on-next-line
+
+### Files Modified
+- `database/migrations/009_add_scheduled_start_time.sql` — new file
+- `app/models.py` — Job model field + to_dict
+- `app/routes/jobs.py` — create/update endpoints
+- `app/routes/imports.py` — FN + WM import handlers
+- `app/static/js/app.js` — nav, router, Pages.calendar, editJob, viewJob, format12Hour
+- `app/static/css/style.css` — calendar styles
+- `scraper/fieldnation_scraper.py` — extract_scheduled_time (local)
+- `scraper/workmarket_scraper.py` — extract_scheduled_time (local)
+
+---
+
 ## Session: February 18, 2026
 
 ### Summary

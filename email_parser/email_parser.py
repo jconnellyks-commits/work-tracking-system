@@ -9,7 +9,6 @@ Run as: python email_parser.py
 Or via systemd: see email_parser.service
 """
 
-import base64
 import json
 import logging
 import os
@@ -195,8 +194,8 @@ def run():
     def on_pubsub_message(pubsub_msg):
         nonlocal last_history_id
         try:
-            # Gmail Pub/Sub notifications are base64-encoded JSON
-            data = json.loads(base64.b64decode(pubsub_msg.data).decode('utf-8'))
+            # The Pub/Sub Python client already base64-decodes the data for us
+            data = json.loads(pubsub_msg.data.decode('utf-8'))
             history_id = str(data.get('historyId', last_history_id))
             logger.debug(f"Pub/Sub notification: historyId={history_id}")
 

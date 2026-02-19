@@ -568,6 +568,21 @@ const API = {
 
         async getSmsStatus() {
             return API.request('/assignments/sms-status');
+        },
+
+        async requestAvailability(jobId, techIds, notes = '') {
+            return API.request(`/assignments/job/${jobId}/availability-request`, {
+                method: 'POST',
+                body: JSON.stringify({ tech_ids: techIds, notes })
+            });
+        }
+    },
+
+    // SMS log endpoint
+    sms: {
+        async getLog(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/assignments/sms/log${query ? '?' + query : ''}`);
         }
     }
 };

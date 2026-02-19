@@ -206,7 +206,7 @@ class SMSService:
         except ET.ParseError as e:
             return {'success': False, 'error': f'XML parse error: {str(e)}'}
 
-    def send_sms(self, to_number, message, notification_type='other', assignment_id=None, tech_id=None):
+    def send_sms(self, to_number, message, notification_type='other', assignment_id=None, tech_id=None, bypass_opt_in_check=False):
         """
         Send an SMS message via VoIP Innovations SOAP API.
 
@@ -220,6 +220,28 @@ class SMSService:
         Returns:
             dict with success status and notification record
         """
+        # Check opt-in status unless bypassed (e.g. for STOP confirmation replies)
+        if not bypass_opt_in_check:
+            from app.models import Technician
+            tech_check = None
+            if tech_id:
+                tech_check = Technician.query.get(tech_id)
+            else:
+                # Normalize the destination number and look up by phone
+                lookup_number = re.sub(r'[^\d]', '', to_number)
+                if lookup_number.startswith('1') and len(lookup_number) == 11:
+                    lookup_number = lookup_number[1:]
+                for t in Technician.query.all():
+                    if t.phone and re.sub(r'[^\d]', '', t.phone)[-10:] == lookup_number[-10:]:
+                        tech_check = t
+                        break
+            if tech_check and not tech_check.sms_opted_in:
+                return {
+                    'success': False,
+                    'error': 'Technician has opted out of SMS',
+                    'notification': None
+                }
+
         # Format phone numbers (10 digits only for VoIP Innovations)
         formatted_to = self.format_phone_number(to_number, include_country_code=False)
         formatted_from = self.format_phone_number(self.from_number, include_country_code=False)
@@ -393,6 +415,57 @@ class SMSService:
         )
 
         # Update assignment SMS tracking
+        if result['success']:
+            assignment.sms_sent = True
+            assignment.sms_sent_at = datetime.utcnow()
+            assignment.sms_delivery_status = 'sent'
+        else:
+            assignment.sms_delivery_status = 'failed'
+
+        db.session.commit()
+
+        return result
+
+
+    def send_availability_request(self, assignment):
+        """
+        Send an availability request SMS for a job.
+
+        Args:
+            assignment: JobAssignment object with related job and technician
+
+        Returns:
+            dict with success status
+        """
+        if not assignment.technician or not assignment.technician.phone:
+            return {
+                'success': False,
+                'error': 'Technician has no phone number'
+            }
+
+        job = assignment.job
+        if not job:
+            return {
+                'success': False,
+                'error': 'Assignment has no associated job'
+            }
+
+        ticket = job.ticket_number or f'Job #{job.job_id}'
+        date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
+
+        message = (
+            f"SleepyBear LLC: Are you available for {ticket} on {date_str}? "
+            f"Reply Y or N. STOP to opt out."
+        )
+
+        result = self.send_sms(
+            to_number=assignment.technician.phone,
+            message=message,
+            notification_type='invitation',
+            assignment_id=assignment.assignment_id,
+            tech_id=assignment.tech_id
+        )
+
         if result['success']:
             assignment.sms_sent = True
             assignment.sms_sent_at = datetime.utcnow()

@@ -57,6 +57,7 @@ const App = {
             { id: 'calendar', icon: 'fas fa-calendar-alt', label: 'Calendar' },
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
+            { id: 'sms-log', icon: 'fas fa-sms', label: 'SMS Log', roles: ['admin', 'manager'] },
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
             { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] },
             { id: 'settings', icon: 'fas fa-cog', label: 'Settings', roles: ['admin'] },
@@ -106,6 +107,7 @@ const App = {
             'calendar': 'Calendar',
             'time-entries': 'Time Entries',
             'reports': 'Reports',
+            'sms-log': 'SMS Log',
             'technicians': 'Technician Management',
             'users': 'User Management',
             'pay-periods': 'Pay Periods',
@@ -134,6 +136,9 @@ const App = {
                     break;
                 case 'reports':
                     await Pages.reports(content);
+                    break;
+                case 'sms-log':
+                    await Pages.smsLog(content);
                     break;
                 case 'technicians':
                     await Pages.technicians(content);
@@ -1023,6 +1028,9 @@ const Pages = {
             ${isManager ? `<button class="btn btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
                 <i class="fas fa-user-plus"></i> Assign Techs
             </button>` : ''}
+            ${isManager ? `<button class="btn btn-warning" onclick="App.hideModal(); Pages.requestAvailability(${jobId})">
+                <i class="fas fa-question-circle"></i> Request Availability
+            </button>` : ''}
             <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
                 <i class="fas fa-plus"></i> Add Time Entry
             </button>
@@ -1340,6 +1348,86 @@ const Pages = {
             await Pages.viewJob(jobId);
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    // Request availability from technicians for a job
+    async requestAvailability(jobId) {
+        const job = await API.jobs.get(jobId).catch(() => null);
+
+        // Get existing assignments (to skip already-active techs)
+        let existingTechIds = [];
+        try {
+            const assignmentsData = await API.assignments.getJobAssignments(jobId);
+            existingTechIds = (assignmentsData.assignments || [])
+                .filter(a => ['accepted', 'invited'].includes(a.status))
+                .map(a => a.tech_id);
+        } catch (e) { /* ignore */ }
+
+        const availableTechs = App.technicians.filter(t =>
+            t.status === 'active' && !existingTechIds.includes(t.tech_id)
+        );
+
+        if (availableTechs.length === 0) {
+            App.showAlert('All active technicians already have active assignments for this job', 'info');
+            return;
+        }
+
+        const body = `
+            <form id="avail-request-form">
+                <p>Send availability request for: <strong>${job?.job?.ticket_number || 'Job #' + jobId}</strong></p>
+                <div class="form-group">
+                    <label>Select Technicians</label>
+                    ${availableTechs.map(t => `
+                        <label style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">
+                            <input type="checkbox" name="tech_ids" value="${t.tech_id}">
+                            ${t.name}${t.phone ? ` <small class="text-muted">(${t.phone})</small>` : ' <small class="text-muted">(no phone)</small>'}
+                            ${t.sms_opted_in === false ? '<span class="badge badge-danger" style="font-size:0.65rem;">Opted Out</span>' : ''}
+                        </label>
+                    `).join('')}
+                </div>
+                <div class="form-group">
+                    <label>Notes (optional)</label>
+                    <input type="text" class="form-control" name="notes" placeholder="e.g. 2-person job, starts 8am">
+                </div>
+            </form>
+        `;
+
+        const footer = `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-warning" onclick="Pages.saveAvailabilityRequest(${jobId})">
+                <i class="fas fa-paper-plane"></i> Send Requests
+            </button>
+        `;
+
+        App.showModal('Request Availability', body, footer);
+    },
+
+    // Send availability requests
+    async saveAvailabilityRequest(jobId) {
+        const form = document.getElementById('avail-request-form');
+        const checked = [...form.querySelectorAll('input[name="tech_ids"]:checked')];
+        const techIds = checked.map(cb => parseInt(cb.value));
+        const notes = form.querySelector('input[name="notes"]').value.trim();
+
+        if (techIds.length === 0) {
+            App.showFormError('Select at least one technician');
+            return;
+        }
+
+        try {
+            const result = await API.assignments.requestAvailability(jobId, techIds, notes);
+            const sent = result.sms_results?.filter(r => r.success).length || 0;
+            App.showAlert(
+                `Availability request sent to ${result.assignments.length} technician(s) (${sent} SMS delivered)`,
+                'success'
+            );
+            if (result.errors?.length) {
+                result.errors.forEach(e => App.showAlert(`${e.tech_id}: ${e.error}`, 'warning'));
+            }
+            App.hideModal();
+        } catch (error) {
+            App.showFormError(error.message);
         }
     },
 
@@ -2959,7 +3047,13 @@ const Pages = {
                     <tr>
                         <td>${tech.name}</td>
                         <td>${tech.email || '-'}</td>
-                        <td>${tech.phone || '-'}</td>
+                        <td>
+                            ${tech.phone || '-'}
+                            ${tech.phone ? (tech.sms_opted_in !== false
+                                ? '<span class="badge badge-success" title="Opted in to SMS" style="margin-left:4px;font-size:0.7rem;">SMS</span>'
+                                : '<span class="badge badge-danger" title="Opted out of SMS" style="margin-left:4px;font-size:0.7rem;">No SMS</span>')
+                                : ''}
+                        </td>
                         <td>${tech.hourly_rate ? '$' + parseFloat(tech.hourly_rate).toFixed(2) : '-'}</td>
                         <td>${App.getStatusBadge(tech.status)}</td>
                         <td>
@@ -3787,6 +3881,119 @@ const Pages = {
             App.showAlert(result.message || 'Test SMS sent successfully', 'success');
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    // ============ SMS Log ============
+
+    async smsLog(container) {
+        const isManager = App.user.role === 'admin' || App.user.role === 'manager';
+        if (!isManager) {
+            container.innerHTML = '<div class="alert alert-error">Access denied</div>';
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-sms"></i> SMS Log</h3>
+                </div>
+                <div style="padding: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>Technician</label>
+                        <select id="sms-log-tech" class="form-control">
+                            <option value="">All Technicians</option>
+                            ${App.technicians.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Status</label>
+                        <select id="sms-log-status" class="form-control">
+                            <option value="">All</option>
+                            <option value="sent">Sent</option>
+                            <option value="delivered">Delivered</option>
+                            <option value="failed">Failed</option>
+                            <option value="pending">Pending</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary" onclick="Pages.loadSmsLog()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Technician</th>
+                                <th>Phone</th>
+                                <th>Type</th>
+                                <th>Message</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sms-log-table">
+                            <tr><td colspan="6" class="text-center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('sms-log-tech').addEventListener('change', () => Pages.loadSmsLog());
+        document.getElementById('sms-log-status').addEventListener('change', () => Pages.loadSmsLog());
+
+        await Pages.loadSmsLog();
+    },
+
+    async loadSmsLog() {
+        const techId = document.getElementById('sms-log-tech')?.value;
+        const status = document.getElementById('sms-log-status')?.value;
+        const params = { limit: 200 };
+        if (techId) params.tech_id = techId;
+        if (status) params.status = status;
+
+        const tbody = document.getElementById('sms-log-table');
+        if (!tbody) return;
+
+        try {
+            const data = await API.sms.getLog(params);
+            const notifications = data.notifications || [];
+
+            if (notifications.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No SMS records found</td></tr>';
+                return;
+            }
+
+            const statusBadge = s => {
+                const cls = { sent: 'badge-primary', delivered: 'badge-success', failed: 'badge-danger', pending: 'badge-warning' };
+                return `<span class="badge ${cls[s] || 'badge-secondary'}">${s}</span>`;
+            };
+
+            const typeLabel = t => {
+                const labels = {
+                    job_assignment: 'Assignment',
+                    invitation: 'Availability',
+                    reminder: 'Reminder',
+                    cancellation: 'Cancellation',
+                    update: 'Update',
+                    other: 'Other'
+                };
+                return labels[t] || t;
+            };
+
+            tbody.innerHTML = notifications.map(n => `
+                <tr>
+                    <td style="white-space:nowrap;">${n.created_at ? new Date(n.created_at).toLocaleString() : '-'}</td>
+                    <td>${n.tech_name || '-'}</td>
+                    <td style="white-space:nowrap;">${n.phone_number || '-'}</td>
+                    <td>${typeLabel(n.notification_type)}</td>
+                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(n.message_body || '').replace(/"/g, '&quot;')}">${n.message_body || ''}</td>
+                    <td>${statusBadge(n.status)}</td>
+                </tr>
+            `).join('');
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error: ${error.message}</td></tr>`;
         }
     }
 };

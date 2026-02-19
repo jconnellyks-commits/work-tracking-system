@@ -69,6 +69,7 @@ def create_app(config_class=None):
     from app.routes.imports import imports_bp
     from app.routes.frontend import frontend_bp
     from app.routes.assignments import assignments_bp
+    from app.routes.sms_webhook import sms_webhook_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(jobs_bp, url_prefix='/api/jobs')
@@ -78,6 +79,7 @@ def create_app(config_class=None):
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
     app.register_blueprint(imports_bp, url_prefix='/api/imports')
     app.register_blueprint(assignments_bp, url_prefix='/api/assignments')
+    app.register_blueprint(sms_webhook_bp)  # No prefix — route is /sms/inbound
     app.register_blueprint(frontend_bp)
 
     # Health check endpoint

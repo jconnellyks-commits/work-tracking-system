@@ -5,7 +5,7 @@ Includes assignment creation, removal, and SMS notification functionality.
 from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from app import db
-from app.models import Job, JobAssignment, Technician, User
+from app.models import Job, JobAssignment, Technician, User, SMSNotification
 from app.utils.sms_service import get_sms_service
 from app.utils.auth import jwt_required_with_user, admin_required, manager_required
 from app.utils.logging import get_logger, audit_logger
@@ -342,4 +342,161 @@ def get_sms_status():
 
     return jsonify({
         'sms_config': config_status
+    }), 200
+
+
+@assignments_bp.route('/job/<int:job_id>/availability-request', methods=['POST'])
+@manager_required
+def request_availability(job_id):
+    """
+    Send availability request SMS to one or more technicians for a job.
+
+    Creates assignments with status='invited' and sends availability-request SMS.
+    If a cancelled/declined/expired assignment already exists for a tech, it is
+    reactivated (to work around the unique constraint on job_id+tech_id).
+
+    Request body:
+        {
+            "tech_ids": [1, 2],
+            "notes": "Optional notes"
+        }
+
+    Manager+ only.
+    """
+    user = g.current_user
+    job = Job.query.get_or_404(job_id)
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    tech_ids = data.get('tech_ids', [])
+    if not tech_ids or not isinstance(tech_ids, list):
+        return jsonify({'error': 'tech_ids array required'}), 400
+
+    notes = data.get('notes', '').strip() or None
+
+    sms_service = get_sms_service()
+    sms_service.reload_config()
+
+    created = []
+    errors = []
+    sms_results = []
+
+    for tech_id in tech_ids:
+        technician = Technician.query.get(tech_id)
+        if not technician:
+            errors.append({'tech_id': tech_id, 'error': 'Technician not found'})
+            continue
+
+        if technician.status != 'active':
+            errors.append({'tech_id': tech_id, 'error': 'Technician is not active'})
+            continue
+
+        # Check for any existing assignment (unique constraint requires update, not insert)
+        existing = JobAssignment.query.filter_by(job_id=job_id, tech_id=tech_id).first()
+
+        if existing:
+            if existing.status in ('accepted', 'invited'):
+                errors.append({
+                    'tech_id': tech_id,
+                    'error': 'Technician already has an active assignment for this job',
+                    'assignment_id': existing.assignment_id
+                })
+                continue
+            # Reuse the existing record (cancelled/declined/expired)
+            existing.status = 'invited'
+            existing.availability_response = 'pending'
+            existing.availability_responded_at = None
+            existing.responded_at = None
+            existing.assigned_by = user.user_id
+            existing.assigned_at = datetime.utcnow()
+            existing.notes = notes
+            existing.sms_sent = False
+            existing.sms_sent_at = None
+            existing.sms_delivery_status = 'pending'
+            assignment = existing
+        else:
+            assignment = JobAssignment(
+                job_id=job_id,
+                tech_id=tech_id,
+                status='invited',
+                availability_response='pending',
+                is_primary=False,
+                assigned_by=user.user_id,
+                assigned_at=datetime.utcnow(),
+                notes=notes,
+            )
+            db.session.add(assignment)
+
+        db.session.flush()
+
+        sms_result = sms_service.send_availability_request(assignment)
+        created.append(assignment)
+        sms_results.append({
+            'tech_id': tech_id,
+            'tech_name': technician.name,
+            'success': sms_result.get('success', False),
+            'error': sms_result.get('error'),
+        })
+
+    db.session.commit()
+
+    if created:
+        audit_logger.log(
+            action_type='availability_requested',
+            entity_type='job',
+            entity_id=job_id,
+            new_values={
+                'invited_tech_ids': [a.tech_id for a in created],
+                'assignment_ids': [a.assignment_id for a in created],
+            },
+            description=f"Sent availability request to {len(created)} technician(s) for job {job.ticket_number}",
+            user_id=user.user_id
+        )
+
+    return jsonify({
+        'message': f'Sent availability request to {len(created)} technician(s)',
+        'assignments': [a.to_dict() for a in created],
+        'errors': errors,
+        'sms_results': sms_results,
+        'job': job.to_dict()
+    }), 201 if created else 400
+
+
+@assignments_bp.route('/sms/log', methods=['GET'])
+@manager_required
+def get_sms_log():
+    """
+    Get SMS notification log.
+
+    Query params:
+        tech_id: Filter by technician
+        status: Filter by status (pending/sent/delivered/failed)
+        limit: Max records to return (default 100)
+
+    Manager+ only.
+    """
+    tech_id = request.args.get('tech_id', type=int)
+    status = request.args.get('status')
+    limit = request.args.get('limit', 100, type=int)
+
+    query = SMSNotification.query
+
+    if tech_id:
+        query = query.filter_by(tech_id=tech_id)
+
+    if status:
+        query = query.filter_by(status=status)
+
+    notifications = (
+        query
+        .order_by(SMSNotification.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return jsonify({
+        'notifications': [n.to_dict() for n in notifications],
+        'total': len(notifications)
     }), 200

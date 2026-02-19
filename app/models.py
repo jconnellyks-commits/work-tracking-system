@@ -20,6 +20,11 @@ class Technician(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # SMS opt-in tracking
+    sms_opted_in = db.Column(db.Boolean, default=True, nullable=False)
+    sms_opted_in_at = db.Column(db.DateTime, nullable=True)
+    sms_opted_out_at = db.Column(db.DateTime, nullable=True)
+
     # Relationships
     time_entries = db.relationship('TimeEntry', backref='technician', lazy='dynamic')
     user = db.relationship('User', backref='technician', uselist=False)
@@ -34,6 +39,7 @@ class Technician(db.Model):
             'status': self.status,
             'hire_date': self.hire_date.isoformat() if self.hire_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'sms_opted_in': self.sms_opted_in,
         }
 
 
@@ -396,6 +402,8 @@ class JobAssignment(db.Model):
     sms_sent = db.Column(db.Boolean, default=False)
     sms_sent_at = db.Column(db.DateTime)
     sms_delivery_status = db.Column(db.String(50), default='pending')
+    availability_response = db.Column(db.Enum('pending', 'yes', 'no'), nullable=True)
+    availability_responded_at = db.Column(db.DateTime, nullable=True)
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -427,6 +435,8 @@ class JobAssignment(db.Model):
             'sms_sent': self.sms_sent,
             'sms_sent_at': self.sms_sent_at.isoformat() if self.sms_sent_at else None,
             'sms_delivery_status': self.sms_delivery_status,
+            'availability_response': self.availability_response,
+            'availability_responded_at': self.availability_responded_at.isoformat() if self.availability_responded_at else None,
             'notes': self.notes,
         }
 

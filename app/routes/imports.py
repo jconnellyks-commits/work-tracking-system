@@ -762,6 +762,263 @@ def backfill_source_hashes():
     })
 
 
+# =============================================================================
+# TST (Tech Service Today) Import Endpoints
+# =============================================================================
+
+@imports_bp.route('/tst', methods=['POST'])
+@jwt_required_with_user
+@admin_required
+def import_tst():
+    """
+    Import jobs from Tech Service Today email parser.
+
+    Expected JSON format:
+    [
+        {
+            "ticket_number": "502861",
+            "client_name": "Altoona Quarry (Altoona, KS)",
+            "job_date": "2026-02-27",
+            "scheduled_start_time": "09:30",
+            "description": "Onsite Support for Site Migration",
+            "billing_rate": 75.00,
+            "trip_charge": 130.00,
+            "status": "assigned"
+        }
+    ]
+    """
+    user = g.current_user
+    data = request.get_json()
+
+    if not data or not isinstance(data, list):
+        return jsonify({'error': 'Expected array of jobs'}), 400
+
+    results = {
+        'imported_jobs': 0,
+        'updated_jobs': 0,
+        'errors': []
+    }
+
+    platform = Platform.query.filter_by(name='Tech Service Today').first()
+    if not platform:
+        platform = Platform(name='Tech Service Today', code='TST')
+        db.session.add(platform)
+        db.session.flush()
+
+    for job_data in data:
+        try:
+            ticket_number = job_data.get('ticket_number', '').strip()
+            if not ticket_number:
+                results['errors'].append('Missing ticket_number')
+                continue
+
+            full_ticket = f"TST-{ticket_number}"
+
+            # Duplicate check
+            existing_job = Job.query.filter(
+                Job.ticket_number.like(f'%{ticket_number}%')
+            ).first()
+
+            billing_rate = float(job_data.get('billing_rate') or 0)
+            trip_charge = float(job_data.get('trip_charge') or 0)
+
+            # Build description: append rate info if available
+            description = job_data.get('description', '').strip()
+            if billing_rate or trip_charge:
+                rate_parts = []
+                if billing_rate:
+                    rate_parts.append(f"Rate: ${billing_rate:.2f}/hr")
+                if trip_charge:
+                    rate_parts.append(f"Trip: ${trip_charge:.2f}")
+                description = f"{description} [{', '.join(rate_parts)}]" if description else f"[{', '.join(rate_parts)}]"
+
+            # Parse job_date
+            job_date = None
+            if job_data.get('job_date'):
+                try:
+                    job_date = datetime.strptime(job_data['job_date'], '%Y-%m-%d').date()
+                except ValueError:
+                    pass
+
+            # Parse scheduled_start_time
+            scheduled_start_time = None
+            if job_data.get('scheduled_start_time'):
+                try:
+                    scheduled_start_time = datetime.strptime(
+                        str(job_data['scheduled_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
+            # Billing floor: trip charge + 1hr at rate
+            billing_amount = trip_charge + billing_rate if (billing_rate or trip_charge) else 0
+
+            mapped_status = job_data.get('status', 'assigned')
+
+            if existing_job:
+                # Update status and rate info if changed
+                existing_job.job_status = mapped_status
+                if billing_amount and billing_amount > float(existing_job.billing_amount or 0):
+                    existing_job.billing_amount = billing_amount
+                # Append rate to description if not already present
+                if billing_rate and f"Rate: ${billing_rate:.2f}" not in (existing_job.description or ''):
+                    rate_parts = []
+                    if billing_rate:
+                        rate_parts.append(f"Rate: ${billing_rate:.2f}/hr")
+                    if trip_charge:
+                        rate_parts.append(f"Trip: ${trip_charge:.2f}")
+                    existing_job.description = f"{existing_job.description or ''} [{', '.join(rate_parts)}]".strip()
+                if job_date and not existing_job.job_date:
+                    existing_job.job_date = job_date
+                if scheduled_start_time and not existing_job.scheduled_start_time:
+                    existing_job.scheduled_start_time = scheduled_start_time
+                results['updated_jobs'] += 1
+            else:
+                job = Job(
+                    ticket_number=full_ticket,
+                    description=description[:500] if description else f"TST #{ticket_number}",
+                    client_name=(job_data.get('client_name', '') or 'Tech Service Today')[:200],
+                    job_date=job_date,
+                    scheduled_start_time=scheduled_start_time,
+                    job_status=mapped_status,
+                    billing_amount=billing_amount,
+                    billing_type='hourly',
+                    platform_id=platform.platform_id,
+                    platform_job_code=ticket_number,
+                )
+                db.session.add(job)
+                results['imported_jobs'] += 1
+
+        except Exception as e:
+            results['errors'].append(f"TST job error: {str(e)}")
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'TST import completed',
+        'results': results
+    })
+
+
+# =============================================================================
+# TechLink Import Endpoints
+# =============================================================================
+
+@imports_bp.route('/techlink', methods=['POST'])
+@jwt_required_with_user
+@admin_required
+def import_techlink():
+    """
+    Import jobs from TechLink email parser.
+
+    Expected JSON format:
+    [
+        {
+            "ticket_number": "398586",
+            "client_name": "Wichita Dwight D. Eisenhower Natl Airport",
+            "job_date": "2026-02-20",
+            "scheduled_start_time": "09:30",
+            "description": "Filter Change",
+            "address": "1980 S. Airport Road, Wichita, KS 67209",
+            "contact": "Robert Halbleib, 3167558870",
+            "status": "assigned"
+        }
+    ]
+    """
+    user = g.current_user
+    data = request.get_json()
+
+    if not data or not isinstance(data, list):
+        return jsonify({'error': 'Expected array of jobs'}), 400
+
+    results = {
+        'imported_jobs': 0,
+        'updated_jobs': 0,
+        'errors': []
+    }
+
+    platform = Platform.query.filter_by(name='TechLink').first()
+    if not platform:
+        platform = Platform(name='TechLink', code='TL')
+        db.session.add(platform)
+        db.session.flush()
+
+    for job_data in data:
+        try:
+            ticket_number = job_data.get('ticket_number', '').strip()
+            if not ticket_number:
+                results['errors'].append('Missing ticket_number')
+                continue
+
+            full_ticket = f"TL-{ticket_number}"
+
+            # Duplicate check
+            existing_job = Job.query.filter(
+                Job.ticket_number.like(f'%{ticket_number}%')
+            ).first()
+
+            # Build description: collapse available fields
+            parts = [p for p in [
+                job_data.get('description', '').strip(),
+                job_data.get('address', '').strip(),
+                job_data.get('contact', '').strip(),
+            ] if p]
+            description = ' | '.join(parts)
+
+            # Parse job_date
+            job_date = None
+            if job_data.get('job_date'):
+                try:
+                    job_date = datetime.strptime(job_data['job_date'], '%Y-%m-%d').date()
+                except ValueError:
+                    pass
+
+            # Parse scheduled_start_time
+            scheduled_start_time = None
+            if job_data.get('scheduled_start_time'):
+                try:
+                    scheduled_start_time = datetime.strptime(
+                        str(job_data['scheduled_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
+            mapped_status = job_data.get('status', 'assigned')
+
+            if existing_job:
+                existing_job.job_status = mapped_status
+                if job_date and not existing_job.job_date:
+                    existing_job.job_date = job_date
+                if scheduled_start_time and not existing_job.scheduled_start_time:
+                    existing_job.scheduled_start_time = scheduled_start_time
+                results['updated_jobs'] += 1
+            else:
+                job = Job(
+                    ticket_number=full_ticket,
+                    description=description[:500] if description else f"TechLink #{ticket_number}",
+                    client_name=(job_data.get('client_name', '') or 'TechLink')[:200],
+                    job_date=job_date,
+                    scheduled_start_time=scheduled_start_time,
+                    job_status=mapped_status,
+                    billing_amount=0,
+                    billing_type='hourly',
+                    platform_id=platform.platform_id,
+                    platform_job_code=ticket_number,
+                )
+                db.session.add(job)
+                results['imported_jobs'] += 1
+
+        except Exception as e:
+            results['errors'].append(f"TechLink job error: {str(e)}")
+
+    db.session.commit()
+
+    return jsonify({
+        'message': 'TechLink import completed',
+        'results': results
+    })
+
+
 @imports_bp.route('/check-existing', methods=['POST'])
 @jwt_required_with_user
 def check_existing_jobs():

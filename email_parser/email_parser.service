@@ -1,0 +1,19 @@
+[Unit]
+Description=Work Tracking Email Parser
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=claude-code
+WorkingDirectory=/opt/email-parser
+EnvironmentFile=/opt/email-parser/.env
+ExecStart=/opt/email-parser/venv/bin/python /opt/email-parser/email_parser.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=email-parser
+
+[Install]
+WantedBy=multi-user.target

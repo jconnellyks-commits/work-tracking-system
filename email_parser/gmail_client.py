@@ -39,10 +39,15 @@ class GmailClient:
                 creds = flow.run_local_server(port=0)
             else:
                 raise RuntimeError(
-                    f"No valid credentials. Run auth_setup.py or set TOKEN_FILE to ADC credentials."
+                    "No valid credentials. Run auth_setup.py or set TOKEN_FILE to ADC credentials."
                 )
             with open(config.TOKEN_FILE, 'w') as f:
                 f.write(creds.to_json())
+
+        # Gmail API requires a quota project when using ADC user credentials.
+        # Explicitly set it so the x-goog-user-project header is sent.
+        if not getattr(creds, 'quota_project_id', None):
+            creds = creds.with_quota_project(config.GCP_PROJECT)
 
         return build('gmail', 'v1', credentials=creds)
 

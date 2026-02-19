@@ -28,13 +28,19 @@ class GmailClient:
             creds = Credentials.from_authorized_user_file(config.TOKEN_FILE, config.GMAIL_SCOPES)
 
         if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
+            if creds and creds.refresh_token:
+                # Refresh using embedded client_id/secret (works for ADC and InstalledApp tokens)
                 creds.refresh(Request())
-            else:
+            elif os.path.exists(config.CREDENTIALS_FILE):
+                # Fall back to interactive OAuth flow (first-time setup without ADC)
                 flow = InstalledAppFlow.from_client_secrets_file(
                     config.CREDENTIALS_FILE, config.GMAIL_SCOPES
                 )
                 creds = flow.run_local_server(port=0)
+            else:
+                raise RuntimeError(
+                    f"No valid credentials. Run auth_setup.py or set TOKEN_FILE to ADC credentials."
+                )
             with open(config.TOKEN_FILE, 'w') as f:
                 f.write(creds.to_json())
 

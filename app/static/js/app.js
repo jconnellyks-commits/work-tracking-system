@@ -3761,6 +3761,15 @@ const Pages = {
             return;
         }
 
+        // Get current timezone setting
+        let currentTimezone = 'America/Chicago';
+        try {
+            const tzSetting = await API.settings.get('timezone');
+            currentTimezone = tzSetting.setting.setting_value;
+        } catch (e) {
+            console.error('Failed to load timezone setting:', e);
+        }
+
         // Get current SMS settings
         let smsSettings = { enabled: false, from_number: '', has_credentials: false };
         try {
@@ -3769,8 +3778,40 @@ const Pages = {
             console.error('Failed to load SMS settings:', e);
         }
 
+        const timezones = [
+            { value: 'America/New_York',   label: 'Eastern (ET) — New York, Atlanta, Miami' },
+            { value: 'America/Chicago',    label: 'Central (CT) — Chicago, Dallas, Kansas City' },
+            { value: 'America/Denver',     label: 'Mountain (MT) — Denver, Salt Lake City' },
+            { value: 'America/Phoenix',    label: 'Mountain no DST — Phoenix, Arizona' },
+            { value: 'America/Los_Angeles', label: 'Pacific (PT) — Los Angeles, Seattle' },
+            { value: 'America/Anchorage',  label: 'Alaska (AKT)' },
+            { value: 'America/Honolulu',   label: 'Hawaii (HT) — no DST' },
+            { value: 'UTC',               label: 'UTC' },
+        ];
+        const tzOptions = timezones.map(tz =>
+            `<option value="${tz.value}" ${currentTimezone === tz.value ? 'selected' : ''}>${tz.label}</option>`
+        ).join('');
+
         container.innerHTML = `
             <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-clock"></i> Timezone</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <div class="form-group">
+                        <label>Application Timezone</label>
+                        <select id="timezone-select" class="form-control" style="max-width: 400px;">
+                            ${tzOptions}
+                        </select>
+                        <small class="text-muted">Used for "today" calculations in reports and dashboard stats.</small>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="Pages.saveTimezone()">
+                        <i class="fas fa-save"></i> Save Timezone
+                    </button>
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 1rem;">
                 <div class="card-header">
                     <h3 class="card-title"><i class="fas fa-sms"></i> SMS Notification Settings</h3>
                 </div>
@@ -3833,6 +3874,18 @@ const Pages = {
                 </div>
             </div>
         `;
+    },
+
+    async saveTimezone() {
+        const select = document.getElementById('timezone-select');
+        if (!select) return;
+        const tz = select.value;
+        try {
+            await API.settings.update('timezone', { setting_value: tz });
+            App.showAlert('Timezone saved', 'success');
+        } catch (error) {
+            App.showAlert(error.message || 'Failed to save timezone');
+        }
     },
 
     async saveSmsSettings() {

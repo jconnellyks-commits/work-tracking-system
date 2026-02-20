@@ -3,6 +3,7 @@ Reporting routes for generating various work tracking reports.
 Includes payroll, job billing, technician hours, and audit reports.
 """
 from datetime import datetime, timedelta, date
+from app.utils.timezone import get_local_today
 from decimal import Decimal
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import func, and_
@@ -379,8 +380,8 @@ def income_expense_report():
     if not from_date or not to_date:
         return jsonify({'error': 'Date range required'}), 400
 
-    # Get today's date for projected detection
-    today = date.today()
+    # Get today's date for projected detection (uses configured timezone)
+    today = get_local_today()
 
     # Get jobs in date range with verified time entries
     jobs_query = Job.query.filter(
@@ -842,7 +843,7 @@ def dashboard_stats():
     Technicians see their own stats; managers see team-wide stats.
     """
     user = g.current_user
-    today = datetime.utcnow().date()
+    today = get_local_today()
     week_start = today - timedelta(days=today.weekday())
     month_start = today.replace(day=1)
 

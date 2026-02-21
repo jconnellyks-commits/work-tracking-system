@@ -5,10 +5,11 @@
 - [x] Calendar view for assigned jobs
 - [x] Scheduled start time on jobs (scrapers extract it, shows on calendar chips + job modal)
 - [x] Update scraper batch files to use worktracking.sleepybear.tech + SSL=true
+- [x] Automate entry for TechLink (email parser service — deployed, needs live test)
+- [x] Automate entry for Tech Service Today (email parser service — deployed, needs live test)
+- [x] Fix timezone bug — reports/dashboard showing wrong day after 6 PM (uses configurable timezone now)
 - [ ] Time entries interface adjustments
 - [ ] Audit code
-- [ ] Automate entry for Techlink (has own web app + sends emails)
-- [ ] Automate entry for Tech Service Today (mostly email-based)
 
 ## Future Enhancements to Review
 - **Job Dropdown Performance**: Current implementation filters completed jobs by default in time entry forms (editEntry, copyEntry). As job count grows, may need to switch to server-side pagination/search for the job dropdown. Monitor performance when job count exceeds ~500.

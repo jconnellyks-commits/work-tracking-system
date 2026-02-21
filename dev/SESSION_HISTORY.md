@@ -1,5 +1,213 @@
 # Work Tracking System - Session History
 
+## Session: February 20, 2026
+
+### Summary
+Added configurable timezone setting and fixed reports/dashboard showing wrong day after 6 PM (UTC offset issue).
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| New `app/utils/timezone.py` with `get_local_today()` | Done | Uses `zoneinfo` with configured timezone from SystemSettings |
+| Income/expense report projected-day check uses configured timezone | Done | Was using `date.today()` (UTC) |
+| Dashboard week/month stats use configured timezone | Done | Was using `datetime.utcnow()` |
+| Migration 011: seeds `timezone = 'America/Chicago'` | Done | |
+| Settings page: timezone dropdown (8 US + UTC options) | Done | Admin-only card |
+
+### Technical Notes
+
+**Root Cause**: `date.today()` and `datetime.utcnow()` return UTC on the server (GCP VM in UTC). After 6 PM CST = midnight UTC, "today" would advance, marking jobs as projected or miscounting week stats.
+
+**Fix**: `get_local_today()` reads `timezone` from SystemSettings (cached), uses `zoneinfo.ZoneInfo` to get the correct local date.
+
+**Timezone Options in Settings**: America/Chicago, America/New_York, America/Denver, America/Los_Angeles, America/Phoenix, America/Anchorage, Pacific/Honolulu, UTC.
+
+### Files Modified
+- `app/utils/timezone.py` — new file
+- `app/routes/reports.py` — use `get_local_today()`
+- `app/static/js/app.js` — timezone settings card
+- `database/migrations/011_add_timezone_setting.sql` — new file
+
+### Commit
+`179a1f1`
+
+---
+
+## Session: February 19, 2026
+
+### Summary
+Built and deployed full email-based job import pipeline for TechLink and Tech Service Today (TST). New Flask endpoints receive parsed jobs, and a new `email-parser` systemd service on the GCP VM monitors jconnellyks@gmail.com via Gmail Pub/Sub and auto-creates job records when dispatch emails arrive.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| `POST /api/imports/tst` endpoint | Done | Creates `TST-{ticket}` jobs; re-import from Special Update appends rate info |
+| `POST /api/imports/techlink` endpoint | Done | Creates `TL-{ticket}` jobs with description = summary + address + contact |
+| `email_parser/` service package | Done | Tracked in git; credentials gitignored |
+| Gmail OAuth2 Desktop credentials | Done | Created in GCP Console for `remoteworkstation` project |
+| OAuth token obtained | Done | `auth_setup.py` run locally; token.json on server at `/opt/email-parser/token.json` |
+| Pub/Sub topic + subscription | Done | `gmail-dispatch-notifications` / `gmail-dispatch-sub` |
+| Gmail push IAM | Done | `gmail-api-push@system.gserviceaccount.com` → pubsub.publisher on topic |
+| VM service account IAM | Done | `284520789984-compute@developer.gserviceaccount.com` → pubsub.subscriber on subscription |
+| `/opt/email-parser/` deployed | Done | venv + deps installed, .env configured |
+| `email-parser` systemd service | Done | Enabled, running, auto-restarts on failure |
+| Daily watch-renewal cron | Done | 6 AM daily: `venv/bin/python /opt/email-parser/renew_watch.py` |
+
+### Technical Notes
+
+**Email parser architecture**:
+- `email_parser.py` — daemon; StreamingPull loop; routes messages by sender domain + subject pattern
+- `gmail_client.py` — Gmail API: watch, history list, message fetch, label/archive
+- `api_client.py` — Work Tracking API: login, JWT auto-refresh, POST to import endpoints
+- `parsers/tst.py` — TST Service Order (base64 body) + Special Update (quoted-printable) parsing
+- `parsers/techlink.py` — TechLink Assigned email parsing
+
+**Pub/Sub message decoding**:
+- The Pub/Sub Python client library (`google-cloud-pubsub`) already base64-decodes the message data
+- `pubsub_msg.data` is plain bytes — just do `json.loads(pubsub_msg.data)`, no extra b64decode
+
+**ADC vs OAuth2 Desktop credentials**:
+- Tried gcloud ADC first (`gcloud auth application-default login`) — fails on Gmail watch because the topic must be in `usable-auth-library` project (gcloud's internal project), not `remoteworkstation`
+- Solution: proper OAuth2 Desktop app credentials from GCP Console → client_id tied to `remoteworkstation`, so topic validation passes
+
+**quota_project_id**:
+- Gmail API requires `x-goog-user-project` header when using user OAuth2 credentials
+- Fix: call `creds.with_quota_project(config.GCP_PROJECT)` after loading token if not already set
+
+**Watch registration**:
+- Watch expires every ~7 days; renewed daily at 6 AM via cron
+- `state.json` at `/opt/email-parser/state.json` tracks last `historyId` — persists across restarts
+
+**Deployment pattern for email-parser**:
+- Code lives in `email_parser/` in the git repo (tracked)
+- On deploy: `sudo git pull` in `/opt/work-tracking`, then `cp email_parser/* /opt/email-parser/`
+- Credentials (`token.json`, `credentials.json`) live only on server — never committed
+
+### Files Changed
+- `app/routes/imports.py` — added `/tst` and `/techlink` endpoints
+- `email_parser/` — new package (all files)
+
+### Bugs Fixed During Deployment
+1. ADC `creds.expired` is None (not True) when no cached access token → check `creds.refresh_token` instead
+2. ADC gcloud credentials fail Gmail watch (`usable-auth-library` project mismatch) → use OAuth2 Desktop creds
+3. `quota_project_id` not set → force-set with `creds.with_quota_project()`
+4. Double base64 decode on Pub/Sub message → remove extra `b64decode()`
+
+### Next Step
+Test with a real email: forward a TST or TechLink dispatch email to jconnellyks@gmail.com and verify job appears in work tracking UI within ~30 seconds.
+Monitor: `sudo journalctl -u email-parser -f`
+
+---
+
+## Session: February 18, 2026 (4th session)
+
+### Summary
+Fixed SSH output issue, fixed WM scraper invitation filtering bugs, cleared 48 phantom WM jobs from DB.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| SSH fix: use PowerShell + Windows OpenSSH | Done | `powershell -Command "& 'C:\Windows\System32\OpenSSH\ssh.exe' ..."` — Git bash SSH doesn't pipe stdout |
+| WM scraper: individual menu options 1-4 now filter `is_invitation` | Done | Was appending all results; now skips invitations same as batch scraper |
+| WM scraper: improved invitation detection (Method 1) | Done | Python-side `.lower()` comparison instead of fragile XPath translate() |
+| WM scraper: improved invitation detection (Method 2) | Done | Added more phrases: `not yet accepted`, `pending acceptance`, `invitation pending` |
+| WM scraper: new invitation detection (Method 3) | Done | For Active/In Progress tabs: if no confirmed-on/checkin data and page says available/invited → flag as invitation |
+| WM scraper: `navigate_to_tab` returns `False` on redirect | Done | Was warning-only and returning `True`; now returns `False` so callers can bail |
+| WM scraper: individual menu options bail on tab redirect | Done | All 4 choices check return value and `continue` if tab unavailable |
+| Batch scraper: bail on tab redirect | Done | `navigate_to_tab` return value checked; skips with message |
+| DB cleanup: deleted 48 WM jobs with 0 time entries | Done | All were invitation artifacts; 58 real WM jobs remain (all with entries) |
+| Confirmed redirect fix works | Done | "In Progress" tab skipped cleanly when empty |
+
+### Technical Notes
+
+**SSH Fix**:
+- Git bash SSH (`C:\Program Files\Git\usr\bin\ssh.exe`) does not pipe stdout back through Claude Code's Bash tool
+- Windows OpenSSH via PowerShell works: `powershell -Command "& 'C:\Windows\System32\OpenSSH\ssh.exe' -o StrictHostKeyChecking=no -i 'C:\Users\Jeremiah\.ssh\gcp_work_tracking' claude-code@34.27.146.58 'COMMAND' 2>&1"`
+- For DB queries: write SQL to local file → scp to server → run with `bash /tmp/dbrun.sh` (script reads password from .env)
+
+**WM Tab Redirect**:
+- When a WM tab is empty (no assignments), WM SPA redirects to `#status/all/managing`
+- `navigate_to_tab` now checks final URL against expected hash and returns `False` if redirected
+- Callers skip that tab entirely with a clear message
+
+**Invitation Detection Priority Order**:
+1. Scan all visible button/link/input elements for accept/apply text (Python .lower())
+2. Page text scan for invitation phrases
+3. Active/In Progress tabs only: no confirmation/checkin milestones + "available"/"invited" in page text
+
+### Files Modified (local scraper/ only — gitignored)
+- `scraper/workmarket_scraper.py` — invitation detection improvements, navigate_to_tab returns False, menu options filter invitations + check redirect
+- `scraper/batch_scraper.py` — check navigate_to_tab return value
+
+---
+
+## Session: February 18, 2026 (3rd session)
+
+### Summary
+Implemented the SMS full flow: inbound webhook for STOP/START/HELP/Y/N handling, opt-in tracking per technician, availability request workflow, and SMS log UI. Webhook confirmed working (inbound message appeared in SMS log).
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Migration 010: sms_opted_in fields on technicians + availability_response on job_assignments | Done | `81c49af` |
+| Technician model: sms_opted_in, sms_opted_in_at, sms_opted_out_at fields | Done | |
+| JobAssignment model: availability_response, availability_responded_at fields | Done | |
+| SMS service: opt-in guard in send_sms() | Done | Checks by tech_id or phone lookup; bypass_opt_in_check param for STOP replies |
+| SMS service: send_availability_request() method | Done | Sends "Are you available for X on Y? Reply Y or N." Sets assignment status='invited' |
+| Inbound webhook: POST /sms/inbound (new blueprint, no auth) | Done | Handles STOP/START/HELP/Y/YES/N/NO; logs all inbound to sms_notifications |
+| Availability request endpoint: POST /api/assignments/job/<id>/availability-request | Done | Creates invited assignments, handles unique constraint by updating cancelled records |
+| SMS log endpoint: GET /api/assignments/sms/log | Done | Manager+ only, filterable by tech/status/limit |
+| Register sms_webhook_bp in app/__init__.py | Done | No url_prefix, route is /sms/inbound |
+| API client: API.assignments.requestAvailability() + API.sms.getLog() | Done | |
+| Frontend: SMS Log page (#sms-log) with filter by tech + status | Done | Nav entry for admin/manager |
+| Frontend: "Request Availability" button in job modal footer | Done | |
+| Frontend: Pages.requestAvailability() + Pages.saveAvailabilityRequest() | Done | Tech checklist modal, calls availability-request endpoint |
+| Frontend: SMS opt-in badge on technician rows | Done | Green "SMS" or red "No SMS" badge next to phone |
+| VoIP Innovations webhook URL set to /sms/inbound | Done | User configured in VI backoffice |
+| Webhook smoke test | Done | Inbound message appeared in #sms-log ✅ |
+
+### Technical Notes
+
+**Inbound Webhook (`app/routes/sms_webhook.py`)**:
+- `POST /sms/inbound` — no authentication, called by VoIP Innovations
+- Parses flexible field names: `from/From`, `message/Message/body/Body/text/Text`
+- STOP command: sets `sms_opted_in=False`, sends unsubscribe confirmation (bypass_opt_in=True for the reply)
+- START command: sets `sms_opted_in=True`, sends re-subscribe confirmation
+- Y/YES: finds latest 'invited' assignment for tech, sets status='accepted', availability_response='yes'
+- N/NO: finds latest 'invited' assignment, sets status='declined', availability_response='no'
+- All inbound messages logged to sms_notifications with `[INBOUND]` prefix
+
+**Opt-In Guard in send_sms()**:
+- Checks by tech_id when provided (most efficient)
+- Falls back to phone number comparison (strips non-digits, matches last 10 digits) when no tech_id
+- `bypass_opt_in_check=True` used for STOP/START/HELP reply confirmations (CTIA compliance)
+
+**Availability Request Endpoint**:
+- Handles unique constraint on (job_id, tech_id): reuses/updates existing cancelled/declined/expired records
+- Active (accepted/invited) assignments are blocked with an error
+- Sets `availability_response='pending'` on creation
+
+**Current State of 10DLC**:
+- Inbound SMS webhook working ✅
+- Outbound replies blocked until 10DLC campaign approved (carriers rejecting unregistered traffic)
+- No code changes needed when campaign is approved — it will work automatically
+
+### Files Modified
+- `database/migrations/010_add_sms_opt_in.sql` — new file
+- `app/models.py` — new fields on Technician + JobAssignment
+- `app/utils/sms_service.py` — opt-in guard, send_availability_request()
+- `app/routes/sms_webhook.py` — new file (inbound webhook)
+- `app/routes/assignments.py` — availability-request + sms-log routes
+- `app/__init__.py` — register sms_webhook_bp
+- `app/static/js/api.js` — requestAvailability, sms.getLog
+- `app/static/js/app.js` — SMS log page, Request Availability button + modal, opt-in badge
+
+---
+
 ## Session: February 18, 2026 (2nd session)
 
 ### Summary

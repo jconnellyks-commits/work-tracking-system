@@ -125,3 +125,13 @@ CLAUDE.md
 %USERPROFILE%/
 nul
 dev/
+
+# Loose files / working notes dropped in repo root
+*.png
+*.jpg
+*.jpeg
+*.eml
+*.pdf
+tmp_*.txt
+b4crash.txt
+client_secret*.json

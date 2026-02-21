@@ -1,5 +1,24 @@
 # Work Tracking System - Session History
 
+## Session: February 20, 2026 (2nd — housekeeping)
+
+### Summary
+Recovered and committed progress from crashed session (timezone fix). Updated gitignore for loose root files.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Commit Feb 19 + Feb 20 session history (lost in crash) | Done | `61332c4` |
+| Gitignore loose root files | Done | `429de2f` — *.png, *.jpg, *.eml, *.pdf, tmp_*.txt, b4crash.txt, client_secret*.json |
+
+### Next Steps
+- Wait for real TST/TechLink emails to verify email-parser pipeline end-to-end
+- SMS outbound unblocked once 10DLC campaign is approved (no code changes needed)
+- Time entries interface adjustments
+
+---
+
 ## Session: February 20, 2026
 
 ### Summary

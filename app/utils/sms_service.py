@@ -460,8 +460,13 @@ class SMSService:
         ticket = job.ticket_number or f'Job #{job.job_id}'
         date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
 
+        if job.scheduled_start_time:
+            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
+            date_str = f"{date_str} at {start_str}"
+
+        url_line = f"\n{job.external_url}" if job.external_url else ''
         message = (
-            f"SleepyBear LLC: Are you available for {ticket} on {date_str}? "
+            f"SleepyBear LLC: Are you available for {ticket} on {date_str}?{url_line} "
             f"Reply Y or N. STOP to opt out."
         )
 

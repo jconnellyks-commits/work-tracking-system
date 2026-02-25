@@ -395,16 +395,23 @@ class SMSService:
         ticket = job.ticket_number or f'Job #{job.job_id}'
         date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
 
-        # Truncate location to fit
-        location = job.location or 'TBD'
-        if len(location) > 30:
-            location = location[:27] + '...'
+        # Append start time if available
+        if job.scheduled_start_time:
+            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
+            date_str = f"{date_str} at {start_str}"
 
         client = job.client_name or 'Unknown'
         if len(client) > 20:
             client = client[:17] + '...'
 
-        message = f"New job assigned: {ticket}\nDate: {date_str}\nLocation: {location}\nClient: {client}"
+        if job.external_url:
+            # Include platform link; omit location to stay under 160 chars
+            message = f"New job assigned: {ticket}\nDate: {date_str}\nClient: {client}\n{job.external_url}"
+        else:
+            location = job.location or 'TBD'
+            if len(location) > 25:
+                location = location[:22] + '...'
+            message = f"New job assigned: {ticket}\nDate: {date_str}\nLocation: {location}\nClient: {client}"
 
         result = self.send_sms(
             to_number=assignment.technician.phone,

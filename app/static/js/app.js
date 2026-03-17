@@ -4471,21 +4471,21 @@ const Pages = {
                     if (status.running) {
                         setTimeout(poll, 2000);
                     } else if (status.result === 'success') {
-                        App.showAlert('Database restored successfully!', 'success');
-                        // Small delay to let background thread finish cleanup
-                        setTimeout(async () => {
-                            await Pages.backups(document.getElementById('content'));
+                        // Delay to let background thread finish file cleanup
+                        setTimeout(() => {
+                            App.showAlert('Database restored successfully!', 'success');
+                            App.navigate('backups');
                             resolve();
-                        }, 1000);
+                        }, 1500);
                     } else if (status.error) {
                         App.showAlert('Restore failed: ' + status.error, 'error');
                         resolve();
                     } else {
-                        App.showAlert('Restore completed', 'success');
-                        setTimeout(async () => {
-                            await Pages.backups(document.getElementById('content'));
+                        setTimeout(() => {
+                            App.showAlert('Restore completed', 'success');
+                            App.navigate('backups');
                             resolve();
-                        }, 1000);
+                        }, 1500);
                     }
                 } catch (e) {
                     setTimeout(poll, 3000);

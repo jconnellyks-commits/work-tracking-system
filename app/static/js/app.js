@@ -599,7 +599,6 @@ const Pages = {
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
                             <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
                             ${isManager ? `<button class="btn btn-sm btn-info" onclick="Pages.assignTechniciansToJob(${job.job_id})" title="Assign Technicians"><i class="fas fa-user-plus"></i></button>` : ''}
-                            ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.editJob(${job.job_id})">Edit</button>` : ''}
                             ${isManager ? `<button class="btn btn-sm btn-danger" onclick="Pages.deleteJob(${job.job_id})">Delete</button>` : ''}
                         </td>
                     </tr>
@@ -799,121 +798,177 @@ const Pages = {
         await render();
     },
 
-    // View job details
+    // Unified job modal - view/edit in one modal
+    // mode: 'view' (default for existing jobs) or 'edit' (default for new jobs)
     async viewJob(jobId) {
-        const data = await API.jobs.get(jobId);
-        const job = data.job;
+        return Pages.jobModal(jobId, 'view');
+    },
 
-        // Fetch time entries for this job
-        const entriesData = await API.jobs.getTimeEntries(jobId);
-        const entries = entriesData.time_entries || [];
+    async editJob(jobId) {
+        return Pages.jobModal(jobId, 'edit');
+    },
 
-        // Fetch job assignments (managers only)
+    async jobModal(jobId, mode = 'view') {
         const isManager = ['admin', 'manager'].includes(App.user.role);
+        const isNew = !jobId;
+
+        // New job always opens in edit mode
+        if (isNew) mode = 'edit';
+
+        let job = {};
+        let entries = [];
+        let entriesData = {};
         let assignmentsHtml = '';
-        if (isManager) {
-            try {
-                const assignmentsData = await API.assignments.getJobAssignments(jobId);
-                const assignments = assignmentsData.assignments || [];
-                if (assignments.length > 0) {
-                    assignmentsHtml = `
-                        <div class="form-group" style="margin-top: 1rem;">
-                            <label>Assigned Technicians (${assignments.length})
-                                <button class="btn btn-sm btn-info" style="margin-left: 1rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
-                                    <i class="fas fa-user-plus"></i> Assign More
-                                </button>
-                            </label>
-                            <div class="table-container" style="max-height: 150px; overflow-y: auto;">
+        let payHtml = '';
+        let entriesHtml = '';
+
+        if (!isNew) {
+            const data = await API.jobs.get(jobId);
+            job = data.job;
+
+            // Fetch time entries
+            entriesData = await API.jobs.getTimeEntries(jobId);
+            entries = entriesData.time_entries || [];
+
+            // Fetch assignments (managers only)
+            if (isManager) {
+                try {
+                    const assignmentsData = await API.assignments.getJobAssignments(jobId);
+                    const assignments = assignmentsData.assignments || [];
+                    if (assignments.length > 0) {
+                        assignmentsHtml = `
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label>Assigned Technicians (${assignments.length})
+                                    <button class="btn btn-sm btn-info" style="margin-left: 1rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                                        <i class="fas fa-user-plus"></i> Assign More
+                                    </button>
+                                </label>
+                                <div class="table-container" style="max-height: 150px; overflow-y: auto;">
+                                    <table style="font-size: 0.85rem;">
+                                        <thead>
+                                            <tr>
+                                                <th>Technician</th>
+                                                <th>Phone</th>
+                                                <th>Status</th>
+                                                <th>SMS</th>
+                                                <th>Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${assignments.map(a => {
+                                                const smsStatusBadge = a.sms_sent_at
+                                                    ? (a.sms_status === 'delivered' ? '<span class="badge badge-success">Delivered</span>'
+                                                        : a.sms_status === 'failed' ? '<span class="badge badge-danger">Failed</span>'
+                                                        : '<span class="badge badge-warning">Sent</span>')
+                                                    : '<span class="badge badge-secondary">Not Sent</span>';
+                                                return `
+                                                <tr>
+                                                    <td>${a.tech_name}</td>
+                                                    <td>${a.tech_phone || '-'}</td>
+                                                    <td>${App.getStatusBadge(a.status)}</td>
+                                                    <td>${smsStatusBadge}</td>
+                                                    <td>
+                                                        ${a.sms_status === 'failed' || !a.sms_sent_at ? `<button class="btn btn-sm btn-warning" onclick="Pages.resendAssignmentSms(${a.assignment_id}, ${jobId})">Resend SMS</button>` : ''}
+                                                        <button class="btn btn-sm btn-danger" onclick="Pages.removeAssignment(${a.assignment_id}, ${jobId})">Remove</button>
+                                                    </td>
+                                                </tr>
+                                            `}).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        `;
+                    } else {
+                        assignmentsHtml = `
+                            <div class="form-group" style="margin-top: 1rem;">
+                                <label>Assigned Technicians</label>
+                                <p class="text-muted">No technicians assigned yet
+                                    <button class="btn btn-sm btn-info" style="margin-left: 0.5rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                                        <i class="fas fa-user-plus"></i> Assign
+                                    </button>
+                                </p>
+                            </div>
+                        `;
+                    }
+                } catch (e) {
+                    console.error('Failed to load assignments:', e);
+                }
+            }
+
+            // Fetch pay calculation (managers only)
+            if (isManager && entries.length > 0) {
+                try {
+                    const payData = await API.settings.getJobPay(jobId);
+                    payHtml = `
+                        <div class="form-group" style="margin-top: 1rem; background: #f8f9fa; padding: 1rem; border-radius: 4px;">
+                            <label style="font-size: 1.1rem; margin-bottom: 0.5rem;">Pay Breakdown</label>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
+                                <div><small>Job Net:</small> <strong>$${payData.job_net.toFixed(2)}</strong></div>
+                                <div><small>Tech Pool (50%):</small> <strong>$${payData.tech_pool.toFixed(2)}</strong></div>
+                                <div><small>Total Deductions:</small> <strong>$${payData.total_deductions.toFixed(2)}</strong></div>
+                                <div><small>Total Pay:</small> <strong>$${payData.totals.total_pay.toFixed(2)}</strong></div>
+                            </div>
+                            <div class="table-container" style="max-height: 250px; overflow-y: auto;">
                                 <table style="font-size: 0.85rem;">
                                     <thead>
                                         <tr>
                                             <th>Technician</th>
-                                            <th>Phone</th>
-                                            <th>Status</th>
-                                            <th>SMS</th>
-                                            <th>Actions</th>
+                                            <th>Hours</th>
+                                            <th>Rate</th>
+                                            <th>Base Pay</th>
+                                            <th>Mileage</th>
+                                            <th>Per Diem</th>
+                                            <th>Expenses</th>
+                                            <th>Total</th>
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        ${assignments.map(a => {
-                                            const smsStatusBadge = a.sms_sent_at
-                                                ? (a.sms_status === 'delivered' ? '<span class="badge badge-success">Delivered</span>'
-                                                    : a.sms_status === 'failed' ? '<span class="badge badge-danger">Failed</span>'
-                                                    : '<span class="badge badge-warning">Sent</span>')
-                                                : '<span class="badge badge-secondary">Not Sent</span>';
-                                            return `
+                                        ${payData.technicians.map(t => `
                                             <tr>
-                                                <td>${a.tech_name}</td>
-                                                <td>${a.tech_phone || '-'}</td>
-                                                <td>${App.getStatusBadge(a.status)}</td>
-                                                <td>${smsStatusBadge}</td>
-                                                <td>
-                                                    ${a.sms_status === 'failed' || !a.sms_sent_at ? `<button class="btn btn-sm btn-warning" onclick="Pages.resendAssignmentSms(${a.assignment_id}, ${jobId})">Resend SMS</button>` : ''}
-                                                    <button class="btn btn-sm btn-danger" onclick="Pages.removeAssignment(${a.assignment_id}, ${jobId})">Remove</button>
-                                                </td>
+                                                <td>${t.tech_name}</td>
+                                                <td>${t.hours}</td>
+                                                <td>$${t.effective_rate.toFixed(2)}/hr ${t.using_minimum ? '<span class="badge badge-info" title="Using minimum pay rate">MIN</span>' : ''}</td>
+                                                <td>$${t.base_pay.toFixed(2)}</td>
+                                                <td>$${t.mileage_pay.toFixed(2)} <small>(${t.mileage} mi)</small></td>
+                                                <td>$${t.per_diem.toFixed(2)}</td>
+                                                <td>$${t.personal_expenses.toFixed(2)}</td>
+                                                <td><strong>$${t.total_pay.toFixed(2)}</strong></td>
                                             </tr>
-                                        `}).join('')}
+                                        `).join('')}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
                     `;
-                } else {
-                    assignmentsHtml = `
-                        <div class="form-group" style="margin-top: 1rem;">
-                            <label>Assigned Technicians</label>
-                            <p class="text-muted">No technicians assigned yet
-                                <button class="btn btn-sm btn-info" style="margin-left: 0.5rem;" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
-                                    <i class="fas fa-user-plus"></i> Assign
-                                </button>
-                            </p>
-                        </div>
-                    `;
+                } catch (e) {
+                    console.error('Failed to load pay data:', e);
                 }
-            } catch (e) {
-                console.error('Failed to load assignments:', e);
             }
-        }
 
-        // Fetch pay calculation (managers only)
-        let payHtml = '';
-        if (isManager && entries.length > 0) {
-            try {
-                const payData = await API.settings.getJobPay(jobId);
-                payHtml = `
-                    <div class="form-group" style="margin-top: 1rem; background: #f8f9fa; padding: 1rem; border-radius: 4px;">
-                        <label style="font-size: 1.1rem; margin-bottom: 0.5rem;">Pay Breakdown</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem;">
-                            <div><small>Job Net:</small> <strong>$${payData.job_net.toFixed(2)}</strong></div>
-                            <div><small>Tech Pool (50%):</small> <strong>$${payData.tech_pool.toFixed(2)}</strong></div>
-                            <div><small>Total Deductions:</small> <strong>$${payData.total_deductions.toFixed(2)}</strong></div>
-                            <div><small>Total Pay:</small> <strong>$${payData.totals.total_pay.toFixed(2)}</strong></div>
-                        </div>
-                        <div class="table-container" style="max-height: 250px; overflow-y: auto;">
+            // Build time entries table
+            if (entries.length > 0) {
+                entriesHtml = `
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>Time Entries (${entries.length})</label>
+                        <div class="table-container" style="max-height: 200px; overflow-y: auto;">
                             <table style="font-size: 0.85rem;">
                                 <thead>
                                     <tr>
+                                        <th>Date</th>
                                         <th>Technician</th>
                                         <th>Hours</th>
-                                        <th>Rate</th>
-                                        <th>Base Pay</th>
                                         <th>Mileage</th>
-                                        <th>Per Diem</th>
-                                        <th>Expenses</th>
-                                        <th>Total</th>
+                                        <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    ${payData.technicians.map(t => `
+                                    ${entries.map(e => `
                                         <tr>
-                                            <td>${t.tech_name}</td>
-                                            <td>${t.hours}</td>
-                                            <td>$${t.effective_rate.toFixed(2)}/hr ${t.using_minimum ? '<span class="badge badge-info" title="Using minimum pay rate">MIN</span>' : ''}</td>
-                                            <td>$${t.base_pay.toFixed(2)}</td>
-                                            <td>$${t.mileage_pay.toFixed(2)} <small>(${t.mileage} mi)</small></td>
-                                            <td>$${t.per_diem.toFixed(2)}</td>
-                                            <td>$${t.personal_expenses.toFixed(2)}</td>
-                                            <td><strong>$${t.total_pay.toFixed(2)}</strong></td>
+                                            <td>${App.formatDate(e.date_worked)}</td>
+                                            <td>${e.tech_name || 'Tech #' + e.tech_id}</td>
+                                            <td>${e.hours_worked || '-'}</td>
+                                            <td>${e.mileage || 0}</td>
+                                            <td>${App.getStatusBadge(e.status)}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -921,221 +976,122 @@ const Pages = {
                         </div>
                     </div>
                 `;
-            } catch (e) {
-                console.error('Failed to load pay data:', e);
+            } else {
+                entriesHtml = `
+                    <div class="form-group" style="margin-top: 1rem;">
+                        <label>Time Entries</label>
+                        <p class="text-muted">No time entries yet</p>
+                    </div>
+                `;
             }
         }
 
-        // Build time entries table
-        let entriesHtml = '';
-        if (entries.length > 0) {
-            entriesHtml = `
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label>Time Entries (${entries.length})</label>
-                    <div class="table-container" style="max-height: 200px; overflow-y: auto;">
-                        <table style="font-size: 0.85rem;">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Technician</th>
-                                    <th>Hours</th>
-                                    <th>Mileage</th>
-                                    <th>Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${entries.map(e => `
-                                    <tr>
-                                        <td>${App.formatDate(e.date_worked)}</td>
-                                        <td>${e.tech_name || 'Tech #' + e.tech_id}</td>
-                                        <td>${e.hours_worked || '-'}</td>
-                                        <td>${e.mileage || 0}</td>
-                                        <td>${App.getStatusBadge(e.status)}</td>
-                                    </tr>
-                                `).join('')}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+        const editing = mode === 'edit';
+
+        // Helper: render a field as view or edit
+        const field = (label, viewVal, editInput) => {
+            if (editing) return `<div class="form-group"><label>${label}</label>${editInput}</div>`;
+            return `<div class="form-group"><label>${label}</label><p>${viewVal}</p></div>`;
+        };
+
+        // Build the job fields section
+        const ticketView = job.external_url
+            ? `<a href="${job.external_url}" target="_blank" rel="noopener noreferrer">${job.ticket_number || '-'} <i class="fas fa-external-link-alt" style="font-size: 0.8em;"></i></a>`
+            : (job.ticket_number || '-');
+
+        const statusOptions = ['pending', 'assigned', 'in_progress', 'completed', 'cancelled'];
+        const statusSelect = `<select class="form-control" name="job_status">
+            ${statusOptions.map(s => `<option value="${s}" ${job.job_status === s ? 'selected' : ''}>${s.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>`).join('')}
+        </select>`;
+
+        const billingTypes = [['flat_rate', 'Flat Rate'], ['hourly', 'Hourly'], ['per_task', 'Per Task']];
+        const billingSelect = `<select class="form-control" name="billing_type">
+            ${billingTypes.map(([v, l]) => `<option value="${v}" ${job.billing_type === v ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>`;
+
+        const formOpen = editing ? '<form id="job-form">' : '';
+        const formClose = editing ? '</form>' : '';
+
+        const body = `
+            ${formOpen}
+            ${field('Platform', job.platform_name || '-',
+                `<select class="form-control" name="platform_id" required>
+                    <option value="">Select Platform</option>
+                    ${App.getPlatformOptions(job.platform_id)}
+                </select>`)}
+            ${field('Ticket Number', ticketView,
+                `<input type="text" class="form-control" name="ticket_number" value="${job.ticket_number || ''}">`)}
+            ${field('Description', job.description || '-',
+                `<input type="text" class="form-control" name="description" value="${job.description || ''}" required>`)}
+            <div class="form-row">
+                ${field('Client', job.client_name || '-',
+                    `<input type="text" class="form-control" name="client_name" value="${job.client_name || ''}">`)}
+                ${field('Job Type', job.job_type || '-',
+                    `<input type="text" class="form-control" name="job_type" value="${job.job_type || ''}">`)}
+            </div>
+            ${field('Location', job.location || '-',
+                `<input type="text" class="form-control" name="location" value="${job.location || ''}">`)}
+            ${editing ? field('External Platform URL', '',
+                `<input type="url" class="form-control" name="external_url" value="${job.external_url || ''}" placeholder="https://...">`) : ''}
+            <div class="form-row">
+                ${field('Status', App.getStatusBadge(job.job_status), statusSelect)}
+                ${editing
+                    ? field('Billing Type', '', billingSelect)
+                    : `<div class="form-group"><label>Billing</label><p>${job.billing_type || 'flat_rate'}: $${job.billing_amount || 0}</p></div>`}
+            </div>
+            ${editing ? `<div class="form-row">
+                ${field('Billing Amount', '',
+                    `<input type="number" step="0.01" class="form-control" name="billing_amount" value="${job.billing_amount || ''}">`)}
+                <div class="form-group"></div>
+            </div>` : ''}
+            <div class="form-row">
+                ${field('Job Date',
+                    `${App.formatDate(job.job_date)}${job.scheduled_start_time ? ` <span class="badge badge-secondary">${App.format12Hour(job.scheduled_start_time)}</span>` : ''}`,
+                    `<input type="date" class="form-control" name="job_date" value="${job.job_date || ''}">`)}
+                ${editing
+                    ? field('Start Time <small class="text-muted">(optional)</small>', '',
+                        `<input type="time" class="form-control" name="scheduled_start_time" value="${job.scheduled_start_time || ''}">`)
+                    : `<div class="form-group"><label>Total Hours</label><p>${entriesData.total_hours || 0}</p></div>`}
+            </div>
+            <div class="form-row">
+                ${field('Expenses', `$${job.expenses || 0}`,
+                    `<input type="number" step="0.01" class="form-control" name="expenses" value="${job.expenses || ''}">`)}
+                ${field('Commissions', `$${job.commissions || 0}`,
+                    `<input type="number" step="0.01" class="form-control" name="commissions" value="${job.commissions || ''}">`)}
+            </div>
+            ${formClose}
+            ${!isNew ? assignmentsHtml : ''}
+            ${!isNew ? entriesHtml : ''}
+            ${!isNew ? payHtml : ''}
+        `;
+
+        // Build footer based on mode
+        let footer = '';
+        if (editing) {
+            footer = `
+                <button class="btn btn-secondary" onclick="${isNew ? 'App.hideModal()' : `Pages.jobModal(${jobId}, 'view')`}">${isNew ? 'Cancel' : 'Cancel'}</button>
+                <button class="btn btn-primary" onclick="Pages.saveJob(${jobId})">Save</button>
             `;
         } else {
-            entriesHtml = `
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label>Time Entries</label>
-                    <p class="text-muted">No time entries yet</p>
-                </div>
+            footer = `
+                <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
+                ${isManager ? `<button class="btn btn-primary" onclick="Pages.jobModal(${jobId}, 'edit')">
+                    <i class="fas fa-edit"></i> Edit
+                </button>` : ''}
+                ${isManager ? `<button class="btn btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                    <i class="fas fa-user-plus"></i> Assign Techs
+                </button>` : ''}
+                ${isManager ? `<button class="btn btn-warning" onclick="App.hideModal(); Pages.requestAvailability(${jobId})">
+                    <i class="fas fa-question-circle"></i> Request Availability
+                </button>` : ''}
+                <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
+                    <i class="fas fa-plus"></i> Add Time Entry
+                </button>
             `;
         }
 
-        const body = `
-            <div class="form-group">
-                <label>Ticket Number</label>
-                <p>${job.external_url
-                    ? `<a href="${job.external_url}" target="_blank" rel="noopener noreferrer">${job.ticket_number || '-'} <i class="fas fa-external-link-alt" style="font-size: 0.8em;"></i></a>`
-                    : (job.ticket_number || '-')}</p>
-            </div>
-            <div class="form-group">
-                <label>Description</label>
-                <p>${job.description}</p>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Platform</label>
-                    <p>${job.platform_name || '-'}</p>
-                </div>
-                <div class="form-group">
-                    <label>Client</label>
-                    <p>${job.client_name || '-'}</p>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Status</label>
-                    <p>${App.getStatusBadge(job.job_status)}</p>
-                </div>
-                <div class="form-group">
-                    <label>Billing</label>
-                    <p>${job.billing_type}: $${job.billing_amount || 0}</p>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Job Date</label>
-                    <p>${App.formatDate(job.job_date)}${job.scheduled_start_time ? ` <span class="badge badge-secondary">${App.format12Hour(job.scheduled_start_time)}</span>` : ''}</p>
-                </div>
-                <div class="form-group">
-                    <label>Total Hours</label>
-                    <p>${entriesData.total_hours || 0}</p>
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group">
-                    <label>Expenses</label>
-                    <p>$${job.expenses || 0}</p>
-                </div>
-                <div class="form-group">
-                    <label>Commissions</label>
-                    <p>$${job.commissions || 0}</p>
-                </div>
-            </div>
-            ${assignmentsHtml}
-            ${entriesHtml}
-            ${payHtml}
-        `;
-
-        const footer = `
-            <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
-            ${isManager ? `<button class="btn btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
-                <i class="fas fa-user-plus"></i> Assign Techs
-            </button>` : ''}
-            ${isManager ? `<button class="btn btn-warning" onclick="App.hideModal(); Pages.requestAvailability(${jobId})">
-                <i class="fas fa-question-circle"></i> Request Availability
-            </button>` : ''}
-            <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
-                <i class="fas fa-plus"></i> Add Time Entry
-            </button>
-        `;
-        App.showModal('Job Details', body, footer, { wide: true });
-    },
-
-    // Edit/create job
-    async editJob(jobId) {
-        let job = {};
-        if (jobId) {
-            const data = await API.jobs.get(jobId);
-            job = data.job;
-        }
-
-        const body = `
-            <form id="job-form">
-                <div class="form-group">
-                    <label>Platform *</label>
-                    <select class="form-control" name="platform_id" required>
-                        <option value="">Select Platform</option>
-                        ${App.getPlatformOptions(job.platform_id)}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label>Ticket Number</label>
-                    <input type="text" class="form-control" name="ticket_number" value="${job.ticket_number || ''}">
-                </div>
-                <div class="form-group">
-                    <label>Description *</label>
-                    <input type="text" class="form-control" name="description" value="${job.description || ''}" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Client Name</label>
-                        <input type="text" class="form-control" name="client_name" value="${job.client_name || ''}">
-                    </div>
-                    <div class="form-group">
-                        <label>Job Type</label>
-                        <input type="text" class="form-control" name="job_type" value="${job.job_type || ''}">
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label>Location</label>
-                    <input type="text" class="form-control" name="location" value="${job.location || ''}">
-                </div>
-                <div class="form-group">
-                    <label>External Platform URL</label>
-                    <input type="url" class="form-control" name="external_url" value="${job.external_url || ''}" placeholder="https://...">
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Billing Type</label>
-                        <select class="form-control" name="billing_type">
-                            <option value="flat_rate" ${job.billing_type === 'flat_rate' ? 'selected' : ''}>Flat Rate</option>
-                            <option value="hourly" ${job.billing_type === 'hourly' ? 'selected' : ''}>Hourly</option>
-                            <option value="per_task" ${job.billing_type === 'per_task' ? 'selected' : ''}>Per Task</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Billing Amount</label>
-                        <input type="number" step="0.01" class="form-control" name="billing_amount" value="${job.billing_amount || ''}">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Job Date</label>
-                        <input type="date" class="form-control" name="job_date" value="${job.job_date || ''}">
-                    </div>
-                    <div class="form-group">
-                        <label>Scheduled Start Time <small class="text-muted">(optional)</small></label>
-                        <input type="time" class="form-control" name="scheduled_start_time" value="${job.scheduled_start_time || ''}">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Status</label>
-                        <select class="form-control" name="job_status">
-                            <option value="pending" ${job.job_status === 'pending' ? 'selected' : ''}>Pending</option>
-                            <option value="assigned" ${job.job_status === 'assigned' ? 'selected' : ''}>Assigned</option>
-                            <option value="in_progress" ${job.job_status === 'in_progress' ? 'selected' : ''}>In Progress</option>
-                            <option value="completed" ${job.job_status === 'completed' ? 'selected' : ''}>Completed</option>
-                            <option value="cancelled" ${job.job_status === 'cancelled' ? 'selected' : ''}>Cancelled</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Expenses</label>
-                        <input type="number" step="0.01" class="form-control" name="expenses" value="${job.expenses || ''}">
-                    </div>
-                    <div class="form-group">
-                        <label>Commissions</label>
-                        <input type="number" step="0.01" class="form-control" name="commissions" value="${job.commissions || ''}">
-                    </div>
-                </div>
-            </form>
-        `;
-
-        const footer = `
-            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="Pages.saveJob(${jobId})">Save</button>
-        `;
-
-        App.showModal(jobId ? 'Edit Job' : 'New Job', body, footer);
+        const title = isNew ? 'New Job' : (editing ? 'Edit Job' : 'Job Details');
+        App.showModal(title, body, footer, { wide: true });
     },
 
     // Save job
@@ -1148,12 +1104,14 @@ const Pages = {
             if (jobId) {
                 await API.jobs.update(jobId, data);
                 App.showAlert('Job updated successfully', 'success');
+                // Return to view mode after save
+                await Pages.jobModal(jobId, 'view');
             } else {
                 await API.jobs.create(data);
                 App.showAlert('Job created successfully', 'success');
+                App.hideModal();
             }
-            App.hideModal();
-            Pages.jobsPage(1);
+            if (Pages.jobsPage) Pages.jobsPage(1);
         } catch (error) {
             App.showFormError(error.message);
         }

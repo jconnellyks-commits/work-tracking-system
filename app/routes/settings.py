@@ -110,8 +110,11 @@ def _run_restore(filepath, creds, cleanup_files=None):
             error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
             error_lines = [l for l in error_msg.strip().split('\n')
                           if 'Using a password on the command line' not in l]
-            if error_lines:
-                _restore_status['error'] = '\n'.join(error_lines)
+            # DEFINER/SYSTEM_USER errors on views are non-fatal — data restores fine
+            fatal_errors = [l for l in error_lines
+                           if 'SYSTEM_USER' not in l and 'DEFINER' not in l]
+            if fatal_errors:
+                _restore_status['error'] = '\n'.join(fatal_errors)
             else:
                 _restore_status['result'] = 'success'
         else:

@@ -312,6 +312,77 @@ const App = {
         ).join('');
     },
 
+    // Date navigator HTML - generates a single-day picker with prev/next arrows
+    // prefix: unique ID prefix (e.g. 'job', 'entry')
+    dateNavHtml(prefix) {
+        const today = new Date().toISOString().split('T')[0];
+        return `
+            <div class="date-nav" id="${prefix}-date-nav">
+                <button class="btn btn-sm btn-secondary date-nav-toggle" id="${prefix}-date-nav-toggle" title="Single day mode">
+                    <i class="fas fa-calendar-day"></i>
+                </button>
+                <div class="date-nav-controls" id="${prefix}-date-nav-controls" style="display: none;">
+                    <button class="btn btn-sm btn-secondary" id="${prefix}-date-prev" title="Previous day"><i class="fas fa-chevron-left"></i></button>
+                    <input type="date" class="form-control" id="${prefix}-date-nav-input" value="${today}">
+                    <button class="btn btn-sm btn-secondary" id="${prefix}-date-next" title="Next day"><i class="fas fa-chevron-right"></i></button>
+                    <button class="btn btn-sm btn-secondary" id="${prefix}-date-today" title="Today" style="font-size: 0.75rem;">Today</button>
+                </div>
+            </div>
+        `;
+    },
+
+    // Wire up date navigator events
+    // prefix: ID prefix, fromId/toId: IDs of the from/to date inputs, onChange: callback
+    initDateNav(prefix, fromId, toId, onChange) {
+        const toggle = document.getElementById(`${prefix}-date-nav-toggle`);
+        const controls = document.getElementById(`${prefix}-date-nav-controls`);
+        const input = document.getElementById(`${prefix}-date-nav-input`);
+        const fromEl = document.getElementById(fromId);
+        const toEl = document.getElementById(toId);
+        let active = false;
+
+        const setDay = (dateStr) => {
+            input.value = dateStr;
+            fromEl.value = dateStr;
+            toEl.value = dateStr;
+            onChange();
+        };
+
+        const shiftDay = (delta) => {
+            const d = new Date(input.value + 'T00:00:00');
+            d.setDate(d.getDate() + delta);
+            setDay(d.toISOString().split('T')[0]);
+        };
+
+        toggle.addEventListener('click', () => {
+            active = !active;
+            controls.style.display = active ? 'flex' : 'none';
+            toggle.classList.toggle('active', active);
+            if (active) {
+                // Enter single day mode: set from/to to today (or current input)
+                const today = new Date().toISOString().split('T')[0];
+                const current = input.value || today;
+                fromEl.style.display = 'none';
+                toEl.style.display = 'none';
+                setDay(current);
+            } else {
+                // Exit single day mode: clear from/to and show them
+                fromEl.style.display = '';
+                toEl.style.display = '';
+                fromEl.value = '';
+                toEl.value = '';
+                onChange();
+            }
+        });
+
+        document.getElementById(`${prefix}-date-prev`).addEventListener('click', () => shiftDay(-1));
+        document.getElementById(`${prefix}-date-next`).addEventListener('click', () => shiftDay(1));
+        document.getElementById(`${prefix}-date-today`).addEventListener('click', () => {
+            setDay(new Date().toISOString().split('T')[0]);
+        });
+        input.addEventListener('change', () => setDay(input.value));
+    },
+
     // Toggle multi-select dropdown
     toggleMultiSelect(id) {
         const container = document.getElementById(id);
@@ -538,6 +609,7 @@ const Pages = {
                         <option value="">All Platforms</option>
                         ${App.getPlatformOptions()}
                     </select>
+                    ${App.dateNavHtml('job')}
                     <input type="date" class="form-control" id="job-from-date" title="From date">
                     <input type="date" class="form-control" id="job-to-date" title="To date">
                     <input type="text" class="form-control" id="job-search" placeholder="Search...">
@@ -634,6 +706,7 @@ const Pages = {
         document.getElementById('job-from-date').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-to-date').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-search').addEventListener('input', debounce(() => loadJobs(1), 300));
+        App.initDateNav('job', 'job-from-date', 'job-to-date', () => loadJobs(1));
 
         // Sortable columns
         document.querySelectorAll('.sortable').forEach(th => {
@@ -1455,6 +1528,7 @@ const Pages = {
                         </div>
                     </div>
                     ` : ''}
+                    ${App.dateNavHtml('entry')}
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
                     <input type="text" class="form-control" id="entry-job-search" placeholder="Search job...">
@@ -1738,6 +1812,7 @@ const Pages = {
         document.getElementById('entry-from-date').addEventListener('change', reloadEntries);
         document.getElementById('entry-to-date').addEventListener('change', reloadEntries);
         document.getElementById('entry-job-search').addEventListener('input', debounce(reloadEntries, 300));
+        App.initDateNav('entry', 'entry-from-date', 'entry-to-date', reloadEntries);
 
         // Sortable columns
         document.querySelectorAll('#entries-list-view .sortable').forEach(th => {

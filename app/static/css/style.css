@@ -457,12 +457,37 @@ tr:hover {
     flex-shrink: 0;
 }
 
+/* Date Navigator */
+.date-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.date-nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.date-nav-controls .form-control {
+    min-width: 140px;
+    width: auto;
+}
+
+.date-nav-toggle.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+
 /* Filters */
 .filters {
     display: flex;
     gap: 1rem;
     margin-bottom: 1.5rem;
     flex-wrap: wrap;
+    align-items: center;
 }
 
 .filters .form-control {

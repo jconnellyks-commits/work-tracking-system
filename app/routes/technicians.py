@@ -117,7 +117,8 @@ def create_technician():
         email=email or None,
         phone=data.get('phone', '').strip() or None,
         hourly_rate=data.get('hourly_rate') or None,
-        status=data.get('status', 'active')
+        status=data.get('status', 'active'),
+        worker_type=data.get('worker_type', 'contractor')
     )
 
     db.session.add(tech)
@@ -231,6 +232,9 @@ def update_technician(tech_id):
         if data['status'] not in ('active', 'inactive'):
             return jsonify({'error': 'Invalid status'}), 400
         tech.status = data['status']
+
+    if 'worker_type' in data:
+        tech.worker_type = data['worker_type']
 
     db.session.commit()
 

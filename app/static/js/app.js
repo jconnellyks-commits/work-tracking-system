@@ -4247,6 +4247,14 @@ const Pages = {
             console.error('Failed to load SMS settings:', e);
         }
 
+        // Get payout preferences
+        let payoutPrefs = { interval_days: 14, anchor_date: '', auto_generate: false };
+        try {
+            payoutPrefs = await API.request('/settings/payout-preferences');
+        } catch (e) {
+            console.error('Failed to load payout preferences:', e);
+        }
+
         const timezones = [
             { value: 'America/New_York',   label: 'Eastern (ET) — New York, Atlanta, Miami' },
             { value: 'America/Chicago',    label: 'Central (CT) — Chicago, Dallas, Kansas City' },
@@ -4342,7 +4350,40 @@ const Pages = {
                     </p>
                 </div>
             </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-money-bill-wave"></i> Payout Configuration</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <div class="form-group">
+                        <label>Pay Interval</label>
+                        <input type="text" class="form-control" value="Biweekly — ${payoutPrefs.interval_days} days" readonly style="max-width: 300px; background: var(--bg-tertiary);">
+                    </div>
+                    <div class="form-group">
+                        <label>Anchor Date</label>
+                        <input type="date" id="payout-anchor-date" class="form-control" value="${payoutPrefs.anchor_date || ''}" style="max-width: 200px;">
+                        <small class="text-muted">The first day of the first pay period. Periods generate forward from this date.</small>
+                    </div>
+                    <button type="button" class="btn btn-primary" onclick="Pages.savePayoutPrefs()">
+                        <i class="fas fa-save"></i> Save Payout Preferences
+                    </button>
+                </div>
+            </div>
         `;
+    },
+
+    async savePayoutPrefs() {
+        const anchorDate = document.getElementById('payout-anchor-date')?.value;
+        try {
+            await API.request('/settings/payout-preferences', {
+                method: 'PUT',
+                body: JSON.stringify({ anchor_date: anchorDate || '' })
+            });
+            App.showAlert('Payout preferences saved', 'success');
+        } catch (e) {
+            App.showAlert('Failed to save: ' + e.message, 'error');
+        }
     },
 
     async saveTimezone() {

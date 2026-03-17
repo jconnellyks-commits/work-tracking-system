@@ -672,6 +672,57 @@ def revert_safe_mode():
         return jsonify({'error': f'Revert failed: {str(e)}'}), 500
 
 
+# ============ Payout Preferences ============
+
+@settings_bp.route('/payout-preferences', methods=['GET'])
+@admin_required
+def get_payout_preferences():
+    """Get payout configuration."""
+    return jsonify({
+        'interval_days': int(SystemSettings.get_value('payout_interval_days', '14')),
+        'anchor_date': SystemSettings.get_value('payout_anchor_date'),
+        'auto_generate': SystemSettings.get_value('payout_auto_generate', 'false') == 'true',
+    })
+
+
+@settings_bp.route('/payout-preferences', methods=['PUT'])
+@admin_required
+def update_payout_preferences():
+    """Update payout configuration."""
+    data = request.get_json()
+
+    field_map = {
+        'interval_days': 'payout_interval_days',
+        'anchor_date': 'payout_anchor_date',
+        'auto_generate': 'payout_auto_generate',
+    }
+
+    for short_key, db_key in field_map.items():
+        if short_key in data:
+            value = str(data[short_key]).lower() if isinstance(data[short_key], bool) else str(data[short_key])
+            setting = SystemSettings.query.filter_by(setting_key=db_key).first()
+            if setting:
+                setting.setting_value = value
+            else:
+                setting = SystemSettings(
+                    setting_key=db_key,
+                    setting_value=value,
+                    description=f'Payout preference: {short_key}'
+                )
+                db.session.add(setting)
+
+    db.session.commit()
+
+    audit_logger.log(
+        action_type='payout_preferences_updated',
+        entity_type='system',
+        description='Payout preferences updated',
+        user_id=g.user_id
+    )
+
+    return jsonify({'message': 'Payout preferences updated'})
+
+
 # ============ SMS Settings ============
 
 @settings_bp.route('/sms', methods=['GET'])

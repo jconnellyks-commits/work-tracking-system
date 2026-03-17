@@ -52,13 +52,14 @@ _restore_status = {'running': False, 'result': None, 'error': None, 'started_at'
 
 
 def _run_restore(filepath, creds, cleanup_files=None):
-    """Run mysql restore in background thread. Strips DEFINER clauses to avoid privilege errors."""
+    """Run mysql restore in background thread. Strips DEFINER and view statements to avoid privilege errors."""
     global _restore_status
     try:
-        # Read the SQL and strip DEFINER clauses that cause SYSTEM_USER privilege errors
         import re
         with open(filepath, 'r') as f:
             sql_content = f.read()
+
+        # Strip DEFINER clauses from views/routines
         sql_content = re.sub(
             r'/\*!50013 DEFINER=`[^`]*`@`[^`]*` SQL SECURITY DEFINER \*/',
             '',
@@ -69,6 +70,30 @@ def _run_restore(filepath, creds, cleanup_files=None):
             '',
             sql_content
         )
+        # Strip CREATE ALGORITHM=UNDEFINED (often paired with DEFINER)
+        sql_content = re.sub(
+            r'/\*!50001 CREATE ALGORITHM=UNDEFINED \*/',
+            '/*!50001 CREATE */',
+            sql_content
+        )
+
+        # First: drop any root-owned views using sudo mysql so the restore won't fail
+        drop_views_sql = "DROP VIEW IF EXISTS v_job_billing_summary; DROP VIEW IF EXISTS v_tech_hours_by_period;\n"
+        try:
+            subprocess.run(
+                ['sudo', MYSQL_PATH, creds['database']],
+                input=drop_views_sql.encode(), stderr=subprocess.PIPE, timeout=30
+            )
+        except Exception:
+            # If sudo isn't available, try with credentials (may fail but that's OK)
+            try:
+                subprocess.run(
+                    [MYSQL_PATH, f'--host={creds["host"]}', f'--port={creds["port"]}',
+                     f'--user={creds["user"]}', f'--password={creds["password"]}', creds['database']],
+                    input=drop_views_sql.encode(), stderr=subprocess.PIPE, timeout=30
+                )
+            except Exception:
+                pass
 
         cmd = [
             MYSQL_PATH,

@@ -584,5 +584,75 @@ const API = {
             const query = new URLSearchParams(params).toString();
             return API.request(`/assignments/sms/log${query ? '?' + query : ''}`);
         }
+    },
+
+    // Payout endpoints
+    payouts: {
+        async list(params) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/payouts/?${query}`);
+        },
+        async get(id) {
+            return API.request(`/payouts/${id}`);
+        },
+        async lock(data) {
+            return API.request('/payouts/lock', { method: 'POST', body: JSON.stringify(data) });
+        },
+        async pay(id) {
+            return API.request(`/payouts/${id}/pay`, { method: 'POST' });
+        },
+        async payAll(data) {
+            return API.request('/payouts/pay-all', { method: 'POST', body: JSON.stringify(data) });
+        },
+        async addLineItem(payoutId, data) {
+            return API.request(`/payouts/${payoutId}/line-items`, { method: 'POST', body: JSON.stringify(data) });
+        },
+        async removeLineItem(itemId) {
+            return API.request(`/payouts/line-items/${itemId}`, { method: 'DELETE' });
+        },
+        async getStub(id) {
+            return API.request(`/payouts/${id}/stub`);
+        },
+    },
+
+    // Advance endpoints
+    advances: {
+        async list(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/advances/?${query}`);
+        },
+        async create(data) {
+            return API.request('/advances/', { method: 'POST', body: JSON.stringify(data) });
+        },
+        async update(id, data) {
+            return API.request(`/advances/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+        },
+        async cancel(id) {
+            return API.request(`/advances/${id}/cancel`, { method: 'POST' });
+        },
+    },
+
+    // Payout adjustment endpoints
+    payoutAdjustments: {
+        async list(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/payout-adjustments/?${query}`);
+        },
+        async resolve(id, data) {
+            return API.request(`/payout-adjustments/${id}/resolve`, { method: 'POST', body: JSON.stringify(data) });
+        },
+    },
+
+    // Technician self-service endpoints
+    my: {
+        async dashboard() {
+            return API.request('/my/dashboard');
+        },
+        async payouts() {
+            return API.request('/my/payouts');
+        },
+        async stub(id) {
+            return API.request(`/my/payouts/${id}/stub`);
+        },
     }
 };

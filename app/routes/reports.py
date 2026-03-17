@@ -1041,8 +1041,14 @@ def close_pay_period(period_id):
     """Close a pay period (no more edits allowed)."""
     period = PayPeriod.query.get_or_404(period_id)
 
-    if period.status != 'open':
-        return jsonify({'error': 'Period is not open'}), 400
+    if period.status not in ('open', 'locked'):
+        return jsonify({'error': 'Period is not open or locked'}), 400
+
+    import logging
+    logging.getLogger(__name__).warning(
+        f'Deprecated: close_pay_period called for period {period_id}. '
+        'Use the payout workflow (lock → pay) instead.'
+    )
 
     # Check for unverified entries
     unverified = TimeEntry.query.filter(

@@ -70,6 +70,10 @@ def create_app(config_class=None):
     from app.routes.frontend import frontend_bp
     from app.routes.assignments import assignments_bp
     from app.routes.sms_webhook import sms_webhook_bp
+    from app.routes.payouts import payouts_bp
+    from app.routes.advances import advances_bp
+    from app.routes.payout_adjustments import payout_adjustments_bp
+    from app.routes.my import my_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(jobs_bp, url_prefix='/api/jobs')
@@ -79,6 +83,10 @@ def create_app(config_class=None):
     app.register_blueprint(settings_bp, url_prefix='/api/settings')
     app.register_blueprint(imports_bp, url_prefix='/api/imports')
     app.register_blueprint(assignments_bp, url_prefix='/api/assignments')
+    app.register_blueprint(payouts_bp, url_prefix='/api/payouts')
+    app.register_blueprint(advances_bp, url_prefix='/api/advances')
+    app.register_blueprint(payout_adjustments_bp, url_prefix='/api/payout-adjustments')
+    app.register_blueprint(my_bp, url_prefix='/api/my')
     app.register_blueprint(sms_webhook_bp)  # No prefix — route is /sms/inbound
     app.register_blueprint(frontend_bp)
 

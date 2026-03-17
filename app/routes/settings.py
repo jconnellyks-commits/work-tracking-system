@@ -52,29 +52,37 @@ _restore_status = {'running': False, 'result': None, 'error': None, 'started_at'
 
 
 def _run_restore(filepath, creds, cleanup_files=None):
-    """Run mysql restore in background thread. Uses sudo mysql to handle DEFINER views."""
+    """Run mysql restore in background thread. Strips DEFINER clauses to avoid privilege errors."""
     global _restore_status
     try:
-        # Try sudo mysql first (handles DEFINER=root views without privilege errors)
-        sudo_mysql = shutil.which('sudo')
-        if sudo_mysql:
-            cmd = ['sudo', MYSQL_PATH, creds['database']]
-        else:
-            cmd = [
-                MYSQL_PATH,
-                f'--host={creds["host"]}',
-                f'--port={creds["port"]}',
-                f'--user={creds["user"]}',
-                f'--password={creds["password"]}',
-                creds['database']
-            ]
-
+        # Read the SQL and strip DEFINER clauses that cause SYSTEM_USER privilege errors
+        import re
         with open(filepath, 'r') as f:
-            result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, timeout=300)
+            sql_content = f.read()
+        sql_content = re.sub(
+            r'/\*!50013 DEFINER=`[^`]*`@`[^`]*` SQL SECURITY DEFINER \*/',
+            '',
+            sql_content
+        )
+        sql_content = re.sub(
+            r'/\*!50017 DEFINER=`[^`]*`@`[^`]*`\*/',
+            '',
+            sql_content
+        )
+
+        cmd = [
+            MYSQL_PATH,
+            f'--host={creds["host"]}',
+            f'--port={creds["port"]}',
+            f'--user={creds["user"]}',
+            f'--password={creds["password"]}',
+            creds['database']
+        ]
+
+        result = subprocess.run(cmd, input=sql_content.encode(), stderr=subprocess.PIPE, timeout=300)
 
         if result.returncode != 0:
             error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
-            # Filter out the password warning
             error_lines = [l for l in error_msg.strip().split('\n')
                           if 'Using a password on the command line' not in l]
             if error_lines:

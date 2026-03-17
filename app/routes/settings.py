@@ -5,6 +5,7 @@ import os
 import subprocess
 import glob
 import shutil
+import threading
 from datetime import datetime
 from flask import Blueprint, request, jsonify, g, current_app
 from app import db
@@ -45,6 +46,69 @@ def get_mysql_binary(name):
 
 MYSQLDUMP_PATH = get_mysql_binary('mysqldump')
 MYSQL_PATH = get_mysql_binary('mysql')
+
+# Track background restore status
+_restore_status = {'running': False, 'result': None, 'error': None, 'started_at': None}
+
+
+def _run_restore(filepath, creds, cleanup_files=None):
+    """Run mysql restore in background thread. Uses sudo mysql to handle DEFINER views."""
+    global _restore_status
+    try:
+        # Try sudo mysql first (handles DEFINER=root views without privilege errors)
+        sudo_mysql = shutil.which('sudo')
+        if sudo_mysql:
+            cmd = ['sudo', MYSQL_PATH, creds['database']]
+        else:
+            cmd = [
+                MYSQL_PATH,
+                f'--host={creds["host"]}',
+                f'--port={creds["port"]}',
+                f'--user={creds["user"]}',
+                f'--password={creds["password"]}',
+                creds['database']
+            ]
+
+        with open(filepath, 'r') as f:
+            result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, timeout=300)
+
+        if result.returncode != 0:
+            error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
+            # Filter out the password warning
+            error_lines = [l for l in error_msg.strip().split('\n')
+                          if 'Using a password on the command line' not in l]
+            if error_lines:
+                _restore_status['error'] = '\n'.join(error_lines)
+            else:
+                _restore_status['result'] = 'success'
+        else:
+            _restore_status['result'] = 'success'
+
+        # Clean up files if specified (for safe mode revert)
+        if _restore_status['result'] == 'success' and cleanup_files:
+            for f in cleanup_files:
+                if os.path.exists(f):
+                    os.remove(f)
+
+    except subprocess.TimeoutExpired:
+        _restore_status['error'] = 'Restore timed out after 300 seconds'
+    except Exception as e:
+        _restore_status['error'] = str(e)
+    finally:
+        _restore_status['running'] = False
+
+
+def start_restore(filepath, creds, cleanup_files=None):
+    """Start a background restore and return immediately."""
+    global _restore_status
+    if _restore_status['running']:
+        return False, 'A restore is already in progress'
+    _restore_status = {'running': True, 'result': None, 'error': None,
+                       'started_at': datetime.now().isoformat()}
+    t = threading.Thread(target=_run_restore, args=(filepath, creds, cleanup_files))
+    t.daemon = True
+    t.start()
+    return True, None
 
 
 # ============ System Settings ============
@@ -405,10 +469,9 @@ def create_backup():
 @settings_bp.route('/backups/<filename>/restore', methods=['POST'])
 @admin_required
 def restore_backup(filename):
-    """Restore database from a backup file."""
+    """Restore database from a backup file (runs in background)."""
     ensure_backup_dir()
 
-    # Validate filename (prevent directory traversal)
     if '/' in filename or '\\' in filename or '..' in filename:
         return jsonify({'error': 'Invalid filename'}), 400
 
@@ -417,40 +480,32 @@ def restore_backup(filename):
     if not os.path.exists(filepath):
         return jsonify({'error': 'Backup file not found'}), 404
 
-    # Get credentials
     creds = get_db_credentials()
 
-    try:
-        # Run mysql restore
-        cmd = [
-            MYSQL_PATH,
-            f'--host={creds["host"]}',
-            f'--port={creds["port"]}',
-            f'--user={creds["user"]}',
-            f'--password={creds["password"]}',
-            creds['database']
-        ]
+    audit_logger.log(
+        action_type='backup_restore_started',
+        entity_type='system',
+        description=f"Database restore started from: {filename}",
+        user_id=g.user_id
+    )
 
-        with open(filepath, 'r') as f:
-            result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, timeout=300)
+    started, error = start_restore(filepath, creds)
+    if not started:
+        return jsonify({'error': error}), 409
 
-        if result.returncode != 0:
-            error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
-            return jsonify({'error': f'Restore failed: {error_msg}'}), 500
+    return jsonify({'message': 'Restore started in background. Check status with GET /api/settings/restore-status'}), 202
 
-        audit_logger.log(
-            action_type='backup_restored',
-            entity_type='system',
-            description=f"Database restored from: {filename}",
-            user_id=g.user_id
-        )
 
-        return jsonify({'message': f'Database restored from {filename}'}), 200
-
-    except subprocess.TimeoutExpired:
-        return jsonify({'error': 'Restore timed out'}), 500
-    except Exception as e:
-        return jsonify({'error': f'Restore failed: {str(e)}'}), 500
+@settings_bp.route('/restore-status', methods=['GET'])
+@admin_required
+def restore_status():
+    """Check status of background restore."""
+    return jsonify({
+        'running': _restore_status['running'],
+        'result': _restore_status['result'],
+        'error': _restore_status['error'],
+        'started_at': _restore_status['started_at']
+    })
 
 
 @settings_bp.route('/backups/<filename>', methods=['DELETE'])
@@ -620,7 +675,7 @@ def commit_safe_mode():
 @settings_bp.route('/safe-mode/revert', methods=['POST'])
 @admin_required
 def revert_safe_mode():
-    """Exit safe mode - revert to snapshot."""
+    """Exit safe mode - revert to snapshot (runs in background)."""
     ensure_backup_dir()
 
     if not os.path.exists(SAFE_MODE_FILE):
@@ -635,41 +690,20 @@ def revert_safe_mode():
         os.remove(SAFE_MODE_FILE)
         return jsonify({'error': 'Snapshot file not found'}), 404
 
-    # Restore the backup
     creds = get_db_credentials()
 
-    try:
-        cmd = [
-            MYSQL_PATH,
-            f'--host={creds["host"]}',
-            f'--port={creds["port"]}',
-            f'--user={creds["user"]}',
-            f'--password={creds["password"]}',
-            creds['database']
-        ]
+    audit_logger.log(
+        action_type='safe_mode_revert_started',
+        entity_type='system',
+        description="Safe mode revert started",
+        user_id=g.user_id
+    )
 
-        with open(backup_path, 'r') as f:
-            result = subprocess.run(cmd, stdin=f, stderr=subprocess.PIPE, timeout=300)
+    started, error = start_restore(backup_path, creds, cleanup_files=[backup_path, SAFE_MODE_FILE])
+    if not started:
+        return jsonify({'error': error}), 409
 
-        if result.returncode != 0:
-            error_msg = result.stderr.decode() if result.stderr else 'Unknown error'
-            return jsonify({'error': f'Restore failed: {error_msg}'}), 500
-
-        # Clean up
-        os.remove(backup_path)
-        os.remove(SAFE_MODE_FILE)
-
-        audit_logger.log(
-            action_type='safe_mode_reverted',
-            entity_type='system',
-            description="Safe mode exited, changes reverted",
-            user_id=g.user_id
-        )
-
-        return jsonify({'message': 'Database reverted to snapshot. Changes discarded.'}), 200
-
-    except Exception as e:
-        return jsonify({'error': f'Revert failed: {str(e)}'}), 500
+    return jsonify({'message': 'Revert started in background. Check status with GET /api/settings/restore-status'}), 202
 
 
 # ============ Payout Preferences ============

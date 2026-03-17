@@ -513,6 +513,10 @@ const API = {
             });
         },
 
+        async restoreStatus() {
+            return API.request('/settings/restore-status');
+        },
+
         // SMS Settings
         async getSmsSettings() {
             return API.request('/settings/sms');

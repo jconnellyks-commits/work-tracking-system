@@ -4377,7 +4377,8 @@ const Pages = {
 
         try {
             await API.settings.restoreBackup(filename);
-            App.showAlert('Database restored successfully. Please refresh the page.', 'success');
+            App.showAlert('Restore started... please wait', 'info');
+            await Pages.pollRestoreStatus();
         } catch (error) {
             App.showAlert(error.message);
         }
@@ -4441,12 +4442,35 @@ const Pages = {
         }
 
         try {
-            const result = await API.settings.revertSafeMode();
-            App.showAlert(result.message, 'success');
-            await this.backups(document.getElementById('content'));
+            await API.settings.revertSafeMode();
+            App.showAlert('Reverting... please wait', 'info');
+            await Pages.pollRestoreStatus();
         } catch (error) {
             App.showAlert(error.message);
         }
+    },
+
+    async pollRestoreStatus() {
+        const poll = async () => {
+            try {
+                const status = await API.settings.restoreStatus();
+                if (status.running) {
+                    setTimeout(poll, 2000);
+                } else if (status.result === 'success') {
+                    App.showAlert('Database restored successfully!', 'success');
+                    await Pages.backups(document.getElementById('content'));
+                } else if (status.error) {
+                    App.showAlert('Restore failed: ' + status.error, 'error');
+                } else {
+                    App.showAlert('Restore completed', 'success');
+                    await Pages.backups(document.getElementById('content'));
+                }
+            } catch (e) {
+                // Server might restart during restore, retry
+                setTimeout(poll, 3000);
+            }
+        };
+        poll();
     },
 
     // ============ System Settings ============

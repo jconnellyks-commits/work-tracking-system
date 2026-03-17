@@ -20,6 +20,9 @@ class Technician(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # Worker classification
+    worker_type = db.Column(db.String(20), nullable=False, default='contractor')
+
     # SMS opt-in tracking
     sms_opted_in = db.Column(db.Boolean, default=True, nullable=False)
     sms_opted_in_at = db.Column(db.DateTime, nullable=True)
@@ -40,6 +43,7 @@ class Technician(db.Model):
             'hire_date': self.hire_date.isoformat() if self.hire_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'sms_opted_in': self.sms_opted_in,
+            'worker_type': self.worker_type,
         }
 
 
@@ -145,7 +149,7 @@ class PayPeriod(db.Model):
     start_date = db.Column(db.Date, nullable=False)
     end_date = db.Column(db.Date, nullable=False)
     period_name = db.Column(db.String(50))
-    status = db.Column(db.Enum('open', 'closed', 'archived'), default='open')
+    status = db.Column(db.Enum('open', 'locked', 'closed', 'archived'), default='open')
     total_hours = db.Column(db.Numeric(10, 2))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     closed_at = db.Column(db.DateTime)
@@ -546,5 +550,226 @@ class AuditLog(db.Model):
             'new_values': self.new_values,
             'description': self.description,
             'ip_address': self.ip_address,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Payout(db.Model):
+    """Payout record — one per tech per pay period, created at lock time."""
+    __tablename__ = 'payouts'
+
+    payout_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    period_id = db.Column(db.Integer, db.ForeignKey('pay_periods.period_id'), nullable=False)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=False)
+    status = db.Column(db.Enum('locked', 'paid'), nullable=False, default='locked')
+    total_hours = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_base_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_mileage_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_per_diem = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_personal_expenses = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_bonuses = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_deductions = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    total_advance_repayment = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    net_payout = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    locked_at = db.Column(db.DateTime, nullable=False)
+    paid_at = db.Column(db.DateTime)
+    paid_by = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    notes = db.Column(db.Text)
+
+    # Relationships
+    pay_period = db.relationship('PayPeriod', backref=db.backref('payouts', lazy='dynamic'))
+    technician = db.relationship('Technician', backref=db.backref('payouts', lazy='dynamic'))
+    job_details = db.relationship('PayoutJobDetail', backref='payout', lazy='dynamic', cascade='all, delete-orphan')
+    line_items = db.relationship('PayoutLineItem', backref='payout', lazy='dynamic', cascade='all, delete-orphan')
+    advance_repayments = db.relationship('AdvanceRepayment', backref='payout', lazy='dynamic', cascade='all, delete-orphan')
+    adjustments = db.relationship('PayoutAdjustment', backref='payout', lazy='dynamic', cascade='all, delete-orphan')
+
+    def recalculate_net(self):
+        """Recalculate net_payout from component fields. Call after line item changes."""
+        bonus_sum = sum(li.amount for li in self.line_items.filter_by(type='bonus').all())
+        deduction_sum = sum(li.amount for li in self.line_items.filter_by(type='deduction').all())
+        self.total_bonuses = bonus_sum
+        self.total_deductions = deduction_sum
+        self.net_payout = (
+            self.total_base_pay + self.total_mileage_pay + self.total_per_diem
+            + self.total_personal_expenses + self.total_bonuses
+            - self.total_deductions - self.total_advance_repayment
+        )
+
+    def to_dict(self):
+        return {
+            'payout_id': self.payout_id,
+            'period_id': self.period_id,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'worker_type': self.technician.worker_type if self.technician else None,
+            'status': self.status,
+            'total_hours': float(self.total_hours or 0),
+            'total_base_pay': float(self.total_base_pay or 0),
+            'total_mileage_pay': float(self.total_mileage_pay or 0),
+            'total_per_diem': float(self.total_per_diem or 0),
+            'total_personal_expenses': float(self.total_personal_expenses or 0),
+            'total_bonuses': float(self.total_bonuses or 0),
+            'total_deductions': float(self.total_deductions or 0),
+            'total_advance_repayment': float(self.total_advance_repayment or 0),
+            'net_payout': float(self.net_payout or 0),
+            'locked_at': self.locked_at.isoformat() if self.locked_at else None,
+            'paid_at': self.paid_at.isoformat() if self.paid_at else None,
+            'paid_by': self.paid_by,
+            'notes': self.notes,
+        }
+
+
+class PayoutJobDetail(db.Model):
+    """Snapshot of pay per job per tech per payout."""
+    __tablename__ = 'payout_job_details'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
+    hours = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    base_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    mileage_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    per_diem = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    personal_expenses = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    effective_rate = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    profit_share = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+
+    job = db.relationship('Job', backref=db.backref('payout_details', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'payout_id': self.payout_id,
+            'job_id': self.job_id,
+            'job_ticket': self.job.ticket_number if self.job else None,
+            'job_description': self.job.description if self.job else None,
+            'job_client': self.job.client_name if self.job else None,
+            'external_url': self.job.external_url if self.job else None,
+            'hours': float(self.hours or 0),
+            'base_pay': float(self.base_pay or 0),
+            'mileage_pay': float(self.mileage_pay or 0),
+            'per_diem': float(self.per_diem or 0),
+            'personal_expenses': float(self.personal_expenses or 0),
+            'effective_rate': float(self.effective_rate or 0),
+            'profit_share': float(self.profit_share or 0),
+        }
+
+
+class PayoutLineItem(db.Model):
+    """Bonus or deduction line item on a payout."""
+    __tablename__ = 'payout_line_items'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
+    type = db.Column(db.Enum('bonus', 'deduction'), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    created_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'payout_id': self.payout_id,
+            'type': self.type,
+            'description': self.description,
+            'amount': float(self.amount or 0),
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class Advance(db.Model):
+    """Advance given to a technician — carries balance across pay periods."""
+    __tablename__ = 'advances'
+
+    advance_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    original_amount = db.Column(db.Numeric(10, 2), nullable=False)
+    remaining_balance = db.Column(db.Numeric(10, 2), nullable=False)
+    max_per_period = db.Column(db.Numeric(10, 2))
+    status = db.Column(db.Enum('active', 'repaid', 'cancelled'), nullable=False, default='active')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    repaid_at = db.Column(db.DateTime)
+
+    technician = db.relationship('Technician', backref=db.backref('advances', lazy='dynamic'))
+    repayments = db.relationship('AdvanceRepayment', backref='advance', lazy='dynamic')
+
+    def to_dict(self):
+        return {
+            'advance_id': self.advance_id,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'description': self.description,
+            'original_amount': float(self.original_amount or 0),
+            'remaining_balance': float(self.remaining_balance or 0),
+            'max_per_period': float(self.max_per_period) if self.max_per_period else None,
+            'status': self.status,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'repaid_at': self.repaid_at.isoformat() if self.repaid_at else None,
+        }
+
+
+class AdvanceRepayment(db.Model):
+    """Tracks each deduction against an advance per payout period."""
+    __tablename__ = 'advance_repayments'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    advance_id = db.Column(db.Integer, db.ForeignKey('advances.advance_id'), nullable=False)
+    payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'advance_id': self.advance_id,
+            'payout_id': self.payout_id,
+            'amount': float(self.amount or 0),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class PayoutAdjustment(db.Model):
+    """Post-lock change detection record."""
+    __tablename__ = 'payout_adjustments'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
+    type = db.Column(db.String(50), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'))
+    entry_id = db.Column(db.Integer, db.ForeignKey('time_entries.entry_id'))
+    description = db.Column(db.Text, nullable=False)
+    old_value = db.Column(db.Text)
+    new_value = db.Column(db.Text)
+    amount_diff = db.Column(db.Numeric(10, 2), nullable=False, default=0)
+    resolution = db.Column(db.Enum('pending', 'carried_forward', 'dismissed'), nullable=False, default='pending')
+    resolved_to_period_id = db.Column(db.Integer, db.ForeignKey('pay_periods.period_id'))
+    resolved_by = db.Column(db.Integer, db.ForeignKey('users.user_id'))
+    resolved_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    job = db.relationship('Job', backref=db.backref('payout_adjustments', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'payout_id': self.payout_id,
+            'type': self.type,
+            'job_id': self.job_id,
+            'job_ticket': self.job.ticket_number if self.job else None,
+            'entry_id': self.entry_id,
+            'description': self.description,
+            'old_value': self.old_value,
+            'new_value': self.new_value,
+            'amount_diff': float(self.amount_diff or 0),
+            'resolution': self.resolution,
+            'resolved_to_period_id': self.resolved_to_period_id,
+            'resolved_by': self.resolved_by,
+            'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }

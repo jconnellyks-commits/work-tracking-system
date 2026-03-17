@@ -175,6 +175,16 @@ const App = {
         document.getElementById('modal-body').innerHTML = body;
         document.getElementById('modal-footer').innerHTML = footer;
 
+        // Handle actions bar
+        const actionsEl = document.getElementById('modal-actions');
+        if (options.actions) {
+            actionsEl.innerHTML = options.actions;
+            actionsEl.style.display = '';
+        } else {
+            actionsEl.innerHTML = '';
+            actionsEl.style.display = 'none';
+        }
+
         // Handle wide modal option
         if (options.wide) {
             modal.classList.add('modal-wide');
@@ -191,6 +201,7 @@ const App = {
         const modal = modalOverlay.querySelector('.modal');
         modalOverlay.classList.remove('active');
         modal.classList.remove('modal-wide');
+        document.getElementById('modal-actions').style.display = 'none';
     },
 
     // Show alert
@@ -1065,33 +1076,35 @@ const Pages = {
             ${!isNew ? payHtml : ''}
         `;
 
-        // Build footer based on mode
+        // Build actions bar (sticky top) and footer
+        let actions = '';
         let footer = '';
+
         if (editing) {
-            footer = `
-                <button class="btn btn-secondary" onclick="${isNew ? 'App.hideModal()' : `Pages.jobModal(${jobId}, 'view')`}">${isNew ? 'Cancel' : 'Cancel'}</button>
-                <button class="btn btn-primary" onclick="Pages.saveJob(${jobId})">Save</button>
+            actions = `
+                <button class="btn btn-sm btn-secondary" onclick="${isNew ? 'App.hideModal()' : `Pages.jobModal(${jobId}, 'view')`}">Cancel</button>
+                <button class="btn btn-sm btn-primary" onclick="Pages.saveJob(${jobId})"><i class="fas fa-save"></i> Save</button>
             `;
         } else {
-            footer = `
-                <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
-                ${isManager ? `<button class="btn btn-primary" onclick="Pages.jobModal(${jobId}, 'edit')">
+            actions = `
+                ${isManager ? `<button class="btn btn-sm btn-primary" onclick="Pages.jobModal(${jobId}, 'edit')">
                     <i class="fas fa-edit"></i> Edit
                 </button>` : ''}
-                ${isManager ? `<button class="btn btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
+                ${isManager ? `<button class="btn btn-sm btn-info" onclick="App.hideModal(); Pages.assignTechniciansToJob(${jobId})">
                     <i class="fas fa-user-plus"></i> Assign Techs
                 </button>` : ''}
-                ${isManager ? `<button class="btn btn-warning" onclick="App.hideModal(); Pages.requestAvailability(${jobId})">
-                    <i class="fas fa-question-circle"></i> Request Availability
+                ${isManager ? `<button class="btn btn-sm btn-warning" onclick="App.hideModal(); Pages.requestAvailability(${jobId})">
+                    <i class="fas fa-question-circle"></i> Availability
                 </button>` : ''}
-                <button class="btn btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
-                    <i class="fas fa-plus"></i> Add Time Entry
+                <button class="btn btn-sm btn-success" onclick="App.hideModal(); Pages.addTimeToJob(${jobId})">
+                    <i class="fas fa-plus"></i> Add Time
                 </button>
+                <button class="btn btn-sm btn-secondary" onclick="App.hideModal()" style="margin-left: auto;">Close</button>
             `;
         }
 
         const title = isNew ? 'New Job' : (editing ? 'Edit Job' : 'Job Details');
-        App.showModal(title, body, footer, { wide: true });
+        App.showModal(title, body, footer, { wide: true, actions });
     },
 
     // Save job

@@ -396,7 +396,8 @@ tr:hover {
     width: 100%;
     max-width: 500px;
     max-height: 90vh;
-    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
     transform: scale(0.95);
     transition: transform 0.2s;
 }
@@ -415,6 +416,7 @@ tr:hover {
     align-items: center;
     padding: 1rem 1.5rem;
     border-bottom: 1px solid var(--gray-200);
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -430,8 +432,20 @@ tr:hover {
     color: var(--gray-500);
 }
 
+.modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid var(--gray-200);
+    background: var(--gray-50, #f8f9fa);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
 .modal-body {
     padding: 1.5rem;
+    overflow-y: auto;
+    flex: 1;
 }
 
 .modal-footer {
@@ -440,6 +454,7 @@ tr:hover {
     gap: 0.75rem;
     padding: 1rem 1.5rem;
     border-top: 1px solid var(--gray-200);
+    flex-shrink: 0;
 }
 
 /* Filters */

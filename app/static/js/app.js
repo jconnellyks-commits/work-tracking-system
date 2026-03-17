@@ -56,8 +56,10 @@ const App = {
             { id: 'jobs', icon: 'fas fa-briefcase', label: 'Jobs' },
             { id: 'calendar', icon: 'fas fa-calendar-alt', label: 'Calendar' },
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
+            { id: 'payout', icon: 'fas fa-money-bill-wave', label: 'Payout', roles: ['admin', 'manager'] },
             { id: 'reports', icon: 'fas fa-chart-bar', label: 'Reports', roles: ['admin', 'manager'] },
             { id: 'sms-log', icon: 'fas fa-sms', label: 'SMS Log', roles: ['admin', 'manager'] },
+            { id: 'my-payouts', icon: 'fas fa-file-invoice-dollar', label: 'My Payouts', roles: ['technician'] },
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
             { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] },
             { id: 'settings', icon: 'fas fa-cog', label: 'Settings', roles: ['admin'] },
@@ -111,6 +113,8 @@ const App = {
             'technicians': 'Technician Management',
             'users': 'User Management',
             'pay-periods': 'Pay Periods',
+            'payout': 'Payout',
+            'my-payouts': 'My Payouts',
             'settings': 'System Settings',
             'backups': 'Backup & Recovery'
         };
@@ -151,6 +155,12 @@ const App = {
                     break;
                 case 'settings':
                     await Pages.settings(content);
+                    break;
+                case 'payout':
+                    await Pages.payout(content);
+                    break;
+                case 'my-payouts':
+                    await Pages.myPayouts(content);
                     break;
                 case 'backups':
                     await Pages.backups(content);
@@ -2241,7 +2251,7 @@ const Pages = {
         const html = `
             <div class="stats-grid">
                 <div class="stat-card" style="cursor: pointer" onclick="Pages.showPayrollReport()">
-                    <div class="stat-label">Payroll Report</div>
+                    <div class="stat-label">Payout Report (Legacy)</div>
                     <div class="stat-value"><i class="fas fa-file-invoice-dollar"></i></div>
                 </div>
                 <div class="stat-card" style="cursor: pointer" onclick="Pages.showBillingReport()">
@@ -3034,6 +3044,419 @@ const Pages = {
             document.getElementById('audit-results').innerHTML = html;
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    // ===================== PAYOUT PAGE =====================
+
+    async payout(container) {
+        // Load pay periods for the selector
+        let periods = [];
+        try {
+            const data = await API.reports.payPeriods({ per_page: 20 });
+            periods = data.pay_periods || [];
+        } catch (e) {
+            container.innerHTML = '<div class="alert alert-error">Failed to load pay periods</div>';
+            return;
+        }
+
+        // Default to most recent open or locked period
+        const defaultPeriod = periods.find(p => p.status === 'locked') || periods.find(p => p.status === 'open') || periods[0];
+
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Payout Management</h3>
+                </div>
+                <div class="card-body">
+                    <div class="filters" style="margin-bottom: 1rem;">
+                        <div class="form-group" style="margin: 0;">
+                            <label>Pay Period</label>
+                            <select id="payout-period-select" class="form-control">
+                                ${periods.map(p => `<option value="${p.period_id}" ${p.period_id === (defaultPeriod?.period_id) ? 'selected' : ''}>${p.period_name} (${p.start_date} — ${p.end_date}) [${p.status}]</option>`).join('')}
+                            </select>
+                        </div>
+                        <button class="btn btn-primary" id="payout-load-btn" style="margin-left: 0.5rem; align-self: flex-end;">Load</button>
+                    </div>
+                    <div id="payout-content"></div>
+                </div>
+            </div>
+        `;
+
+        const loadPayout = async () => {
+            const periodId = document.getElementById('payout-period-select').value;
+            const selectedPeriod = periods.find(p => p.period_id == periodId);
+            const payoutContent = document.getElementById('payout-content');
+            payoutContent.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+
+            try {
+                if (selectedPeriod.status === 'open') {
+                    // Show live calculation with Lock button
+                    const data = await API.reports.payrollDetail({
+                        from_date: selectedPeriod.start_date,
+                        to_date: selectedPeriod.end_date
+                    });
+                    Pages.renderOpenPayout(payoutContent, data, selectedPeriod, loadPayout);
+                } else {
+                    // Show snapshot data
+                    const data = await API.payouts.list({ period_id: periodId });
+                    Pages.renderLockedPayout(payoutContent, data.payouts || [], selectedPeriod, loadPayout);
+                }
+            } catch (e) {
+                payoutContent.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
+            }
+        };
+
+        document.getElementById('payout-load-btn').addEventListener('click', loadPayout);
+        if (defaultPeriod) loadPayout();
+    },
+
+    renderOpenPayout(container, data, period, refreshFn) {
+        if (!data.technicians || data.technicians.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">No verified entries found for this period.</div>';
+            return;
+        }
+
+        let html = `
+            <div class="stats-grid" style="margin-bottom: 1rem;">
+                <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" style="color: var(--success);">Open — Preview</div></div>
+                <div class="stat-card"><div class="stat-label">Technicians</div><div class="stat-value">${data.technicians.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Hours</div><div class="stat-value">${data.grand_totals.total_hours.toFixed(2)}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Pay</div><div class="stat-value">$${data.grand_totals.total_pay.toFixed(2)}</div></div>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <button class="btn btn-primary" id="lock-payouts-btn"><i class="fas fa-lock"></i> Lock Payouts</button>
+            </div>
+        `;
+
+        // Per-tech cards
+        data.technicians.forEach(tech => {
+            html += `
+                <div class="card" style="margin-bottom: 1rem;">
+                    <div class="card-header">
+                        <h3 class="card-title">${tech.tech_name} ${tech.worker_type ? `<span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${tech.worker_type}</span>` : ''}</h3>
+                        <span>$${tech.totals.total_pay.toFixed(2)}</span>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table">
+                            <thead><tr>
+                                <th>Job</th><th>Hours</th><th>Rate</th><th>Base Pay</th>
+                                <th>Mileage</th><th>Per Diem</th><th>Expenses</th><th>Total</th><th>Profit</th>
+                            </tr></thead>
+                            <tbody>
+                                ${tech.jobs.map(j => `<tr>
+                                    <td>${j.ticket_number || j.description || 'Job #' + j.job_id}${j.external_url ? ` <a href="${j.external_url}" target="_blank"><i class="fas fa-external-link-alt" style="font-size: 0.7rem;"></i></a>` : ''}</td>
+                                    <td>${j.hours.toFixed(2)}</td>
+                                    <td>$${j.effective_rate.toFixed(2)}${j.using_minimum ? ' <i class="fas fa-exclamation-triangle" style="color: var(--warning);" title="Using minimum rate"></i>' : ''}</td>
+                                    <td>$${j.base_pay.toFixed(2)}</td>
+                                    <td>$${j.mileage_pay.toFixed(2)}</td>
+                                    <td>$${j.per_diem.toFixed(2)}</td>
+                                    <td>$${j.personal_expenses.toFixed(2)}</td>
+                                    <td><strong>$${j.total_pay.toFixed(2)}</strong></td>
+                                    <td>$${j.tech_profit_share.toFixed(2)}</td>
+                                </tr>`).join('')}
+                            </tbody>
+                            <tfoot><tr>
+                                <td><strong>Totals</strong></td>
+                                <td><strong>${tech.totals.total_hours.toFixed(2)}</strong></td>
+                                <td></td>
+                                <td><strong>$${tech.totals.total_base_pay.toFixed(2)}</strong></td>
+                                <td><strong>$${tech.totals.total_mileage_pay.toFixed(2)}</strong></td>
+                                <td><strong>$${tech.totals.total_per_diem.toFixed(2)}</strong></td>
+                                <td><strong>$${tech.totals.total_personal_expenses.toFixed(2)}</strong></td>
+                                <td><strong>$${tech.totals.total_pay.toFixed(2)}</strong></td>
+                                <td><strong>$${tech.totals.total_profit_share.toFixed(2)}</strong></td>
+                            </tr></tfoot>
+                        </table>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+
+        document.getElementById('lock-payouts-btn').addEventListener('click', async () => {
+            if (!confirm('Lock payouts for this period? This will create snapshot records.')) return;
+            try {
+                await API.payouts.lock({ period_id: period.period_id });
+                App.showAlert('Payouts locked successfully', 'success');
+                // Refresh period list to reflect status change
+                window.location.hash = 'payout';
+                location.reload();
+            } catch (e) {
+                App.showAlert('Failed to lock: ' + e.message, 'error');
+            }
+        });
+    },
+
+    renderLockedPayout(container, payouts, period, refreshFn) {
+        if (!payouts.length) {
+            container.innerHTML = '<div class="alert alert-info">No payouts found for this period.</div>';
+            return;
+        }
+
+        const totalPay = payouts.reduce((s, p) => s + p.net_payout, 0);
+        const totalHours = payouts.reduce((s, p) => s + p.total_hours, 0);
+        const allPaid = payouts.every(p => p.status === 'paid');
+
+        let html = `
+            <div class="stats-grid" style="margin-bottom: 1rem;">
+                <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" style="color: ${allPaid ? 'var(--success)' : 'var(--warning)'};">${period.status.charAt(0).toUpperCase() + period.status.slice(1)}</div></div>
+                <div class="stat-card"><div class="stat-label">Technicians</div><div class="stat-value">${payouts.length}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Hours</div><div class="stat-value">${totalHours.toFixed(2)}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Net</div><div class="stat-value">$${totalPay.toFixed(2)}</div></div>
+            </div>
+        `;
+
+        if (period.status === 'locked') {
+            html += `<div style="margin-bottom: 1rem;">
+                <button class="btn btn-success" id="pay-all-btn"><i class="fas fa-check-double"></i> Mark All Paid</button>
+            </div>`;
+        }
+
+        // Per-tech payout cards
+        payouts.forEach(p => {
+            const statusBadge = p.status === 'paid'
+                ? '<span class="badge" style="background: var(--success); color: white;">Paid</span>'
+                : '<span class="badge" style="background: var(--warning); color: white;">Locked</span>';
+
+            html += `
+                <div class="card" style="margin-bottom: 1rem;">
+                    <div class="card-header">
+                        <h3 class="card-title">${p.tech_name} ${p.worker_type ? `<span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${p.worker_type}</span>` : ''} ${statusBadge}</h3>
+                        <span style="font-size: 1.2rem; font-weight: bold;">$${p.net_payout.toFixed(2)}</span>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table" style="margin-bottom: 0.5rem;">
+                            <tr><td>Base Pay</td><td style="text-align:right">$${p.total_base_pay.toFixed(2)}</td></tr>
+                            <tr><td>Mileage</td><td style="text-align:right">$${p.total_mileage_pay.toFixed(2)}</td></tr>
+                            <tr><td>Per Diem</td><td style="text-align:right">$${p.total_per_diem.toFixed(2)}</td></tr>
+                            <tr><td>Personal Expenses</td><td style="text-align:right">$${p.total_personal_expenses.toFixed(2)}</td></tr>
+                            ${p.total_bonuses > 0 ? `<tr><td style="color: var(--success);">Bonuses</td><td style="text-align:right; color: var(--success);">+$${p.total_bonuses.toFixed(2)}</td></tr>` : ''}
+                            ${p.total_deductions > 0 ? `<tr><td style="color: var(--danger);">Deductions</td><td style="text-align:right; color: var(--danger);">-$${p.total_deductions.toFixed(2)}</td></tr>` : ''}
+                            ${p.total_advance_repayment > 0 ? `<tr><td style="color: var(--danger);">Advance Repayment</td><td style="text-align:right; color: var(--danger);">-$${p.total_advance_repayment.toFixed(2)}</td></tr>` : ''}
+                            <tr style="font-weight: bold; border-top: 2px solid var(--border);"><td>Net Payout</td><td style="text-align:right">$${p.net_payout.toFixed(2)}</td></tr>
+                        </table>
+                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap;">
+                            <button class="btn btn-sm btn-secondary" onclick="Pages.viewPayoutStub(${p.payout_id})"><i class="fas fa-file-alt"></i> View Stub</button>
+                            ${p.status === 'locked' ? `
+                                <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
+                                <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'bonus')"><i class="fas fa-plus"></i> Bonus</button>
+                                <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'deduction')"><i class="fas fa-minus"></i> Deduction</button>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+
+        if (period.status === 'locked') {
+            document.getElementById('pay-all-btn')?.addEventListener('click', async () => {
+                if (!confirm('Mark all payouts as paid? This will close the period.')) return;
+                try {
+                    await API.payouts.payAll({ period_id: period.period_id });
+                    App.showAlert('All payouts marked as paid', 'success');
+                    window.location.hash = 'payout';
+                    location.reload();
+                } catch (e) {
+                    App.showAlert('Failed: ' + e.message, 'error');
+                }
+            });
+        }
+    },
+
+    async markPaid(payoutId) {
+        if (!confirm('Mark this payout as paid?')) return;
+        try {
+            await API.payouts.pay(payoutId);
+            App.showAlert('Payout marked as paid', 'success');
+            window.location.hash = 'payout';
+            location.reload();
+        } catch (e) {
+            App.showAlert('Failed: ' + e.message, 'error');
+        }
+    },
+
+    async addPayoutLineItem(payoutId, type) {
+        const title = type === 'bonus' ? 'Add Bonus' : 'Add Deduction';
+        App.showModal(title, `
+            <div class="form-group">
+                <label>Description</label>
+                <input type="text" id="li-description" class="form-control" placeholder="Description">
+            </div>
+            <div class="form-group">
+                <label>Amount ($)</label>
+                <input type="number" id="li-amount" class="form-control" step="0.01" min="0.01" placeholder="0.00">
+            </div>
+        `, `
+            <button class="btn btn-primary" id="save-line-item-btn">Save</button>
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+        `);
+
+        document.getElementById('save-line-item-btn').addEventListener('click', async () => {
+            const description = document.getElementById('li-description').value.trim();
+            const amount = parseFloat(document.getElementById('li-amount').value);
+            if (!description || !amount || amount <= 0) {
+                App.showAlert('Description and positive amount required', 'error');
+                return;
+            }
+            try {
+                await API.payouts.addLineItem(payoutId, { type, description, amount });
+                App.hideModal();
+                App.showAlert(`${type.charAt(0).toUpperCase() + type.slice(1)} added`, 'success');
+                window.location.hash = 'payout';
+                location.reload();
+            } catch (e) {
+                App.showAlert('Failed: ' + e.message, 'error');
+            }
+        });
+    },
+
+    async viewPayoutStub(payoutId) {
+        try {
+            const data = await API.payouts.getStub(payoutId);
+            Pages.renderStubModal(data);
+        } catch (e) {
+            App.showAlert('Failed to load stub: ' + e.message, 'error');
+        }
+    },
+
+    renderStubModal(data) {
+        let jobRows = '';
+        if (data.job_details) {
+            jobRows = data.job_details.map(j => `
+                <tr>
+                    <td>${j.job_ticket || 'Job #' + j.job_id}${j.external_url ? ` <a href="${j.external_url}" target="_blank"><i class="fas fa-external-link-alt" style="font-size: 0.7rem;"></i></a>` : ''}</td>
+                    <td>${j.hours.toFixed(2)}</td>
+                    <td>$${j.effective_rate.toFixed(2)}</td>
+                    <td>$${j.base_pay.toFixed(2)}</td>
+                    <td>$${j.mileage_pay.toFixed(2)}</td>
+                    <td>$${j.per_diem.toFixed(2)}</td>
+                    <td>$${j.personal_expenses.toFixed(2)}</td>
+                </tr>
+            `).join('');
+        }
+
+        let lineItemRows = '';
+        if (data.line_items && data.line_items.length) {
+            lineItemRows = `<h4 style="margin-top: 1rem;">Bonuses / Deductions</h4><table class="data-table">
+                <thead><tr><th>Type</th><th>Description</th><th>Amount</th></tr></thead>
+                <tbody>${data.line_items.map(li => `<tr>
+                    <td>${li.type === 'bonus' ? '<span style="color:var(--success);">Bonus</span>' : '<span style="color:var(--danger);">Deduction</span>'}</td>
+                    <td>${li.description}</td>
+                    <td>${li.type === 'bonus' ? '+' : '-'}$${li.amount.toFixed(2)}</td>
+                </tr>`).join('')}</tbody></table>`;
+        }
+
+        let repaymentRows = '';
+        if (data.advance_repayments && data.advance_repayments.length) {
+            repaymentRows = `<h4 style="margin-top: 1rem;">Advance Repayments</h4><table class="data-table">
+                <thead><tr><th>Advance</th><th>Amount</th></tr></thead>
+                <tbody>${data.advance_repayments.map(ar => `<tr>
+                    <td>Advance #${ar.advance_id}</td>
+                    <td>-$${ar.amount.toFixed(2)}</td>
+                </tr>`).join('')}</tbody></table>`;
+        }
+
+        const periodLabel = data.period ? `${data.period.period_name || ''} (${data.period.start_date} — ${data.period.end_date})` : '';
+
+        const html = `
+            <div style="margin-bottom: 1rem;">
+                <strong>Technician:</strong> ${data.tech_name} ${data.worker_type ? `(${data.worker_type})` : ''}<br>
+                <strong>Period:</strong> ${periodLabel}<br>
+                <strong>Status:</strong> ${data.status}<br>
+                ${data.paid_at ? `<strong>Paid:</strong> ${new Date(data.paid_at).toLocaleString()}<br>` : ''}
+            </div>
+
+            <h4>Job Details</h4>
+            <table class="data-table">
+                <thead><tr><th>Job</th><th>Hours</th><th>Rate</th><th>Base</th><th>Mileage</th><th>Per Diem</th><th>Expenses</th></tr></thead>
+                <tbody>${jobRows}</tbody>
+            </table>
+
+            ${lineItemRows}
+            ${repaymentRows}
+
+            <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 8px;">
+                <table style="width: 100%;">
+                    <tr><td>Base Pay</td><td style="text-align:right">$${data.total_base_pay.toFixed(2)}</td></tr>
+                    <tr><td>Mileage</td><td style="text-align:right">$${data.total_mileage_pay.toFixed(2)}</td></tr>
+                    <tr><td>Per Diem</td><td style="text-align:right">$${data.total_per_diem.toFixed(2)}</td></tr>
+                    <tr><td>Personal Expenses</td><td style="text-align:right">$${data.total_personal_expenses.toFixed(2)}</td></tr>
+                    ${data.total_bonuses > 0 ? `<tr><td style="color:var(--success);">Bonuses</td><td style="text-align:right;color:var(--success);">+$${data.total_bonuses.toFixed(2)}</td></tr>` : ''}
+                    ${data.total_deductions > 0 ? `<tr><td style="color:var(--danger);">Deductions</td><td style="text-align:right;color:var(--danger);">-$${data.total_deductions.toFixed(2)}</td></tr>` : ''}
+                    ${data.total_advance_repayment > 0 ? `<tr><td style="color:var(--danger);">Advance Repayment</td><td style="text-align:right;color:var(--danger);">-$${data.total_advance_repayment.toFixed(2)}</td></tr>` : ''}
+                    <tr style="font-weight:bold;font-size:1.1rem;border-top:2px solid var(--border);"><td>Net Payout</td><td style="text-align:right">$${data.net_payout.toFixed(2)}</td></tr>
+                </table>
+            </div>
+        `;
+
+        App.showModal(`Pay Stub — ${data.tech_name}`, html, `
+            <button class="btn btn-secondary" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
+            <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
+        `);
+    },
+
+    // ===================== MY PAYOUTS (TECH SELF-SERVICE) =====================
+
+    async myPayouts(container) {
+        try {
+            const [dashData, payoutsData] = await Promise.all([
+                API.my.dashboard(),
+                API.my.payouts()
+            ]);
+
+            let html = `
+                <div class="stats-grid" style="margin-bottom: 1.5rem;">
+                    <div class="stat-card"><div class="stat-label">YTD Earnings</div><div class="stat-value">$${dashData.ytd_earnings.toFixed(2)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Last Payout</div><div class="stat-value">${dashData.last_payout ? '$' + dashData.last_payout.amount.toFixed(2) : '—'}</div></div>
+                    <div class="stat-card"><div class="stat-label">Next Period Ends</div><div class="stat-value">${dashData.next_period_end || '—'}</div></div>
+                </div>
+            `;
+
+            if (payoutsData.payouts && payoutsData.payouts.length) {
+                html += `
+                    <div class="card">
+                        <div class="card-header"><h3 class="card-title">Pay History</h3></div>
+                        <div class="card-body">
+                            <table class="data-table">
+                                <thead><tr>
+                                    <th>Period</th><th>Hours</th><th>Base</th><th>Mileage</th><th>Per Diem</th><th>Net</th><th>Paid</th><th></th>
+                                </tr></thead>
+                                <tbody>
+                                    ${payoutsData.payouts.map(p => `<tr>
+                                        <td>${p.period?.period_name || ''}</td>
+                                        <td>${p.total_hours.toFixed(2)}</td>
+                                        <td>$${p.total_base_pay.toFixed(2)}</td>
+                                        <td>$${p.total_mileage_pay.toFixed(2)}</td>
+                                        <td>$${p.total_per_diem.toFixed(2)}</td>
+                                        <td><strong>$${p.net_payout.toFixed(2)}</strong></td>
+                                        <td>${p.paid_at ? new Date(p.paid_at).toLocaleDateString() : '—'}</td>
+                                        <td><button class="btn btn-sm btn-secondary" onclick="Pages.viewMyStub(${p.payout_id})"><i class="fas fa-file-alt"></i> Stub</button></td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            } else {
+                html += '<div class="alert alert-info">No paid payouts yet.</div>';
+            }
+
+            container.innerHTML = html;
+        } catch (e) {
+            container.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
+        }
+    },
+
+    async viewMyStub(payoutId) {
+        try {
+            const data = await API.my.stub(payoutId);
+            Pages.renderStubModal(data);
+        } catch (e) {
+            App.showAlert('Failed to load stub: ' + e.message, 'error');
         }
     },
 

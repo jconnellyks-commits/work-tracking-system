@@ -3589,6 +3589,13 @@ const Pages = {
                         <input type="number" step="0.01" class="form-control" name="hourly_rate" value="${tech.hourly_rate || ''}">
                     </div>
                 </div>
+                <div class="form-group">
+                    <label>Worker Type</label>
+                    <select class="form-control" name="worker_type">
+                        <option value="contractor" ${(tech.worker_type || 'contractor') === 'contractor' ? 'selected' : ''}>Contractor</option>
+                        <option value="employee" ${tech.worker_type === 'employee' ? 'selected' : ''}>Employee</option>
+                    </select>
+                </div>
                 ${techId ? `
                 <div class="form-group">
                     <label>Status</label>

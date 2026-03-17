@@ -4398,9 +4398,22 @@ const Pages = {
         }
     },
 
-    downloadBackup(filename) {
-        // Open in new tab - server will need a download endpoint
-        window.open(`/api/settings/backups/${filename}/download`, '_blank');
+    async downloadBackup(filename) {
+        try {
+            const response = await fetch(`/api/settings/backups/${filename}/download`, {
+                headers: { 'Authorization': `Bearer ${API.getToken()}` }
+            });
+            if (!response.ok) throw new Error('Download failed');
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            App.showAlert('Download failed: ' + e.message, 'error');
+        }
     },
 
     async enterSafeMode() {
@@ -4451,26 +4464,35 @@ const Pages = {
     },
 
     async pollRestoreStatus() {
-        const poll = async () => {
-            try {
-                const status = await API.settings.restoreStatus();
-                if (status.running) {
-                    setTimeout(poll, 2000);
-                } else if (status.result === 'success') {
-                    App.showAlert('Database restored successfully!', 'success');
-                    await Pages.backups(document.getElementById('content'));
-                } else if (status.error) {
-                    App.showAlert('Restore failed: ' + status.error, 'error');
-                } else {
-                    App.showAlert('Restore completed', 'success');
-                    await Pages.backups(document.getElementById('content'));
+        return new Promise((resolve) => {
+            const poll = async () => {
+                try {
+                    const status = await API.settings.restoreStatus();
+                    if (status.running) {
+                        setTimeout(poll, 2000);
+                    } else if (status.result === 'success') {
+                        App.showAlert('Database restored successfully!', 'success');
+                        // Small delay to let background thread finish cleanup
+                        setTimeout(async () => {
+                            await Pages.backups(document.getElementById('content'));
+                            resolve();
+                        }, 1000);
+                    } else if (status.error) {
+                        App.showAlert('Restore failed: ' + status.error, 'error');
+                        resolve();
+                    } else {
+                        App.showAlert('Restore completed', 'success');
+                        setTimeout(async () => {
+                            await Pages.backups(document.getElementById('content'));
+                            resolve();
+                        }, 1000);
+                    }
+                } catch (e) {
+                    setTimeout(poll, 3000);
                 }
-            } catch (e) {
-                // Server might restart during restore, retry
-                setTimeout(poll, 3000);
-            }
-        };
-        poll();
+            };
+            poll();
+        });
     },
 
     // ============ System Settings ============

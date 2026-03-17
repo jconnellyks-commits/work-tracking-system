@@ -20,7 +20,12 @@ def list_payouts():
     if not period_id:
         return jsonify({'error': 'period_id required'}), 400
 
-    payouts = Payout.query.filter_by(period_id=period_id).all()
+    query = Payout.query.filter_by(period_id=period_id)
+    tech_id = request.args.get('tech_id')
+    if tech_id:
+        tech_ids = [int(t) for t in tech_id.split(',')]
+        query = query.filter(Payout.tech_id.in_(tech_ids))
+    payouts = query.all()
     return jsonify({
         'payouts': [p.to_dict() for p in payouts]
     })

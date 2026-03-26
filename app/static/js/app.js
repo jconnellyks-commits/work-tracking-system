@@ -325,7 +325,7 @@ const App = {
     // Date navigator HTML - generates a single-day picker with prev/next arrows
     // prefix: unique ID prefix (e.g. 'job', 'entry')
     dateNavHtml(prefix) {
-        const today = new Date().toISOString().split('T')[0];
+        const today = new Date().toLocaleDateString('en-CA');
         return `
             <div class="date-nav" id="${prefix}-date-nav">
                 <button class="btn btn-sm btn-secondary date-nav-toggle" id="${prefix}-date-nav-toggle" title="Single day mode">
@@ -361,7 +361,7 @@ const App = {
         const shiftDay = (delta) => {
             const d = new Date(input.value + 'T00:00:00');
             d.setDate(d.getDate() + delta);
-            setDay(d.toISOString().split('T')[0]);
+            setDay(d.toLocaleDateString('en-CA'));
         };
 
         toggle.addEventListener('click', () => {
@@ -370,7 +370,7 @@ const App = {
             toggle.classList.toggle('active', active);
             if (active) {
                 // Enter single day mode: set from/to to today (or current input)
-                const today = new Date().toISOString().split('T')[0];
+                const today = new Date().toLocaleDateString('en-CA');
                 const current = input.value || today;
                 fromEl.style.display = 'none';
                 toEl.style.display = 'none';
@@ -388,7 +388,7 @@ const App = {
         document.getElementById(`${prefix}-date-prev`).addEventListener('click', () => shiftDay(-1));
         document.getElementById(`${prefix}-date-next`).addEventListener('click', () => shiftDay(1));
         document.getElementById(`${prefix}-date-today`).addEventListener('click', () => {
-            setDay(new Date().toISOString().split('T')[0]);
+            setDay(new Date().toLocaleDateString('en-CA'));
         });
         input.addEventListener('change', () => setDay(input.value));
     },
@@ -771,8 +771,8 @@ const Pages = {
             const lastDay = new Date(state.year, state.month + 1, 0);
 
             // Fetch up to 200 jobs for the month
-            const fromDate = firstDay.toISOString().split('T')[0];
-            const toDate = lastDay.toISOString().split('T')[0];
+            const fromDate = firstDay.toLocaleDateString('en-CA');
+            const toDate = lastDay.toLocaleDateString('en-CA');
 
             const data = await API.jobs.list({ from_date: fromDate, to_date: toDate, per_page: 200, page: 1 });
             state.jobs = data.jobs || [];
@@ -793,7 +793,7 @@ const Pages = {
             const year = state.year;
             const month = state.month;
             const today = new Date();
-            const todayStr = today.toISOString().split('T')[0];
+            const todayStr = today.toLocaleDateString('en-CA');
 
             const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
             const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -1241,7 +1241,7 @@ const Pages = {
                 ${techField}
                 <div class="form-group">
                     <label>Date Worked *</label>
-                    <input type="date" class="form-control" name="date_worked" value="${new Date().toISOString().split('T')[0]}" required>
+                    <input type="date" class="form-control" name="date_worked" value="${new Date().toLocaleDateString('en-CA')}" required>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -1933,7 +1933,7 @@ const Pages = {
                 ${techField}
                 <div class="form-group">
                     <label>Date Worked *</label>
-                    <input type="date" class="form-control" name="date_worked" value="${entry.date_worked || new Date().toISOString().split('T')[0]}" required>
+                    <input type="date" class="form-control" name="date_worked" value="${entry.date_worked || new Date().toLocaleDateString('en-CA')}" required>
                 </div>
                 <div class="form-row">
                     <div class="form-group">
@@ -2279,8 +2279,8 @@ const Pages = {
     async showPayrollReport() {
         const content = document.getElementById('report-content');
         const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toLocaleDateString('en-CA');
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString('en-CA');
 
         // Fetch recent pay periods for quick-fill
         let periodButtons = '';
@@ -2560,8 +2560,8 @@ const Pages = {
     async showBillingReport() {
         const content = document.getElementById('report-content');
         const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toLocaleDateString('en-CA');
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString('en-CA');
 
         content.innerHTML = `
             <div class="card">
@@ -2601,8 +2601,8 @@ const Pages = {
             firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
             lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
         }
-        document.getElementById('income-from').value = firstDay.toISOString().split('T')[0];
-        document.getElementById('income-to').value = lastDay.toISOString().split('T')[0];
+        document.getElementById('income-from').value = firstDay.toLocaleDateString('en-CA');
+        document.getElementById('income-to').value = lastDay.toLocaleDateString('en-CA');
         this.loadIncomeReport();
     },
 
@@ -2640,7 +2640,7 @@ const Pages = {
             const startDate = new Date(fromDate);
             const endDate = new Date(toDate);
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-                allDates.push(d.toISOString().split('T')[0]);
+                allDates.push(d.toLocaleDateString('en-CA'));
             }
 
             // Aggregate data by date for chart (exclude projected jobs)
@@ -2891,8 +2891,8 @@ const Pages = {
     async showPlatformReport() {
         const content = document.getElementById('report-content');
         const today = new Date();
-        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+        const firstDay = new Date(today.getFullYear(), today.getMonth(), 1).toLocaleDateString('en-CA');
+        const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).toLocaleDateString('en-CA');
 
         content.innerHTML = `
             <div class="card">
@@ -2928,8 +2928,8 @@ const Pages = {
             firstDay = new Date(today.getFullYear(), today.getMonth() - 1, 1);
             lastDay = new Date(today.getFullYear(), today.getMonth(), 0);
         }
-        document.getElementById('platform-from').value = firstDay.toISOString().split('T')[0];
-        document.getElementById('platform-to').value = lastDay.toISOString().split('T')[0];
+        document.getElementById('platform-from').value = firstDay.toLocaleDateString('en-CA');
+        document.getElementById('platform-to').value = lastDay.toLocaleDateString('en-CA');
         this.loadPlatformReport();
     },
 

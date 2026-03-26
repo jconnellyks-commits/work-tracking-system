@@ -467,6 +467,9 @@ def income_expense_report():
 
     actual_job_count = len(jobs_data) - projected_totals['job_count']
 
+    profit_margin = float((totals['net_profit'] / totals['billing'] * 100) if totals['billing'] > 0 else 0)
+    projected_profit = float(projected_totals['billing'] * Decimal(str(profit_margin)) / 100) if profit_margin else 0
+
     return jsonify({
         'report_type': 'income_expense',
         'from_date': from_date,
@@ -476,11 +479,12 @@ def income_expense_report():
         'totals': {k: float(v) for k, v in totals.items()},
         'projected': {
             'billing': float(projected_totals['billing']),
-            'job_count': projected_totals['job_count']
+            'job_count': projected_totals['job_count'],
+            'profit': round(projected_profit, 2)
         },
         'job_count': actual_job_count,
         'total_job_count': len(jobs_data),
-        'profit_margin': float((totals['net_profit'] / totals['billing'] * 100) if totals['billing'] > 0 else 0)
+        'profit_margin': profit_margin
     }), 200
 
 

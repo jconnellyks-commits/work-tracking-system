@@ -2698,7 +2698,7 @@ const Pages = {
                         <div><small>Job Expenses</small><br><strong>$${data.totals.job_expenses.toFixed(2)}</strong></div>
                         <div><small>Commissions</small><br><strong>$${data.totals.commissions.toFixed(2)}</strong></div>
                         <div><small>Tech Pay</small><br><strong>$${data.totals.tech_pay.toFixed(2)}</strong></div>
-                        <div><small>Net Profit</small><br><strong class="${profitClass}">$${data.totals.net_profit.toFixed(2)}</strong><br><small>(${data.profit_margin.toFixed(1)}%)</small></div>
+                        <div><small>Net Profit</small><br><strong class="${profitClass}">$${data.totals.net_profit.toFixed(2)}</strong><br><small>(${data.profit_margin.toFixed(1)}%)</small>${hasProjected ? `<br><small style="color: var(--warning);">(+$${data.projected.profit.toFixed(2)} projected)</small>` : ''}</div>
                     </div>
                 </div>
 

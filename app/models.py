@@ -467,6 +467,7 @@ class SMSNotification(db.Model):
     error_message = db.Column(db.Text)
     sent_at = db.Column(db.DateTime)
     delivered_at = db.Column(db.DateTime)
+    is_spam = db.Column(db.Boolean, default=False, nullable=False, server_default='0')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -474,19 +475,18 @@ class SMSNotification(db.Model):
     technician = db.relationship('Technician', backref=db.backref('sms_notifications', lazy='dynamic'))
 
     def to_dict(self):
-        # Mask phone number for privacy (show last 4 digits)
-        masked_phone = f"***-***-{self.phone_number[-4:]}" if self.phone_number and len(self.phone_number) >= 4 else "***"
         return {
             'notification_id': self.notification_id,
             'notification_type': self.notification_type,
             'assignment_id': self.assignment_id,
             'tech_id': self.tech_id,
             'tech_name': self.technician.name if self.technician else None,
-            'phone_number': masked_phone,
+            'phone_number': self.phone_number or '',
             'message_body': self.message_body,
             'status': self.status,
             'provider_message_id': self.provider_message_id,
             'error_message': self.error_message,
+            'is_spam': self.is_spam,
             'sent_at': self.sent_at.isoformat() if self.sent_at else None,
             'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,

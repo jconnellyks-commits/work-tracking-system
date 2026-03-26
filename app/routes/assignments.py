@@ -500,3 +500,23 @@ def get_sms_log():
         'notifications': [n.to_dict() for n in notifications],
         'total': len(notifications)
     }), 200
+
+
+@assignments_bp.route('/sms/log/<int:notification_id>/spam', methods=['PATCH'])
+@manager_required
+def toggle_sms_spam(notification_id):
+    """Toggle is_spam flag on an SMS notification. Manager+ only."""
+    notif = SMSNotification.query.get_or_404(notification_id)
+    notif.is_spam = not notif.is_spam
+    db.session.commit()
+    return jsonify({'notification': notif.to_dict()}), 200
+
+
+@assignments_bp.route('/sms/log/<int:notification_id>', methods=['DELETE'])
+@manager_required
+def delete_sms_notification(notification_id):
+    """Delete an SMS notification log entry. Manager+ only."""
+    notif = SMSNotification.query.get_or_404(notification_id)
+    db.session.delete(notif)
+    db.session.commit()
+    return jsonify({'message': 'Notification deleted'}), 200

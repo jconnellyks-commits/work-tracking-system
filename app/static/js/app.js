@@ -4753,6 +4753,15 @@ const Pages = {
                             <option value="pending">Pending</option>
                         </select>
                     </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Filter</label>
+                        <select id="sms-log-filter" class="form-control">
+                            <option value="">All Messages</option>
+                            <option value="hide_spam">Hide Spam</option>
+                            <option value="spam_only">Spam Only</option>
+                            <option value="inbound_only">Inbound Only</option>
+                        </select>
+                    </div>
                     <button class="btn btn-secondary" onclick="Pages.loadSmsLog()">
                         <i class="fas fa-sync"></i> Refresh
                     </button>
@@ -4767,6 +4776,7 @@ const Pages = {
                                 <th>Type</th>
                                 <th>Message</th>
                                 <th>Status</th>
+                                <th>Actions</th>
                             </tr>
                         </thead>
                         <tbody id="sms-log-table">
@@ -4779,6 +4789,7 @@ const Pages = {
 
         document.getElementById('sms-log-tech').addEventListener('change', () => Pages.loadSmsLog());
         document.getElementById('sms-log-status').addEventListener('change', () => Pages.loadSmsLog());
+        document.getElementById('sms-log-filter').addEventListener('change', () => Pages.loadSmsLog());
 
         await Pages.loadSmsLog();
     },
@@ -4786,6 +4797,7 @@ const Pages = {
     async loadSmsLog() {
         const techId = document.getElementById('sms-log-tech')?.value;
         const status = document.getElementById('sms-log-status')?.value;
+        const filter = document.getElementById('sms-log-filter')?.value;
         const params = { limit: 200 };
         if (techId) params.tech_id = techId;
         if (status) params.status = status;
@@ -4795,16 +4807,26 @@ const Pages = {
 
         try {
             const data = await API.sms.getLog(params);
-            const notifications = data.notifications || [];
+            let notifications = data.notifications || [];
+
+            // Client-side filtering
+            if (filter === 'hide_spam') notifications = notifications.filter(n => !n.is_spam);
+            else if (filter === 'spam_only') notifications = notifications.filter(n => n.is_spam);
+            else if (filter === 'inbound_only') notifications = notifications.filter(n => (n.message_body || '').startsWith('[INBOUND]'));
 
             if (notifications.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No SMS records found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No SMS records found</td></tr>';
                 return;
             }
 
-            const statusBadge = s => {
+            const statusBadge = n => {
+                if (n.status === 'delivered' && n.delivered_at) {
+                    const dt = new Date(n.delivered_at);
+                    const time = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    return `<span class="badge badge-success">Delivered ${time}</span>`;
+                }
                 const cls = { sent: 'badge-primary', delivered: 'badge-success', failed: 'badge-danger', pending: 'badge-warning' };
-                return `<span class="badge ${cls[s] || 'badge-secondary'}">${s}</span>`;
+                return `<span class="badge ${cls[n.status] || 'badge-secondary'}">${n.status}</span>`;
             };
 
             const typeLabel = t => {
@@ -4819,18 +4841,74 @@ const Pages = {
                 return labels[t] || t;
             };
 
-            tbody.innerHTML = notifications.map(n => `
-                <tr>
+            const isInbound = msg => (msg || '').startsWith('[INBOUND]');
+
+            tbody.innerHTML = notifications.map(n => {
+                const msgText = (n.message_body || '').replace(/\\n/g, '\n');
+                const escapedMsg = msgText.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const previewMsg = msgText.length > 80 ? msgText.substring(0, 80) + '...' : msgText;
+                const escapedPreview = previewMsg.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                const expandable = msgText.length > 80;
+                const direction = isInbound(n.message_body) ? '<i class="fas fa-arrow-down text-success" title="Inbound"></i>' : '<i class="fas fa-arrow-up text-primary" title="Outbound"></i>';
+                const spamClass = n.is_spam ? 'style="opacity:0.5;background:#fff3cd;"' : '';
+
+                return `
+                <tr ${spamClass}>
                     <td style="white-space:nowrap;">${n.created_at ? new Date(n.created_at).toLocaleString() : '-'}</td>
                     <td>${n.tech_name || '-'}</td>
                     <td style="white-space:nowrap;">${n.phone_number || '-'}</td>
-                    <td>${typeLabel(n.notification_type)}</td>
-                    <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(n.message_body || '').replace(/"/g, '&quot;')}">${n.message_body || ''}</td>
-                    <td>${statusBadge(n.status)}</td>
-                </tr>
-            `).join('');
+                    <td>${direction} ${typeLabel(n.notification_type)}</td>
+                    <td style="max-width:400px;">
+                        <span id="sms-preview-${n.notification_id}">${escapedPreview}</span>
+                        ${expandable ? `
+                            <pre id="sms-full-${n.notification_id}" style="display:none;white-space:pre-wrap;margin:0.5rem 0 0;font-size:0.85rem;max-height:300px;overflow-y:auto;">${escapedMsg}</pre>
+                            <a href="#" onclick="event.preventDefault();Pages.toggleSmsMsg(${n.notification_id})" id="sms-toggle-${n.notification_id}" style="font-size:0.8rem;">Show more</a>
+                        ` : ''}
+                    </td>
+                    <td>${statusBadge(n)}</td>
+                    <td style="white-space:nowrap;">
+                        ${isInbound(n.message_body) ? `<button class="btn btn-sm ${n.is_spam ? 'btn-warning' : 'btn-secondary'}" onclick="Pages.toggleSmsSpam(${n.notification_id})" title="${n.is_spam ? 'Unmark spam' : 'Mark as spam'}"><i class="fas fa-ban"></i></button>` : ''}
+                        <button class="btn btn-sm btn-danger" onclick="Pages.deleteSmsNotification(${n.notification_id})" title="Delete"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>`;
+            }).join('');
         } catch (error) {
-            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">Error: ${error.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">Error: ${error.message}</td></tr>`;
+        }
+    },
+
+    toggleSmsMsg(id) {
+        const preview = document.getElementById(`sms-preview-${id}`);
+        const full = document.getElementById(`sms-full-${id}`);
+        const toggle = document.getElementById(`sms-toggle-${id}`);
+        if (!preview || !full || !toggle) return;
+        if (full.style.display === 'none') {
+            preview.style.display = 'none';
+            full.style.display = 'block';
+            toggle.textContent = 'Show less';
+        } else {
+            preview.style.display = '';
+            full.style.display = 'none';
+            toggle.textContent = 'Show more';
+        }
+    },
+
+    async toggleSmsSpam(notificationId) {
+        try {
+            await API.sms.toggleSpam(notificationId);
+            await Pages.loadSmsLog();
+        } catch (error) {
+            App.showAlert(error.message);
+        }
+    },
+
+    async deleteSmsNotification(notificationId) {
+        if (!confirm('Delete this SMS log entry?')) return;
+        try {
+            await API.sms.delete(notificationId);
+            await Pages.loadSmsLog();
+        } catch (error) {
+            App.showAlert(error.message);
         }
     }
 };

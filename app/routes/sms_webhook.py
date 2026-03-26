@@ -29,6 +29,45 @@ def _find_tech_by_phone(raw_number):
     return None
 
 
+def _is_delivery_receipt(from_number, message_body):
+    """
+    Check if this inbound message is a delivery receipt (empty body arriving
+    shortly after an outbound to the same number). If so, update the outbound's
+    delivered_at and return True.
+    """
+    import re
+    if message_body.strip():
+        return False
+
+    # Normalize to last 10 digits for matching
+    digits = re.sub(r'[^\d]', '', from_number or '')
+    if not digits:
+        return False
+    lookup = digits[-10:]
+
+    # Find the most recent outbound to this number in the last 60 seconds
+    cutoff = datetime.utcnow() - __import__('datetime').timedelta(seconds=60)
+    recent_outbound = (
+        SMSNotification.query
+        .filter(
+            SMSNotification.sent_at >= cutoff,
+            SMSNotification.provider_message_id.isnot(None),  # outbound messages have this
+            SMSNotification.phone_number.like(f'%{lookup}'),
+        )
+        .order_by(SMSNotification.sent_at.desc())
+        .first()
+    )
+
+    if recent_outbound and not recent_outbound.delivered_at:
+        recent_outbound.delivered_at = datetime.utcnow()
+        recent_outbound.status = 'delivered'
+        db.session.commit()
+        logger.info(f"Delivery receipt matched to notification #{recent_outbound.notification_id}")
+        return True
+
+    return False
+
+
 def _log_inbound(from_number, message_body, tech=None):
     """Persist the inbound message to sms_notifications."""
     notif = SMSNotification(
@@ -192,7 +231,11 @@ def inbound_sms():
             _reply(from_number, "We couldn't match your number to a technician account.", tech=tech)
         return '', 200
 
-    # --- Unrecognized message — log and ignore ---
+    # --- Check if this is a delivery receipt (empty body after outbound) ---
+    if _is_delivery_receipt(from_number, message_body):
+        return '', 200
+
+    # --- Unrecognized message — log it ---
     _log_inbound(from_number, message_body, tech)
     db.session.commit()
     logger.info(f"Unrecognized inbound SMS from {from_number}: {message_body[:80]}")

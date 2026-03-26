@@ -587,6 +587,12 @@ const API = {
         async getLog(params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/assignments/sms/log${query ? '?' + query : ''}`);
+        },
+        async toggleSpam(notificationId) {
+            return API.request(`/assignments/sms/log/${notificationId}/spam`, { method: 'PATCH' });
+        },
+        async delete(notificationId) {
+            return API.request(`/assignments/sms/log/${notificationId}`, { method: 'DELETE' });
         }
     },
 

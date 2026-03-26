@@ -2635,10 +2635,11 @@ const Pages = {
 
             const profitClass = data.totals.net_profit >= 0 ? 'text-success' : 'text-danger';
 
-            // Generate all dates in range
+            // Generate all dates in range (parse as local time, not UTC)
             const allDates = [];
-            const startDate = new Date(fromDate);
-            const endDate = new Date(toDate);
+            const parseDateLocal = s => { const [y,m,d] = s.split('-').map(Number); return new Date(y, m-1, d); };
+            const startDate = parseDateLocal(fromDate);
+            const endDate = parseDateLocal(toDate);
             for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
                 allDates.push(d.toLocaleDateString('en-CA'));
             }

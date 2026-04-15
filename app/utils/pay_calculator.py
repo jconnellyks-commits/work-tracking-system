@@ -286,15 +286,78 @@ def calculate_tech_pay_summary(tech_id, start_date=None, end_date=None):
     }
 
 
+def _accumulate_tech_result(tech_results, tid, tech, job, td,
+                            base_pay, effective_rate, using_minimum,
+                            tech_hours_ratio, total_pay, profit_share):
+    """Accumulate per-job results into per-tech report structure."""
+    if tid not in tech_results:
+        tech_results[tid] = {
+            'tech_id': tid,
+            'tech_name': tech.name,
+            'worker_type': tech.worker_type,
+            'min_pay': float(Decimal(str(tech.hourly_rate or 0))),
+            'total_hours': Decimal('0'),
+            'total_base_pay': Decimal('0'),
+            'total_mileage_pay': Decimal('0'),
+            'total_per_diem': Decimal('0'),
+            'total_personal_expenses': Decimal('0'),
+            'total_pay': Decimal('0'),
+            'total_profit_share': Decimal('0'),
+            'jobs': [],
+        }
+
+    tr = tech_results[tid]
+
+    # Format date display
+    sorted_dates = sorted(td['entry_dates'])
+    if len(sorted_dates) == 0:
+        date_display = None
+    elif len(sorted_dates) == 1:
+        date_display = sorted_dates[0]
+    else:
+        date_display = f"{sorted_dates[0]} - {sorted_dates[-1]}"
+
+    job_data = {
+        'job_id': job.job_id,
+        'job': job.to_dict(),
+        'ticket_number': job.ticket_number,
+        'description': job.description,
+        'entry_dates': sorted_dates,
+        'date_display': date_display,
+        'external_url': job.external_url,
+        'hours': float(td['hours'].quantize(Decimal('0.01'))),
+        'hours_ratio': float(tech_hours_ratio.quantize(Decimal('0.0001'))) if tech_hours_ratio > 0 else 0,
+        'base_pay': float(base_pay.quantize(Decimal('0.01'))),
+        'mileage': float(td['mileage'].quantize(Decimal('0.01'))),
+        'mileage_pay': float(td['mileage_pay'].quantize(Decimal('0.01'))),
+        'per_diem': float(td['per_diem'].quantize(Decimal('0.01'))),
+        'personal_expenses': float(td['personal_expenses'].quantize(Decimal('0.01'))),
+        'effective_rate': float(effective_rate.quantize(Decimal('0.01'))),
+        'using_minimum': using_minimum,
+        'profit_share': float(profit_share.quantize(Decimal('0.01'))),
+        'total_pay': float(total_pay.quantize(Decimal('0.01'))),
+    }
+    tr['jobs'].append(job_data)
+
+    # Accumulate tech totals
+    tr['total_hours'] += td['hours']
+    tr['total_base_pay'] += base_pay
+    tr['total_mileage_pay'] += td['mileage_pay']
+    tr['total_per_diem'] += td['per_diem']
+    tr['total_personal_expenses'] += td['personal_expenses']
+    tr['total_pay'] += total_pay
+    tr['total_profit_share'] += profit_share
+
+
 def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_ids=None):
     """
     Calculate pay for all technicians in a pay period or date range.
 
-    Uses the same proration logic as payroll_detail_report:
-    - hours_ratio = tech's period hours / total job hours (all time)
-    - Prorated billing, expenses, commissions by hours_ratio
-    - 50/50 split of (prorated_net - deductions)
-    - Minimum rate enforcement
+    Uses shared-pool weighted distribution for multi-tech jobs:
+    - Pool all deductions across all techs on a job
+    - 50/50 split of (prorated_net - pooled_deductions)
+    - Distribute by weight = (min_pay * hours) / weighted_sum
+    - Minimum rate enforcement per tech
 
     Args:
         period_id: PayPeriod ID (uses period's start/end dates)
@@ -330,26 +393,171 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
 
     entries = entry_query.all()
 
-    # Group entries by tech → job
-    tech_job_entries = {}
+    # Group entries by job → tech
+    # {job_id: {tech_id: [entries]}}
+    job_tech_entries = {}
     for entry in entries:
-        if entry.tech_id not in tech_job_entries:
-            tech_job_entries[entry.tech_id] = {}
-        if entry.job_id not in tech_job_entries[entry.tech_id]:
-            tech_job_entries[entry.tech_id][entry.job_id] = []
-        tech_job_entries[entry.tech_id][entry.job_id].append(entry)
+        if entry.job_id not in job_tech_entries:
+            job_tech_entries[entry.job_id] = {}
+        if entry.tech_id not in job_tech_entries[entry.job_id]:
+            job_tech_entries[entry.job_id][entry.tech_id] = []
+        job_tech_entries[entry.job_id][entry.tech_id].append(entry)
 
     # Precompute total job hours (ALL entries, not just period) for each job
-    unique_job_ids = set()
-    for job_map in tech_job_entries.values():
-        unique_job_ids.update(job_map.keys())
-
     job_total_hours = {}
-    for jid in unique_job_ids:
+    for jid in job_tech_entries:
         total = db.session.query(func.sum(TimeEntry.hours_worked)).filter_by(job_id=jid).scalar()
         job_total_hours[jid] = Decimal(str(total or 0))
 
-    # Build per-tech results
+    # Process each job, distribute pay across techs
+    # Accumulate results per tech: {tech_id: {tech_data}}
+    tech_results = {}
+
+    for job_id, tech_entries_map in job_tech_entries.items():
+        job = Job.query.get(job_id)
+        if not job:
+            continue
+
+        # --- Aggregate per-tech data for this job ---
+        job_techs = {}
+        job_period_hours = Decimal('0')
+        pooled_deductions = Decimal('0')
+
+        for tid, tent_entries in tech_entries_map.items():
+            tech = Technician.query.get(tid)
+            if not tech:
+                continue
+
+            t_hours = Decimal('0')
+            t_mileage_pay = Decimal('0')
+            t_mileage = Decimal('0')
+            t_per_diem = Decimal('0')
+            t_personal_expenses = Decimal('0')
+            t_entry_dates = set()
+
+            for entry in tent_entries:
+                hours = Decimal(str(entry.hours_worked or 0))
+                mileage = Decimal(str(entry.mileage or 0))
+                mileage_rate = Decimal(str(MileageRateHistory.get_rate_for_date(entry.date_worked)))
+
+                t_hours += hours
+                t_mileage += mileage
+                t_mileage_pay += mileage * mileage_rate
+                t_per_diem += Decimal(str(entry.per_diem or 0))
+                t_personal_expenses += Decimal(str(entry.personal_expenses or 0))
+                if entry.date_worked:
+                    t_entry_dates.add(entry.date_worked.isoformat())
+
+            t_deductions = t_mileage_pay + t_per_diem + t_personal_expenses
+            pooled_deductions += t_deductions
+            job_period_hours += t_hours
+
+            job_techs[tid] = {
+                'tech': tech,
+                'hours': t_hours,
+                'mileage': t_mileage,
+                'mileage_pay': t_mileage_pay,
+                'per_diem': t_per_diem,
+                'personal_expenses': t_personal_expenses,
+                'deductions': t_deductions,
+                'entry_dates': t_entry_dates,
+            }
+
+        if not job_techs:
+            continue
+
+        # --- Prorate job-level amounts by period share ---
+        total_hours_for_job = job_total_hours.get(job_id, Decimal('0'))
+        if total_hours_for_job > 0:
+            job_period_ratio = job_period_hours / total_hours_for_job
+        else:
+            job_period_ratio = Decimal('0')
+
+        billing = Decimal(str(job.billing_amount or 0))
+        job_expenses = Decimal(str(job.expenses or 0))
+        job_commissions = Decimal(str(job.commissions or 0))
+
+        prorated_billing = billing * job_period_ratio
+        prorated_expenses = job_expenses * job_period_ratio
+        prorated_commissions = job_commissions * job_period_ratio
+        prorated_net = prorated_billing - prorated_expenses - prorated_commissions
+
+        # --- Shared pool calculation ---
+        tech_pool = (prorated_net - pooled_deductions) / 2
+        if tech_pool < 0:
+            tech_pool = Decimal('0')
+
+        # --- Weighted distribution ---
+        if len(job_techs) == 1:
+            # Single tech on this job in this period
+            tid = next(iter(job_techs))
+            td = job_techs[tid]
+            min_pay_rate = Decimal(str(td['tech'].hourly_rate or 0))
+
+            if td['hours'] > 0:
+                calculated_rate = tech_pool / td['hours']
+                if calculated_rate < min_pay_rate:
+                    effective_rate = min_pay_rate
+                    using_minimum = True
+                else:
+                    effective_rate = calculated_rate
+                    using_minimum = False
+                base_pay = td['hours'] * effective_rate
+            else:
+                effective_rate = min_pay_rate
+                base_pay = Decimal('0')
+                using_minimum = False
+
+            tech_hours_ratio = td['hours'] / total_hours_for_job if total_hours_for_job > 0 else Decimal('0')
+            total_pay = base_pay + td['deductions']
+            profit_share = prorated_net - total_pay
+
+            _accumulate_tech_result(
+                tech_results, tid, td['tech'], job, td,
+                base_pay, effective_rate, using_minimum,
+                tech_hours_ratio, total_pay, profit_share,
+            )
+        else:
+            # Multiple techs — weight by min_pay * hours
+            weighted_sum = Decimal('0')
+            for tid, td in job_techs.items():
+                min_pay = Decimal(str(td['tech'].hourly_rate or 0))
+                weighted_sum += min_pay * td['hours']
+
+            for tid, td in job_techs.items():
+                min_pay_rate = Decimal(str(td['tech'].hourly_rate or 0))
+
+                if weighted_sum > 0:
+                    weight = (min_pay_rate * td['hours']) / weighted_sum
+                else:
+                    weight = Decimal('1') / len(job_techs)
+
+                weighted_base = tech_pool * weight
+                min_pay_amount = td['hours'] * min_pay_rate
+
+                if weighted_base < min_pay_amount:
+                    using_minimum = True
+                    base_pay = min_pay_amount
+                else:
+                    using_minimum = False
+                    base_pay = weighted_base
+
+                if td['hours'] > 0:
+                    effective_rate = base_pay / td['hours']
+                else:
+                    effective_rate = min_pay_rate
+
+                tech_hours_ratio = td['hours'] / total_hours_for_job if total_hours_for_job > 0 else Decimal('0')
+                total_pay = base_pay + td['deductions']
+                profit_share = (prorated_net * (td['hours'] / job_period_hours)) - total_pay if job_period_hours > 0 else Decimal('0')
+
+                _accumulate_tech_result(
+                    tech_results, tid, td['tech'], job, td,
+                    base_pay, effective_rate, using_minimum,
+                    tech_hours_ratio, total_pay, profit_share,
+                )
+
+    # Build output sorted by tech name
     technicians_report = []
     grand_totals = {
         'total_hours': Decimal('0'),
@@ -360,127 +568,16 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
         'total_pay': Decimal('0'),
     }
 
-    for tid, job_entries_map in tech_job_entries.items():
-        tech = Technician.query.get(tid)
-        if not tech:
-            continue
-
-        min_pay_rate = Decimal(str(tech.hourly_rate or 0))
-
-        tech_data = {
-            'tech_id': tid,
-            'tech_name': tech.name,
-            'worker_type': tech.worker_type,
-            'min_pay': float(min_pay_rate),
-            'total_hours': Decimal('0'),
-            'total_base_pay': Decimal('0'),
-            'total_mileage_pay': Decimal('0'),
-            'total_per_diem': Decimal('0'),
-            'total_personal_expenses': Decimal('0'),
-            'total_pay': Decimal('0'),
-            'total_profit_share': Decimal('0'),
-            'jobs': [],
-        }
-
-        for job_id, period_entries in job_entries_map.items():
-            job = Job.query.get(job_id)
-            if not job:
-                continue
-
-            # Aggregate period entries for this tech+job
-            period_hours = Decimal('0')
-            period_mileage = Decimal('0')
-            period_per_diem = Decimal('0')
-            period_personal_expenses = Decimal('0')
-            period_mileage_pay = Decimal('0')
-
-            for entry in period_entries:
-                hours = Decimal(str(entry.hours_worked or 0))
-                mileage = Decimal(str(entry.mileage or 0))
-                mileage_rate = Decimal(str(MileageRateHistory.get_rate_for_date(entry.date_worked)))
-
-                period_hours += hours
-                period_mileage += mileage
-                period_per_diem += Decimal(str(entry.per_diem or 0))
-                period_personal_expenses += Decimal(str(entry.personal_expenses or 0))
-                period_mileage_pay += mileage * mileage_rate
-
-            # hours_ratio = this tech's period hours / total job hours (all time)
-            total_hours_for_job = job_total_hours.get(job_id, Decimal('0'))
-            if total_hours_for_job > 0:
-                hours_ratio = period_hours / total_hours_for_job
-            else:
-                hours_ratio = Decimal('0')
-
-            # Prorate job-level amounts
-            billing = Decimal(str(job.billing_amount or 0))
-            job_expenses = Decimal(str(job.expenses or 0))
-            job_commissions = Decimal(str(job.commissions or 0))
-
-            entry_billing = billing * hours_ratio
-            entry_expenses = job_expenses * hours_ratio
-            entry_commissions = job_commissions * hours_ratio
-            entry_net = entry_billing - entry_expenses - entry_commissions
-
-            # Entry-level deductions
-            entry_deductions = period_mileage_pay + period_per_diem + period_personal_expenses
-
-            # 50/50 split
-            entry_tech_pool = (entry_net - entry_deductions) / 2
-            if entry_tech_pool < 0:
-                entry_tech_pool = Decimal('0')
-
-            # Base pay with minimum rate guarantee
-            if period_hours > 0:
-                calculated_rate = entry_tech_pool / period_hours
-                if calculated_rate < min_pay_rate:
-                    effective_rate = min_pay_rate
-                else:
-                    effective_rate = calculated_rate
-                base_pay = period_hours * effective_rate
-            else:
-                effective_rate = min_pay_rate
-                base_pay = Decimal('0')
-
-            total_pay = base_pay + period_mileage_pay + period_per_diem + period_personal_expenses
-            profit_share = entry_net - total_pay
-
-            job_data = {
-                'job_id': job_id,
-                'job': job.to_dict(),
-                'hours': float(period_hours.quantize(Decimal('0.01'))),
-                'hours_ratio': float(hours_ratio.quantize(Decimal('0.0001'))) if total_hours_for_job > 0 else 0,
-                'base_pay': float(base_pay.quantize(Decimal('0.01'))),
-                'mileage_pay': float(period_mileage_pay.quantize(Decimal('0.01'))),
-                'per_diem': float(period_per_diem.quantize(Decimal('0.01'))),
-                'personal_expenses': float(period_personal_expenses.quantize(Decimal('0.01'))),
-                'effective_rate': float(effective_rate.quantize(Decimal('0.01'))),
-                'profit_share': float(profit_share.quantize(Decimal('0.01'))),
-                'total_pay': float(total_pay.quantize(Decimal('0.01'))),
-            }
-            tech_data['jobs'].append(job_data)
-
-            # Accumulate tech totals
-            tech_data['total_hours'] += period_hours
-            tech_data['total_base_pay'] += base_pay
-            tech_data['total_mileage_pay'] += period_mileage_pay
-            tech_data['total_per_diem'] += period_per_diem
-            tech_data['total_personal_expenses'] += period_personal_expenses
-            tech_data['total_pay'] += total_pay
-            tech_data['total_profit_share'] += profit_share
-
-        # Convert Decimals to floats
+    for tid, tr in tech_results.items():
         for key in ['total_hours', 'total_base_pay', 'total_mileage_pay', 'total_per_diem',
                      'total_personal_expenses', 'total_pay', 'total_profit_share']:
-            tech_data[key] = float(tech_data[key].quantize(Decimal('0.01')))
+            tr[key] = float(tr[key].quantize(Decimal('0.01')))
 
-        # Update grand totals
         for key in grand_totals:
-            grand_totals[key] += Decimal(str(tech_data[key]))
+            grand_totals[key] += Decimal(str(tr[key]))
 
-        technicians_report.append(tech_data)
+        technicians_report.append(tr)
 
-    # Sort by name
     technicians_report.sort(key=lambda t: t['tech_name'])
 
     return {

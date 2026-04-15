@@ -9,8 +9,7 @@ from flask import Blueprint, request, jsonify, g
 from sqlalchemy import func, and_
 from app import db
 from app.models import (
-    TimeEntry, Job, Technician, Platform, PayPeriod, AuditLog, User,
-    MileageRateHistory
+    TimeEntry, Job, Technician, Platform, PayPeriod, AuditLog, User
 )
 from app.utils.logging import get_logger, audit_logger
 from app.utils.auth import (
@@ -19,7 +18,7 @@ from app.utils.auth import (
     admin_required,
     can_access_technician_data,
 )
-from app.utils.pay_calculator import calculate_job_pay
+from app.utils.pay_calculator import calculate_job_pay, calculate_period_pay
 
 reports_bp = Blueprint('reports', __name__)
 logger = get_logger(__name__)
@@ -126,18 +125,7 @@ def payroll_report():
 def payroll_detail_report():
     """
     Generate detailed payroll report with per-job pay breakdowns.
-    Uses entry-level pay calculation scoped to the pay period date range.
-
-    Query parameters:
-        - from_date: Start date (required)
-        - to_date: End date (required)
-        - tech_id: Filter by technician(s) - comma-separated IDs (optional)
-
-    Returns detailed pay breakdown for each technician showing:
-        - All jobs worked with pay calculation (scoped to period entries only)
-        - Base pay, mileage, per diem, expenses per job
-        - Using minimum rate indicator
-        - Grand totals
+    Delegates to calculate_period_pay for the shared-pool weighted formula.
     """
     from_date = request.args.get('from_date')
     to_date = request.args.get('to_date')
@@ -146,42 +134,18 @@ def payroll_detail_report():
     if not from_date or not to_date:
         return jsonify({'error': 'Date range required'}), 400
 
-    # Get all time entries in the period
-    entry_query = TimeEntry.query.filter(
-        TimeEntry.date_worked >= from_date,
-        TimeEntry.date_worked <= to_date,
-        TimeEntry.status.in_(['verified', 'billed', 'paid'])
-    )
-
-    # Support comma-separated tech IDs
+    tech_ids = None
     if tech_id_param:
         tech_ids = [int(t) for t in tech_id_param.split(',') if t.strip().isdigit()]
-        if tech_ids:
-            entry_query = entry_query.filter(TimeEntry.tech_id.in_(tech_ids))
 
-    entries = entry_query.all()
+    pay_data = calculate_period_pay(
+        start_date=from_date, end_date=to_date, tech_ids=tech_ids
+    )
 
-    # Group entries by technician and job
-    # {tech_id: {job_id: [entries]}}
-    tech_job_entries = {}
-    for entry in entries:
-        if entry.tech_id not in tech_job_entries:
-            tech_job_entries[entry.tech_id] = {}
-        if entry.job_id not in tech_job_entries[entry.tech_id]:
-            tech_job_entries[entry.tech_id][entry.job_id] = []
-        tech_job_entries[entry.tech_id][entry.job_id].append(entry)
+    if not pay_data:
+        return jsonify({'error': 'Could not calculate pay data'}), 400
 
-    # Precompute total job hours (ALL entries, not just period) for each unique job
-    unique_job_ids = set()
-    for job_map in tech_job_entries.values():
-        unique_job_ids.update(job_map.keys())
-
-    job_total_hours = {}
-    for jid in unique_job_ids:
-        total = db.session.query(func.sum(TimeEntry.hours_worked)).filter_by(job_id=jid).scalar()
-        job_total_hours[jid] = Decimal(str(total or 0))
-
-    # Build detailed report for each technician
+    # Map output to the report format expected by the frontend
     technicians_report = []
     grand_totals = {
         'total_hours': Decimal('0'),
@@ -189,158 +153,38 @@ def payroll_detail_report():
         'total_mileage_pay': Decimal('0'),
         'total_per_diem': Decimal('0'),
         'total_personal_expenses': Decimal('0'),
-        'total_pay': Decimal('0')
+        'total_pay': Decimal('0'),
     }
 
-    for tid, job_entries_map in tech_job_entries.items():
-        tech = Technician.query.get(tid)
-        if not tech:
-            continue
+    for tech in pay_data['technicians']:
+        # Sort jobs by first entry date
+        tech['jobs'].sort(key=lambda j: j['entry_dates'][0] if j['entry_dates'] else '')
 
-        min_pay_rate = Decimal(str(tech.hourly_rate or 0))
+        # Add aliases the frontend expects
+        for job in tech['jobs']:
+            job['billing_amount'] = job['job'].get('billing_amount', 0)
+            job['job_profit'] = job['profit_share']
+            job['tech_profit_share'] = job['profit_share']
 
-        tech_data = {
-            'tech_id': tid,
-            'tech_name': tech.name,
-            'min_pay': float(min_pay_rate),
-            'jobs': [],
+        tech_entry = {
+            'tech_id': tech['tech_id'],
+            'tech_name': tech['tech_name'],
+            'min_pay': tech['min_pay'],
+            'jobs': tech['jobs'],
             'totals': {
-                'total_hours': Decimal('0'),
-                'total_base_pay': Decimal('0'),
-                'total_mileage_pay': Decimal('0'),
-                'total_per_diem': Decimal('0'),
-                'total_personal_expenses': Decimal('0'),
-                'total_pay': Decimal('0'),
-                'total_profit_share': Decimal('0')
+                'total_hours': tech['total_hours'],
+                'total_base_pay': tech['total_base_pay'],
+                'total_mileage_pay': tech['total_mileage_pay'],
+                'total_per_diem': tech['total_per_diem'],
+                'total_personal_expenses': tech['total_personal_expenses'],
+                'total_pay': tech['total_pay'],
+                'total_profit_share': tech.get('total_profit_share', 0),
             }
         }
+        technicians_report.append(tech_entry)
 
-        for job_id, period_entries in job_entries_map.items():
-            job = Job.query.get(job_id)
-            if not job:
-                continue
-
-            # Aggregate period entries for this tech+job
-            period_hours = Decimal('0')
-            period_mileage = Decimal('0')
-            period_per_diem = Decimal('0')
-            period_personal_expenses = Decimal('0')
-            period_mileage_pay = Decimal('0')
-            entry_dates = set()
-
-            for entry in period_entries:
-                hours = Decimal(str(entry.hours_worked or 0))
-                mileage = Decimal(str(entry.mileage or 0))
-                mileage_rate = Decimal(str(MileageRateHistory.get_rate_for_date(entry.date_worked)))
-
-                period_hours += hours
-                period_mileage += mileage
-                period_per_diem += Decimal(str(entry.per_diem or 0))
-                period_personal_expenses += Decimal(str(entry.personal_expenses or 0))
-                period_mileage_pay += mileage * mileage_rate
-
-                if entry.date_worked:
-                    entry_dates.add(entry.date_worked.isoformat())
-
-            # Calculate hours ratio: this tech's period hours / total job hours (all time)
-            total_hours_for_job = job_total_hours.get(job_id, Decimal('0'))
-            if total_hours_for_job > 0:
-                hours_ratio = period_hours / total_hours_for_job
-            else:
-                hours_ratio = Decimal('0')
-
-            # Prorate job-level amounts by hours ratio
-            billing = Decimal(str(job.billing_amount or 0))
-            job_expenses = Decimal(str(job.expenses or 0))
-            job_commissions = Decimal(str(job.commissions or 0))
-
-            entry_billing = billing * hours_ratio
-            entry_expenses = job_expenses * hours_ratio
-            entry_commissions = job_commissions * hours_ratio
-            entry_net = entry_billing - entry_expenses - entry_commissions
-
-            # Entry-level deductions (actual values from period entries)
-            entry_deductions = period_mileage_pay + period_per_diem + period_personal_expenses
-
-            # 50/50 split
-            entry_tech_pool = (entry_net - entry_deductions) / 2
-            if entry_tech_pool < 0:
-                entry_tech_pool = Decimal('0')
-
-            # Base pay with minimum rate guarantee
-            using_minimum = False
-            if period_hours > 0:
-                calculated_rate = entry_tech_pool / period_hours
-                if calculated_rate < min_pay_rate:
-                    using_minimum = True
-                    effective_rate = min_pay_rate
-                else:
-                    effective_rate = calculated_rate
-                base_pay = period_hours * effective_rate
-            else:
-                effective_rate = min_pay_rate
-                base_pay = Decimal('0')
-
-            total_pay = base_pay + period_mileage_pay + period_per_diem + period_personal_expenses
-
-            # Profit for this entry's share
-            entry_profit = entry_net - total_pay
-
-            # Format date display
-            sorted_dates = sorted(entry_dates)
-            if len(sorted_dates) == 0:
-                date_display = None
-            elif len(sorted_dates) == 1:
-                date_display = sorted_dates[0]
-            else:
-                date_display = f"{sorted_dates[0]} - {sorted_dates[-1]}"
-
-            job_entry = {
-                'job_id': job_id,
-                'ticket_number': job.ticket_number,
-                'description': job.description,
-                'entry_dates': sorted_dates,
-                'date_display': date_display,
-                'external_url': job.external_url,
-                'billing_amount': float(entry_billing.quantize(Decimal('0.01'))),
-                'job_profit': float(entry_profit.quantize(Decimal('0.01'))),
-                'tech_profit_share': float(entry_profit.quantize(Decimal('0.01'))),
-                'hours_ratio': float(hours_ratio.quantize(Decimal('0.0001'))) if total_hours_for_job > 0 else 0,
-                'hours': float(period_hours.quantize(Decimal('0.01'))),
-                'effective_rate': float(effective_rate.quantize(Decimal('0.01'))),
-                'using_minimum': using_minimum,
-                'base_pay': float(base_pay.quantize(Decimal('0.01'))),
-                'mileage': float(period_mileage.quantize(Decimal('0.01'))),
-                'mileage_pay': float(period_mileage_pay.quantize(Decimal('0.01'))),
-                'per_diem': float(period_per_diem.quantize(Decimal('0.01'))),
-                'personal_expenses': float(period_personal_expenses.quantize(Decimal('0.01'))),
-                'total_pay': float(total_pay.quantize(Decimal('0.01')))
-            }
-            tech_data['jobs'].append(job_entry)
-
-            # Update tech totals
-            tech_data['totals']['total_hours'] += period_hours
-            tech_data['totals']['total_base_pay'] += base_pay
-            tech_data['totals']['total_mileage_pay'] += period_mileage_pay
-            tech_data['totals']['total_per_diem'] += period_per_diem
-            tech_data['totals']['total_personal_expenses'] += period_personal_expenses
-            tech_data['totals']['total_pay'] += total_pay
-            tech_data['totals']['total_profit_share'] += entry_profit
-
-        # Convert tech totals to float
-        tech_data['totals'] = {k: float(v.quantize(Decimal('0.01'))) for k, v in tech_data['totals'].items()}
-
-        # Sort jobs by first entry date
-        tech_data['jobs'].sort(key=lambda j: j['entry_dates'][0] if j['entry_dates'] else '')
-
-        # Update grand totals
         for key in grand_totals:
-            grand_totals[key] += Decimal(str(tech_data['totals'][key]))
-
-        technicians_report.append(tech_data)
-
-    # Sort technicians by name
-    technicians_report.sort(key=lambda t: t['tech_name'])
+            grand_totals[key] += Decimal(str(tech_entry['totals'][key]))
 
     # Log report generation
     audit_logger.log(

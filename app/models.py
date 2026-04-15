@@ -627,6 +627,7 @@ class PayoutJobDetail(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
+    date_worked = db.Column(db.Date, nullable=True)
     hours = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     base_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     mileage_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
@@ -642,6 +643,8 @@ class PayoutJobDetail(db.Model):
             'id': self.id,
             'payout_id': self.payout_id,
             'job_id': self.job_id,
+            'date_worked': self.date_worked.isoformat() if self.date_worked else None,
+            'date_display': self.date_worked.isoformat() if self.date_worked else None,
             'job_ticket': self.job.ticket_number if self.job else None,
             'job_description': self.job.description if self.job else None,
             'job_client': self.job.client_name if self.job else None,

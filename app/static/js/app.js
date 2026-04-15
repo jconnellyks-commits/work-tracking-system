@@ -2401,7 +2401,7 @@ const Pages = {
                             <table style="font-size: 0.85rem;">
                                 <thead>
                                     <tr>
-                                        <th>Date(s)</th>
+                                        <th>Date</th>
                                         <th>Job</th>
                                         <th>Link</th>
                                         <th>Hours</th>
@@ -2506,7 +2506,7 @@ const Pages = {
             csv.push([]);
             csv.push([`TECHNICIAN: ${tech.tech_name}`]);
             csv.push([`Min Pay: $${tech.min_pay.toFixed(2)}/hr`]);
-            csv.push(['Date(s)', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay', 'Profit Share', 'Hours %']);
+            csv.push(['Date', 'Ticket', 'Description', 'Hours', 'Rate', 'Using Min', 'Base Pay', 'Mileage', 'Mileage Pay', 'Per Diem', 'Expenses', 'Total Pay', 'Profit Share', 'Hours %']);
 
             for (const job of tech.jobs) {
                 csv.push([
@@ -3396,6 +3396,7 @@ const Pages = {
         if (data.job_details) {
             jobRows = data.job_details.map(j => `
                 <tr>
+                    <td style="white-space: nowrap;">${j.date_display || '-'}</td>
                     <td>${j.job_ticket || 'Job #' + j.job_id}${j.external_url ? ` <a href="${j.external_url}" target="_blank"><i class="fas fa-external-link-alt" style="font-size: 0.7rem;"></i></a>` : ''}</td>
                     <td>${j.hours.toFixed(2)}</td>
                     <td>$${j.effective_rate.toFixed(2)}</td>
@@ -3440,7 +3441,7 @@ const Pages = {
 
             <h4>Job Details</h4>
             <table class="data-table">
-                <thead><tr><th>Job</th><th>Hours</th><th>Rate</th><th>Base</th><th>Mileage</th><th>Per Diem</th><th>Expenses</th></tr></thead>
+                <thead><tr><th>Date</th><th>Job</th><th>Hours</th><th>Rate</th><th>Base</th><th>Mileage</th><th>Per Diem</th><th>Expenses</th></tr></thead>
                 <tbody>${jobRows}</tbody>
             </table>
 

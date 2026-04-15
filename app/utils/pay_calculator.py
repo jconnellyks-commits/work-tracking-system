@@ -289,7 +289,11 @@ def calculate_tech_pay_summary(tech_id, start_date=None, end_date=None):
 def _accumulate_tech_result(tech_results, tid, tech, job, td,
                             base_pay, effective_rate, using_minimum,
                             tech_hours_ratio, total_pay, profit_share):
-    """Accumulate per-job results into per-tech report structure."""
+    """Accumulate per-entry results into per-tech report structure.
+
+    Creates one row per time entry instead of one row per job.
+    Each entry gets the job's effective_rate applied to its individual hours.
+    """
     if tid not in tech_results:
         tech_results[tid] = {
             'tech_id': tid,
@@ -307,46 +311,60 @@ def _accumulate_tech_result(tech_results, tid, tech, job, td,
         }
 
     tr = tech_results[tid]
+    job_dict = job.to_dict()
 
-    # Format date display
-    sorted_dates = sorted(td['entry_dates'])
-    if len(sorted_dates) == 0:
-        date_display = None
-    elif len(sorted_dates) == 1:
-        date_display = sorted_dates[0]
-    else:
-        date_display = f"{sorted_dates[0]} - {sorted_dates[-1]}"
+    # Create one row per entry, distributing the job-level rate to each
+    for entry in td['raw_entries']:
+        e_hours = Decimal(str(entry.hours_worked or 0))
+        e_mileage = Decimal(str(entry.mileage or 0))
+        e_mileage_rate = Decimal(str(MileageRateHistory.get_rate_for_date(entry.date_worked)))
+        e_mileage_pay = e_mileage * e_mileage_rate
+        e_per_diem = Decimal(str(entry.per_diem or 0))
+        e_personal_expenses = Decimal(str(entry.personal_expenses or 0))
 
-    job_data = {
-        'job_id': job.job_id,
-        'job': job.to_dict(),
-        'ticket_number': job.ticket_number,
-        'description': job.description,
-        'entry_dates': sorted_dates,
-        'date_display': date_display,
-        'external_url': job.external_url,
-        'hours': float(td['hours'].quantize(Decimal('0.01'))),
-        'hours_ratio': float(tech_hours_ratio.quantize(Decimal('0.0001'))) if tech_hours_ratio > 0 else 0,
-        'base_pay': float(base_pay.quantize(Decimal('0.01'))),
-        'mileage': float(td['mileage'].quantize(Decimal('0.01'))),
-        'mileage_pay': float(td['mileage_pay'].quantize(Decimal('0.01'))),
-        'per_diem': float(td['per_diem'].quantize(Decimal('0.01'))),
-        'personal_expenses': float(td['personal_expenses'].quantize(Decimal('0.01'))),
-        'effective_rate': float(effective_rate.quantize(Decimal('0.01'))),
-        'using_minimum': using_minimum,
-        'profit_share': float(profit_share.quantize(Decimal('0.01'))),
-        'total_pay': float(total_pay.quantize(Decimal('0.01'))),
-    }
-    tr['jobs'].append(job_data)
+        e_base_pay = e_hours * effective_rate
+        e_deductions = e_mileage_pay + e_per_diem + e_personal_expenses
+        e_total_pay = e_base_pay + e_deductions
 
-    # Accumulate tech totals
-    tr['total_hours'] += td['hours']
-    tr['total_base_pay'] += base_pay
-    tr['total_mileage_pay'] += td['mileage_pay']
-    tr['total_per_diem'] += td['per_diem']
-    tr['total_personal_expenses'] += td['personal_expenses']
-    tr['total_pay'] += total_pay
-    tr['total_profit_share'] += profit_share
+        # Profit share proportional to this entry's hours
+        if td['hours'] > 0:
+            e_profit_share = profit_share * (e_hours / td['hours'])
+        else:
+            e_profit_share = Decimal('0')
+
+        date_str = entry.date_worked.isoformat() if entry.date_worked else None
+
+        entry_data = {
+            'job_id': job.job_id,
+            'job': job_dict,
+            'ticket_number': job.ticket_number,
+            'description': job.description,
+            'date_worked': date_str,
+            'date_display': date_str,
+            'entry_dates': [date_str] if date_str else [],
+            'external_url': job.external_url,
+            'hours': float(e_hours.quantize(Decimal('0.01'))),
+            'hours_ratio': float(tech_hours_ratio.quantize(Decimal('0.0001'))) if tech_hours_ratio > 0 else 0,
+            'base_pay': float(e_base_pay.quantize(Decimal('0.01'))),
+            'mileage': float(e_mileage.quantize(Decimal('0.01'))),
+            'mileage_pay': float(e_mileage_pay.quantize(Decimal('0.01'))),
+            'per_diem': float(e_per_diem.quantize(Decimal('0.01'))),
+            'personal_expenses': float(e_personal_expenses.quantize(Decimal('0.01'))),
+            'effective_rate': float(effective_rate.quantize(Decimal('0.01'))),
+            'using_minimum': using_minimum,
+            'profit_share': float(e_profit_share.quantize(Decimal('0.01'))),
+            'total_pay': float(e_total_pay.quantize(Decimal('0.01'))),
+        }
+        tr['jobs'].append(entry_data)
+
+        # Accumulate tech totals
+        tr['total_hours'] += e_hours
+        tr['total_base_pay'] += e_base_pay
+        tr['total_mileage_pay'] += e_mileage_pay
+        tr['total_per_diem'] += e_per_diem
+        tr['total_personal_expenses'] += e_personal_expenses
+        tr['total_pay'] += e_total_pay
+        tr['total_profit_share'] += e_profit_share
 
 
 def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_ids=None):
@@ -461,6 +479,7 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
                 'personal_expenses': t_personal_expenses,
                 'deductions': t_deductions,
                 'entry_dates': t_entry_dates,
+                'raw_entries': tent_entries,
             }
 
         if not job_techs:

@@ -133,6 +133,7 @@ def lock_payouts():
             detail = PayoutJobDetail(
                 payout_id=payout.payout_id,
                 job_id=job_data['job_id'],
+                date_worked=job_data.get('date_worked'),
                 hours=job_data['hours'],
                 base_pay=job_data['base_pay'],
                 mileage_pay=job_data['mileage_pay'],

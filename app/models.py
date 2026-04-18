@@ -154,7 +154,9 @@ class Job(db.Model):
         reimbursables_total = db.session.query(
             sqlfunc.coalesce(sqlfunc.sum(JobReimbursable.amount), 0)
         ).filter_by(job_id=self.job_id).scalar()
-        self.billing_amount = self.billing_rate * total_hours + reimbursables_total
+        from decimal import Decimal as D
+        rate = D(str(self.billing_rate))
+        self.billing_amount = rate * total_hours + reimbursables_total
 
 
 class JobReimbursable(db.Model):

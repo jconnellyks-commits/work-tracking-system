@@ -68,6 +68,8 @@ def calculate_job_pay(job_id):
             'job_net': 0,
             'tech_pool': 0,
             'total_deductions': 0,
+            'total_reimbursables': 0,
+            'reimbursables': [],
             'technicians': [],
             'totals': {
                 'total_hours': 0,
@@ -75,6 +77,7 @@ def calculate_job_pay(job_id):
                 'total_mileage_pay': 0,
                 'total_per_diem': 0,
                 'total_personal_expenses': 0,
+                'total_reimbursables': 0,
                 'total_pay': 0
             }
         }
@@ -134,7 +137,7 @@ def calculate_job_pay(job_id):
 
     # Get reimbursables for this job
     reimbursables = JobReimbursable.query.filter_by(job_id=job_id).all()
-    total_reimbursables = sum(Decimal(str(r.amount)) for r in reimbursables)
+    total_reimbursables = sum((Decimal(str(r.amount)) for r in reimbursables), Decimal('0'))
 
     # Tech pool is half of (job net - deductions)
     tech_pool = (job_net - total_deductions) / 2

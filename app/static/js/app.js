@@ -1165,8 +1165,8 @@ const Pages = {
             </div>
             ${formClose}
             ${!isNew && !editing ? (() => {
-                const reimbursables = jobData.reimbursables || [];
-                const total = jobData.reimbursables_total || 0;
+                const reimbursables = job.reimbursables || [];
+                const total = job.reimbursables_total || 0;
                 const isManagerRole = ['admin', 'manager'].includes(App.user.role);
                 return `
                     <div style="margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">

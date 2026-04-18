@@ -912,13 +912,14 @@ const Pages = {
         let job = {};
         let entries = [];
         let entriesData = {};
+        let jobData = {};
         let assignmentsHtml = '';
         let payHtml = '';
         let entriesHtml = '';
 
         if (!isNew) {
-            const data = await API.jobs.get(jobId);
-            job = data.job;
+            jobData = await API.jobs.get(jobId);
+            job = jobData.job;
 
             // Fetch time entries
             entriesData = await API.jobs.getTimeEntries(jobId);
@@ -1163,6 +1164,33 @@ const Pages = {
                     `<input type="number" step="0.01" class="form-control" name="commissions" value="${job.commissions || ''}">`)}
             </div>
             ${formClose}
+            ${!isNew && !editing ? (() => {
+                const reimbursables = jobData.reimbursables || [];
+                const total = jobData.reimbursables_total || 0;
+                const isManagerRole = ['admin', 'manager'].includes(App.user.role);
+                return `
+                    <div style="margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">
+                        <label style="display: flex; justify-content: space-between; align-items: center;">
+                            Reimbursables
+                            ${isManagerRole ? `<button class="btn btn-sm btn-outline-primary" onclick="Pages.addReimbursable(${jobId})"><i class="fas fa-plus"></i> Add</button>` : ''}
+                        </label>
+                        ${reimbursables.length > 0 ? `
+                            <table class="table table-sm" style="margin-top: 0.5rem;">
+                                <thead><tr><th>Description</th><th>Category</th><th style="text-align:right">Amount</th>${isManagerRole ? '<th></th>' : ''}</tr></thead>
+                                <tbody>
+                                    ${reimbursables.map(r => `<tr>
+                                        <td>${r.description}</td>
+                                        <td><span class="badge badge-secondary">${r.category}</span></td>
+                                        <td style="text-align:right">$${r.amount.toFixed(2)}</td>
+                                        ${isManagerRole ? `<td><button class="btn btn-sm btn-outline-danger" onclick="Pages.deleteReimbursable(${jobId}, ${r.id})"><i class="fas fa-trash"></i></button></td>` : ''}
+                                    </tr>`).join('')}
+                                </tbody>
+                                <tfoot><tr><td colspan="2"><strong>Total</strong></td><td style="text-align:right"><strong>$${total.toFixed(2)}</strong></td>${isManagerRole ? '<td></td>' : ''}</tr></tfoot>
+                            </table>
+                        ` : '<p class="text-muted" style="margin-top: 0.5rem;">No reimbursable items</p>'}
+                    </div>
+                `;
+            })() : ''}
             ${!isNew ? assignmentsHtml : ''}
             ${!isNew ? entriesHtml : ''}
             ${!isNew ? payHtml : ''}
@@ -1244,6 +1272,61 @@ const Pages = {
             if (Pages.jobsPage) Pages.jobsPage(1);
         } catch (error) {
             App.showFormError(error.message);
+        }
+    },
+
+    async addReimbursable(jobId) {
+        const body = `
+            <form id="reimbursable-form">
+                <div class="form-group">
+                    <label>Description *</label>
+                    <input type="text" class="form-control" name="description" required placeholder="e.g. Hotel, Cable, Gas">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Amount *</label>
+                        <input type="number" step="0.01" min="0.01" class="form-control" name="amount" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select class="form-control" name="category">
+                            <option value="travel">Travel</option>
+                            <option value="parts">Parts</option>
+                            <option value="misc" selected>Misc</option>
+                        </select>
+                    </div>
+                </div>
+            </form>
+        `;
+
+        App.showModal('Add Reimbursable', body, `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveReimbursable(${jobId})">Add</button>
+        `);
+    },
+
+    async saveReimbursable(jobId) {
+        const form = document.getElementById('reimbursable-form');
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData);
+
+        try {
+            await API.jobs.addReimbursable(jobId, data);
+            App.showAlert('Reimbursable added', 'success');
+            await Pages.jobModal(jobId, 'view');
+        } catch (error) {
+            App.showFormError(error.message);
+        }
+    },
+
+    async deleteReimbursable(jobId, reimbursableId) {
+        if (!confirm('Remove this reimbursable item?')) return;
+        try {
+            await API.jobs.deleteReimbursable(jobId, reimbursableId);
+            App.showAlert('Reimbursable removed', 'success');
+            await Pages.jobModal(jobId, 'view');
+        } catch (error) {
+            App.showAlert(error.message, 'danger');
         }
     },
 

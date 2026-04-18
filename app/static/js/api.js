@@ -222,6 +222,19 @@ const API = {
 
         async getStats() {
             return API.request('/jobs/stats');
+        },
+
+        async addReimbursable(jobId, data) {
+            return API.request(`/jobs/${jobId}/reimbursables`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async deleteReimbursable(jobId, id) {
+            return API.request(`/jobs/${jobId}/reimbursables/${id}`, {
+                method: 'DELETE'
+            });
         }
     },
 

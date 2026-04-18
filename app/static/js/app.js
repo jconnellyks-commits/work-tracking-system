@@ -1131,12 +1131,21 @@ const Pages = {
                 ${field('Status', App.getStatusBadge(job.job_status), statusSelect)}
                 ${editing
                     ? field('Billing Type', '', billingSelect)
-                    : `<div class="form-group"><label>Billing</label><p>${job.billing_type || 'flat_rate'}: $${job.billing_amount || 0}</p></div>`}
+                    : `<div class="form-group"><label>Billing</label><p>${
+                        job.billing_type === 'hourly' && job.billing_rate
+                            ? `hourly @ $${job.billing_rate.toFixed(2)}/hr = $${(job.billing_amount || 0).toFixed(2)} (${entriesData.total_hours || 0} hrs)`
+                            : `${job.billing_type || 'flat_rate'}: $${job.billing_amount || 0}`
+                    }</p></div>`}
             </div>
             ${editing ? `<div class="form-row">
-                ${field('Billing Amount', '',
-                    `<input type="number" step="0.01" class="form-control" name="billing_amount" value="${job.billing_amount || ''}">`)}
-                <div class="form-group"></div>
+                <div class="form-group billing-rate-group" style="display: ${job.billing_type === 'hourly' ? 'block' : 'none'}">
+                    <label>Billing Rate ($/hr)</label>
+                    <input type="number" step="0.01" class="form-control" name="billing_rate" value="${job.billing_rate || ''}">
+                </div>
+                <div class="form-group billing-amount-group">
+                    <label>Billing Amount${job.billing_type === 'hourly' ? ' (calculated)' : ''}</label>
+                    <input type="number" step="0.01" class="form-control" name="billing_amount" value="${job.billing_amount || ''}" ${job.billing_type === 'hourly' ? 'readonly style="background: #e9ecef;"' : ''}>
+                </div>
             </div>` : ''}
             <div class="form-row">
                 ${field('Job Date',
@@ -1188,6 +1197,26 @@ const Pages = {
 
         const title = isNew ? 'New Job' : (editing ? 'Edit Job' : 'Job Details');
         App.showModal(title, body, footer, { wide: true, actions });
+
+        // Billing type toggle for rate/amount fields
+        setTimeout(() => {
+            const billingTypeSelect = document.querySelector('[name="billing_type"]');
+            if (billingTypeSelect) {
+                billingTypeSelect.addEventListener('change', function() {
+                    const isHourly = this.value === 'hourly';
+                    const rateGroup = document.querySelector('.billing-rate-group');
+                    const amountInput = document.querySelector('[name="billing_amount"]');
+                    const amountLabel = amountInput?.closest('.form-group')?.querySelector('label');
+                    if (rateGroup) rateGroup.style.display = isHourly ? 'block' : 'none';
+                    if (amountInput) {
+                        amountInput.readOnly = isHourly;
+                        amountInput.style.background = isHourly ? '#e9ecef' : '';
+                        if (isHourly) amountInput.value = '0';
+                    }
+                    if (amountLabel) amountLabel.textContent = isHourly ? 'Billing Amount (calculated)' : 'Billing Amount';
+                });
+            }
+        }, 100);
     },
 
     // Save job
@@ -1195,6 +1224,11 @@ const Pages = {
         const form = document.getElementById('job-form');
         const formData = new FormData(form);
         const data = Object.fromEntries(formData);
+
+        // Don't send billing_amount for hourly jobs (it's auto-calculated)
+        if (data.billing_type === 'hourly') {
+            delete data.billing_amount;
+        }
 
         try {
             if (jobId) {

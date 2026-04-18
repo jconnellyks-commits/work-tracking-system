@@ -5,7 +5,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import or_
 from app import db
-from app.models import Job, Platform, TimeEntry
+from app.models import Job, Platform, TimeEntry, JobReimbursable
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import jwt_required_with_user, manager_required
 
@@ -105,6 +105,10 @@ def get_job(job_id):
     job_data['time_entries_count'] = len(time_entries)
     job_data['total_hours_worked'] = total_hours
 
+    reimbursables = JobReimbursable.query.filter_by(job_id=job_id).order_by(JobReimbursable.created_at).all()
+    job_data['reimbursables'] = [r.to_dict() for r in reimbursables]
+    job_data['reimbursables_total'] = sum(float(r.amount) for r in reimbursables)
+
     return jsonify({'job': job_data}), 200
 
 
@@ -161,6 +165,7 @@ def create_job():
     job_date = data.get('job_date') or None
     due_date = data.get('due_date') or None
     billing_amount = data.get('billing_amount') or None
+    billing_rate = data.get('billing_rate') or None
     estimated_hours = data.get('estimated_hours') or None
     expenses = data.get('expenses') or 0
     commissions = data.get('commissions') or 0
@@ -185,6 +190,7 @@ def create_job():
         job_type=data.get('job_type', '').strip() or None,
         location=data.get('location', '').strip() or None,
         billing_type=data.get('billing_type', 'flat_rate'),
+        billing_rate=billing_rate,
         billing_amount=billing_amount,
         estimated_hours=estimated_hours,
         expenses=expenses,
@@ -197,6 +203,11 @@ def create_job():
     )
 
     db.session.add(job)
+
+    # For hourly jobs, billing_amount starts at 0 (calculated from time entries)
+    if data.get('billing_type') == 'hourly':
+        job.billing_amount = 0
+
     db.session.commit()
 
     logger.info(f"Job created: {job.job_id} - {job.ticket_number}")
@@ -235,7 +246,7 @@ def update_job(job_id):
     # Update fields if provided
     updatable_fields = [
         'platform_id', 'platform_job_code', 'ticket_number', 'description',
-        'client_name', 'job_type', 'location', 'billing_type', 'billing_amount',
+        'client_name', 'job_type', 'location', 'billing_type', 'billing_rate', 'billing_amount',
         'estimated_hours', 'expenses', 'commissions', 'external_url', 'job_status',
         'job_date', 'due_date', 'completed_date'
     ]
@@ -258,6 +269,10 @@ def update_job(job_id):
                 job.scheduled_start_time = None
         else:
             job.scheduled_start_time = None
+
+    # Recalculate billing for hourly jobs
+    if job.billing_type == 'hourly':
+        job.recalculate_hourly_billing()
 
     # Validate ticket number uniqueness if changed
     if 'ticket_number' in data and data['ticket_number']:
@@ -468,3 +483,74 @@ def get_job_stats():
         'by_platform': {name: count for name, count in platform_counts},
         'recent_jobs': recent_count
     }), 200
+
+
+@jobs_bp.route('/<int:job_id>/reimbursables', methods=['POST'])
+@manager_required
+@log_action('create', 'reimbursable')
+def add_reimbursable(job_id):
+    """Add a reimbursable line item to a job."""
+    job = Job.query.get_or_404(job_id)
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'Request body required'}), 400
+
+    description = (data.get('description') or '').strip()
+    amount = data.get('amount')
+    category = data.get('category', 'misc')
+
+    if not description:
+        return jsonify({'error': 'Description required'}), 400
+    if not amount or float(amount) <= 0:
+        return jsonify({'error': 'Amount must be positive'}), 400
+    if category not in ('travel', 'parts', 'misc'):
+        return jsonify({'error': 'Category must be travel, parts, or misc'}), 400
+
+    reimbursable = JobReimbursable(
+        job_id=job_id,
+        description=description,
+        amount=amount,
+        category=category
+    )
+
+    db.session.add(reimbursable)
+    db.session.commit()
+
+    audit_logger.log(
+        action_type='reimbursable_added',
+        entity_type='job',
+        entity_id=job_id,
+        new_values=reimbursable.to_dict(),
+        description=f"Reimbursable '{description}' added to job {job.ticket_number}",
+        user_id=g.user_id
+    )
+
+    return jsonify({
+        'message': 'Reimbursable added',
+        'reimbursable': reimbursable.to_dict()
+    }), 201
+
+
+@jobs_bp.route('/<int:job_id>/reimbursables/<int:reimbursable_id>', methods=['DELETE'])
+@manager_required
+@log_action('delete', 'reimbursable')
+def delete_reimbursable(job_id, reimbursable_id):
+    """Remove a reimbursable line item from a job."""
+    job = Job.query.get_or_404(job_id)
+    reimbursable = JobReimbursable.query.filter_by(id=reimbursable_id, job_id=job_id).first_or_404()
+
+    old_values = reimbursable.to_dict()
+    db.session.delete(reimbursable)
+    db.session.commit()
+
+    audit_logger.log(
+        action_type='reimbursable_deleted',
+        entity_type='job',
+        entity_id=job_id,
+        old_values=old_values,
+        description=f"Reimbursable removed from job {job.ticket_number}",
+        user_id=g.user_id
+    )
+
+    return jsonify({'message': 'Reimbursable removed'}), 200

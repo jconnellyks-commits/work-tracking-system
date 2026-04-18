@@ -254,6 +254,8 @@ def create_time_entry():
     )
 
     db.session.add(entry)
+    # Recalculate billing for hourly jobs
+    job.recalculate_hourly_billing()
     db.session.commit()
 
     logger.info(f"Time entry created: {entry.entry_id} for job {job_id}")
@@ -334,6 +336,15 @@ def update_time_entry(entry_id):
             entry.tech_id = data['tech_id']
 
     entry.updated_by = user.user_id
+    # Recalculate billing for hourly jobs (handle job_id change)
+    old_job_id = old_values.get('job_id')
+    if old_job_id and old_job_id != entry.job_id:
+        old_job = Job.query.get(old_job_id)
+        if old_job:
+            old_job.recalculate_hourly_billing()
+    current_job = Job.query.get(entry.job_id)
+    if current_job:
+        current_job.recalculate_hourly_billing()
     db.session.commit()
 
     audit_logger.log(
@@ -368,9 +379,16 @@ def delete_time_entry(entry_id):
         return jsonify({'error': 'Cannot delete this entry'}), 403
 
     old_values = entry.to_dict()
+    job_id_for_recalc = entry.job_id
 
     db.session.delete(entry)
     db.session.commit()
+
+    # Recalculate billing for hourly jobs
+    job = Job.query.get(job_id_for_recalc)
+    if job:
+        job.recalculate_hourly_billing()
+        db.session.commit()
 
     audit_logger.log(
         action_type='time_entry_deleted',

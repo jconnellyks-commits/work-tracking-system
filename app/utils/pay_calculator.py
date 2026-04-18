@@ -23,7 +23,7 @@ Four Payouts per Tech per Job:
 """
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import func
-from app.models import Job, TimeEntry, Technician, MileageRateHistory, PayPeriod
+from app.models import Job, TimeEntry, Technician, MileageRateHistory, PayPeriod, JobReimbursable
 
 
 def calculate_job_pay(job_id):
@@ -132,6 +132,10 @@ def calculate_job_pay(job_id):
 
     total_deductions = total_mileage_pay + total_per_diem + total_personal_expenses
 
+    # Get reimbursables for this job
+    reimbursables = JobReimbursable.query.filter_by(job_id=job_id).all()
+    total_reimbursables = sum(Decimal(str(r.amount)) for r in reimbursables)
+
     # Tech pool is half of (job net - deductions)
     tech_pool = (job_net - total_deductions) / 2
     if tech_pool < 0:
@@ -188,7 +192,13 @@ def calculate_job_pay(job_id):
             else:
                 effective_rate = data['min_pay']
 
-        total_pay = base_pay + data['mileage_pay'] + data['per_diem'] + data['personal_expenses']
+        # Add reimbursable share (distributed by hours ratio)
+        if total_hours > 0 and total_reimbursables > 0:
+            reimbursable_share = total_reimbursables * (data['hours'] / total_hours)
+        else:
+            reimbursable_share = Decimal('0')
+
+        total_pay = base_pay + data['mileage_pay'] + data['per_diem'] + data['personal_expenses'] + reimbursable_share
         total_base_pay += base_pay
 
         technicians.append({
@@ -202,6 +212,7 @@ def calculate_job_pay(job_id):
             'mileage_pay': float(data['mileage_pay'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'per_diem': float(data['per_diem'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'personal_expenses': float(data['personal_expenses'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'reimbursable_share': float(reimbursable_share.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'total_pay': float(total_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'effective_rate': float(effective_rate.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'using_minimum': using_minimum,
@@ -213,6 +224,8 @@ def calculate_job_pay(job_id):
         'job_net': float(job_net.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
         'tech_pool': float(tech_pool.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
         'total_deductions': float(total_deductions.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_reimbursables': float(total_reimbursables.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'reimbursables': [r.to_dict() for r in reimbursables],
         'technicians': technicians,
         'totals': {
             'total_hours': float(total_hours.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
@@ -220,7 +233,8 @@ def calculate_job_pay(job_id):
             'total_mileage_pay': float(total_mileage_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'total_per_diem': float(total_per_diem.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
             'total_personal_expenses': float(total_personal_expenses.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
-            'total_pay': float((total_base_pay + total_mileage_pay + total_per_diem + total_personal_expenses).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+            'total_reimbursables': float(total_reimbursables.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_pay': float((total_base_pay + total_mileage_pay + total_per_diem + total_personal_expenses + total_reimbursables).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
         }
     }
 

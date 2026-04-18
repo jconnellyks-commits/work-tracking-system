@@ -134,7 +134,7 @@ Billing: hourly @ $65.00/hr = $4,680.00 (72.00 hrs)
 
 ## Migration
 
-File: `database/migrations/007_add_billing_rate_and_reimbursables.sql`
+File: `database/migrations/015_add_billing_rate_and_reimbursables.sql`
 
 ```sql
 ALTER TABLE jobs ADD COLUMN billing_rate DECIMAL(10,2) DEFAULT NULL AFTER billing_type;

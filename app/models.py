@@ -87,6 +87,7 @@ class Job(db.Model):
 
     # Billing
     billing_type = db.Column(db.Enum('flat_rate', 'hourly', 'per_task'), default='flat_rate')
+    billing_rate = db.Column(db.Numeric(10, 2))
     billing_amount = db.Column(db.Numeric(10, 2))
     estimated_hours = db.Column(db.Numeric(8, 2))
 
@@ -114,6 +115,7 @@ class Job(db.Model):
 
     # Relationships
     time_entries = db.relationship('TimeEntry', backref='job', lazy='dynamic')
+    reimbursables = db.relationship('JobReimbursable', backref='job', lazy='dynamic', cascade='all, delete-orphan')
 
     def to_dict(self):
         return {
@@ -127,6 +129,7 @@ class Job(db.Model):
             'job_type': self.job_type,
             'location': self.location,
             'billing_type': self.billing_type,
+            'billing_rate': float(self.billing_rate) if self.billing_rate else None,
             'billing_amount': float(self.billing_amount) if self.billing_amount else None,
             'estimated_hours': float(self.estimated_hours) if self.estimated_hours else None,
             'expenses': float(self.expenses) if self.expenses else 0,
@@ -137,6 +140,38 @@ class Job(db.Model):
             'scheduled_start_time': self.scheduled_start_time.strftime('%H:%M') if self.scheduled_start_time else None,
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'completed_date': self.completed_date.isoformat() if self.completed_date else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+    def recalculate_hourly_billing(self):
+        """Recalculate billing_amount for hourly jobs based on rate x total hours."""
+        if self.billing_type != 'hourly' or not self.billing_rate:
+            return
+        from sqlalchemy import func as sqlfunc
+        total_hours = db.session.query(
+            sqlfunc.coalesce(sqlfunc.sum(TimeEntry.hours_worked), 0)
+        ).filter_by(job_id=self.job_id).scalar()
+        self.billing_amount = self.billing_rate * total_hours
+
+
+class JobReimbursable(db.Model):
+    """Reimbursable line item on a job (travel, parts, misc)."""
+    __tablename__ = 'job_reimbursables'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id', ondelete='CASCADE'), nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    category = db.Column(db.Enum('travel', 'parts', 'misc'), nullable=False, default='misc')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'job_id': self.job_id,
+            'description': self.description,
+            'amount': float(self.amount) if self.amount else 0,
+            'category': self.category,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

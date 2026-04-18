@@ -515,6 +515,7 @@ def add_reimbursable(job_id):
     )
 
     db.session.add(reimbursable)
+    job.recalculate_hourly_billing()
     db.session.commit()
 
     audit_logger.log(
@@ -542,6 +543,8 @@ def delete_reimbursable(job_id, reimbursable_id):
 
     old_values = reimbursable.to_dict()
     db.session.delete(reimbursable)
+    db.session.flush()
+    job.recalculate_hourly_billing()
     db.session.commit()
 
     audit_logger.log(

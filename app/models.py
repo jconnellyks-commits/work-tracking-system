@@ -144,14 +144,17 @@ class Job(db.Model):
         }
 
     def recalculate_hourly_billing(self):
-        """Recalculate billing_amount for hourly jobs based on rate x total hours."""
+        """Recalculate billing_amount for hourly jobs based on (rate x hours) + reimbursables."""
         if self.billing_type != 'hourly' or not self.billing_rate:
             return
         from sqlalchemy import func as sqlfunc
         total_hours = db.session.query(
             sqlfunc.coalesce(sqlfunc.sum(TimeEntry.hours_worked), 0)
         ).filter_by(job_id=self.job_id).scalar()
-        self.billing_amount = self.billing_rate * total_hours
+        reimbursables_total = db.session.query(
+            sqlfunc.coalesce(sqlfunc.sum(JobReimbursable.amount), 0)
+        ).filter_by(job_id=self.job_id).scalar()
+        self.billing_amount = self.billing_rate * total_hours + reimbursables_total
 
 
 class JobReimbursable(db.Model):

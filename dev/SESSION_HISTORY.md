@@ -1,5 +1,92 @@
 # Work Tracking System - Session History
 
+## Session: April 18, 2026
+
+### Summary
+Added hourly billing auto-calculation and reimbursable line items feature.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Switched existing hourly jobs to flat_rate | Done | 10 jobs updated, only NV-04142601 kept as hourly |
+| Design spec for hourly billing + reimbursables | Done | `docs/superpowers/specs/2026-04-18-hourly-billing-and-reimbursables-design.md` |
+| Implementation plan | Done | `docs/superpowers/plans/2026-04-18-hourly-billing-and-reimbursables.md` |
+| Migration 015: billing_rate column + job_reimbursables table | Done | NV-04142601 set to $65/hr rate |
+| Model changes: billing_rate, JobReimbursable, recalculate method | Done | `8d7110d` |
+| Job API: billing_rate in CRUD, reimbursable endpoints | Done | `526098a` |
+| Time entry hooks: recalculate on create/update/delete | Done | `71b32ab` |
+| Pay calculator: reimbursable share distributed by hours ratio | Done | `d860f50` |
+| Frontend: billing type toggle, rate field, read-only amount | Done | `8effdf8` |
+| Frontend: reimbursables section with add/delete on job detail | Done | `b02b150` |
+| Bugfix: empty reimbursables sum returning int instead of Decimal | Done | `5bdd94f` |
+| Bugfix: reimbursables reading from wrong level in API response | Done | `807a14d` |
+| Bugfix: billing_amount now includes reimbursables total | Done | `b83e0f9` |
+| Bugfix: billing_rate cast to Decimal before multiplication | Done | `3719009` |
+
+### Technical Notes
+
+**Hourly billing formula**: `billing_amount = (billing_rate × total_hours) + reimbursables_total`
+- Recalculated on time entry create/update/delete AND reimbursable add/delete
+- Flat rate jobs unchanged — billing_amount set manually
+
+**Reimbursables**: Line items (travel/parts/misc) on jobs. Included in billing_amount for hourly jobs. User offsets in pay calc by putting the cost in the expenses field.
+
+**Pay calculator**: Reimbursable share added to tech pay, distributed proportionally by hours worked. Does NOT affect tech pool calculation.
+
+### Next Steps
+- Continue testing the feature in production
+- Period 12 payout adjustments still pending
+
+---
+
+## Session: April 14, 2026
+
+### Summary
+Fixed multi-tech pay calculation formula and switched reports/payouts to per-entry row display.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Investigated pay calc discrepancy on FN-18830701 | Done | Found `calculate_period_pay` used independent proration instead of shared-pool weighted distribution |
+| Reopened pay periods 10 & 11 (Feb 19–Mar 04, Mar 05–18) | Done | Were closed without payouts; locked and paid manually |
+| Fixed `calculate_period_pay` — shared-pool weighted formula | Done | `96c67ef` — pools deductions, 50/50 split, weighted by min_pay×hours |
+| Refactored `payroll_detail_report` to call `calculate_period_pay` | Done | Eliminated duplicated calculation logic |
+| Split per-entry rows in reports and payouts | Done | `51512d1` — each time entry gets its own row instead of aggregating per job |
+| Added `date_worked` to `PayoutJobDetail` model | Done | Migration 014, locked payout snapshots now per-entry |
+| Updated frontend (payroll report, payout preview, pay stubs) | Done | Date column, CSV export updated |
+| Noted Period 12 adjustment needed | Done | ~$198 owed to Jeremiah from old formula; saved to memory |
+
+### Technical Notes
+
+**Pay Formula (corrected)**:
+1. Pool ALL deductions (mileage pay + per diem + personal expenses) across all techs on a job
+2. `tech_pool = (prorated_net - pooled_deductions) / 2`
+3. Distribute by `weight = (min_pay × hours) / Σ(min_pay × hours)`
+4. Floor check: `base_pay = max(weighted_share, hours × min_rate)`
+
+**Old bug**: Each tech was calculated independently with prorated billing — deductions weren't pooled and minimum rate overages inflated total pay beyond 50%.
+
+**Period 12 deltas** (Mar 19–Apr 01, already paid with old formula):
+- Jeremiah underpaid ~$198, Geoffery overpaid ~$93, Michael overpaid ~$97, Rowland overpaid ~$142
+- Saved to memory for future payout adjustment
+
+### Files Modified
+- `app/utils/pay_calculator.py` — rewrote `calculate_period_pay`, added `_accumulate_tech_result` helper
+- `app/routes/reports.py` — `payroll_detail_report` now delegates to `calculate_period_pay`
+- `app/routes/payouts.py` — saves `date_worked` on payout job details
+- `app/models.py` — added `date_worked` to `PayoutJobDetail`
+- `app/static/js/app.js` — per-entry rows in report/payout/stub views
+- `database/migrations/014_add_date_worked_to_payout_job_details.sql` — new migration
+
+### Next Steps
+- Apply Period 12 payout adjustments once exact amounts are recalculated
+- SMS notifications for technicians (from TODO list)
+- Time entries interface adjustments
+
+---
+
 ## Session: February 20, 2026 (2nd — housekeeping)
 
 ### Summary

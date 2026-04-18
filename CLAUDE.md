@@ -1,7 +1,11 @@
 # Work Tracking System - Project Context
 
 ## TODO - Next Session
+- [ ] Apply Period 12 payout adjustments (exact deltas need recalculation — see memory)
 - [ ] SMS notifications for technicians  ← NEXT
+- [x] Hourly billing auto-calculation + reimbursable line items (Apr 18, 2026)
+- [x] Fix multi-tech pay calculation — shared-pool weighted formula (Apr 14, 2026)
+- [x] Per-entry rows in payroll report/payout views (Apr 14, 2026)
 - [x] Calendar view for assigned jobs
 - [x] Scheduled start time on jobs (scrapers extract it, shows on calendar chips + job modal)
 - [x] Update scraper batch files to use worktracking.sleepybear.tech + SSL=true

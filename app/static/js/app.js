@@ -766,13 +766,15 @@ const Pages = {
         }
 
         async function loadJobs() {
-            // Build from/to dates for the full month (plus buffer for neighbor cells)
             const firstDay = new Date(state.year, state.month, 1);
             const lastDay = new Date(state.year, state.month + 1, 0);
+            const firstDow = firstDay.getDay();
+            const totalCells = firstDow + lastDay.getDate();
+            const trailingCells = (7 - (totalCells % 7)) % 7;
 
-            // Fetch up to 200 jobs for the month
-            const fromDate = firstDay.toLocaleDateString('en-CA');
-            const toDate = lastDay.toLocaleDateString('en-CA');
+            // Extend range to cover overflow days from prev/next month
+            const fromDate = new Date(state.year, state.month, 1 - firstDow).toLocaleDateString('en-CA');
+            const toDate = new Date(state.year, state.month + 1, trailingCells).toLocaleDateString('en-CA');
 
             const data = await API.jobs.list({ from_date: fromDate, to_date: toDate, per_page: 200, page: 1 });
             state.jobs = data.jobs || [];
@@ -808,18 +810,9 @@ const Pages = {
 
             const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-            let cells = '';
-            // Leading empty cells
-            for (let i = 0; i < firstDow; i++) {
-                cells += `<div class="calendar-day calendar-day--other-month"></div>`;
-            }
-            // Day cells
-            for (let d = 1; d <= daysInMonth; d++) {
-                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                const isToday = dateStr === todayStr;
+            function renderChips(dateStr) {
                 const dayJobs = jobsByDate[dateStr] || [];
-
-                const chips = dayJobs.map(job => {
+                return dayJobs.map(job => {
                     const isMine = state.myJobIds.has(job.job_id);
                     const colors = chipColors[job.job_status] || chipColors.cancelled;
                     const timeLabel = job.scheduled_start_time
@@ -829,18 +822,42 @@ const Pages = {
                     const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
                     return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${job.description || ''}">${label}${timeLabel}</div>`;
                 }).join('');
+            }
 
+            let cells = '';
+            // Leading days from previous month
+            const prevMonthDays = new Date(year, month, 0).getDate();
+            for (let i = firstDow - 1; i >= 0; i--) {
+                const d = prevMonthDays - i;
+                const dt = new Date(year, month - 1, d);
+                const dateStr = dt.toLocaleDateString('en-CA');
+                cells += `
+                    <div class="calendar-day calendar-day--other-month">
+                        <div class="calendar-day-number">${d}</div>
+                        ${renderChips(dateStr)}
+                    </div>`;
+            }
+            // Current month day cells
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isToday = dateStr === todayStr;
                 cells += `
                     <div class="calendar-day ${isToday ? 'calendar-day--today' : ''}">
                         <div class="calendar-day-number">${d}</div>
-                        ${chips}
+                        ${renderChips(dateStr)}
                     </div>`;
             }
-            // Trailing empty cells to complete the grid row
+            // Trailing days from next month
             const totalCells = firstDow + daysInMonth;
             const trailingCells = (7 - (totalCells % 7)) % 7;
-            for (let i = 0; i < trailingCells; i++) {
-                cells += `<div class="calendar-day calendar-day--other-month"></div>`;
+            for (let i = 1; i <= trailingCells; i++) {
+                const dt = new Date(year, month + 1, i);
+                const dateStr = dt.toLocaleDateString('en-CA');
+                cells += `
+                    <div class="calendar-day calendar-day--other-month">
+                        <div class="calendar-day-number">${i}</div>
+                        ${renderChips(dateStr)}
+                    </div>`;
             }
 
             return `

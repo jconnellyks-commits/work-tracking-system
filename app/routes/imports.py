@@ -187,7 +187,9 @@ def import_fieldnation():
                 job = existing_job
                 # Update existing job with latest status, billing, and date
                 job.job_status = mapped_status
-                if wo.get('total_pay'):
+                if mapped_status == 'cancelled':
+                    job.billing_amount = 0
+                elif wo.get('total_pay'):
                     job.billing_amount = wo.get('total_pay')
                 if scheduled_date:
                     job.job_date = scheduled_date
@@ -215,7 +217,7 @@ def import_fieldnation():
                     job_date=scheduled_date,
                     scheduled_start_time=scheduled_start_time,
                     job_status=mapped_status,
-                    billing_amount=wo.get('total_pay', 0),
+                    billing_amount=0 if mapped_status == 'cancelled' else wo.get('total_pay', 0),
                     external_url=url,
                     platform_id=platform.platform_id,
                     platform_job_code=wo_id,
@@ -224,6 +226,10 @@ def import_fieldnation():
                 db.session.add(job)
                 db.session.flush()  # Get the job_id
                 results['imported_jobs'] += 1
+
+            # Skip time entries for cancelled jobs
+            if mapped_status == 'cancelled':
+                continue
 
             # Import time entries
             time_entries = wo.get('time_entries', [])
@@ -530,7 +536,9 @@ def import_workmarket():
                 job = existing_job
                 # Update existing job with latest status, billing, and date
                 job.job_status = mapped_status
-                if assignment.get('total_pay'):
+                if mapped_status == 'cancelled':
+                    job.billing_amount = 0
+                elif assignment.get('total_pay'):
                     job.billing_amount = assignment.get('total_pay')
                 if scheduled_date:
                     job.job_date = scheduled_date
@@ -558,7 +566,7 @@ def import_workmarket():
                     job_date=scheduled_date,
                     scheduled_start_time=scheduled_start_time,
                     job_status=mapped_status,
-                    billing_amount=assignment.get('total_pay', 0),
+                    billing_amount=0 if mapped_status == 'cancelled' else assignment.get('total_pay', 0),
                     external_url=url,
                     platform_id=platform.platform_id,
                     platform_job_code=a_id,
@@ -567,6 +575,10 @@ def import_workmarket():
                 db.session.add(job)
                 db.session.flush()  # Get the job_id
                 results['imported_jobs'] += 1
+
+            # Skip time entries for cancelled jobs
+            if mapped_status == 'cancelled':
+                continue
 
             # Import time entries
             time_entries = assignment.get('time_entries', [])

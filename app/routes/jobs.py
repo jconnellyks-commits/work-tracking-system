@@ -328,6 +328,7 @@ def delete_job(job_id):
 
     # Soft delete
     job.job_status = 'cancelled'
+    job.billing_amount = 0
     db.session.commit()
 
     logger.info(f"Job cancelled: {job.job_id}")

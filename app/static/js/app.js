@@ -798,10 +798,10 @@ const Pages = {
             const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
             const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-            // Group jobs by date
+            // Group jobs by date (exclude cancelled)
             const jobsByDate = {};
             for (const job of state.jobs) {
-                if (!job.job_date) continue;
+                if (!job.job_date || job.job_status === 'cancelled') continue;
                 if (!jobsByDate[job.job_date]) jobsByDate[job.job_date] = [];
                 jobsByDate[job.job_date].push(job);
             }

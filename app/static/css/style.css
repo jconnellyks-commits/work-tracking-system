@@ -641,6 +641,153 @@ tr:hover {
     filter: brightness(0.92);
 }
 
+/* Time Entry Calendar */
+.te-calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: var(--gray-200);
+}
+
+.te-calendar-grid--header {
+    background: transparent;
+    gap: 1px;
+    margin-bottom: 1px;
+}
+
+.te-calendar-day-header {
+    background: var(--gray-100);
+    text-align: center;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    padding: 3px 0;
+    text-transform: uppercase;
+}
+
+.te-calendar-day {
+    background: white;
+    min-height: 100px;
+    padding: 2px;
+    position: relative;
+}
+
+.te-calendar-day--today {
+    background: #eff6ff;
+}
+
+.te-calendar-day--other {
+    background: var(--gray-50);
+}
+
+.te-calendar-day-number {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--gray-500);
+    margin-bottom: 2px;
+}
+
+.te-calendar-day--today .te-calendar-day-number {
+    color: var(--primary);
+    font-weight: 700;
+}
+
+.te-calendar-day--other .te-calendar-day-number {
+    color: var(--gray-300);
+}
+
+.te-calendar-timeline {
+    position: relative;
+    height: 80px;
+    border-left: 1px solid var(--gray-100);
+}
+
+.te-calendar-entry {
+    position: absolute;
+    border-radius: 2px;
+    padding: 1px 2px;
+    font-size: 7px;
+    overflow: hidden;
+    cursor: pointer;
+    z-index: 2;
+    min-height: 14px;
+    box-sizing: border-box;
+    line-height: 1.3;
+}
+
+.te-calendar-entry:hover {
+    filter: brightness(0.92);
+    z-index: 3;
+}
+
+.te-calendar-flat-entry {
+    font-size: 7px;
+    padding: 1px 2px;
+    border-radius: 2px;
+    margin-bottom: 1px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: block;
+    line-height: 1.3;
+}
+
+.te-calendar-flat-entry:hover {
+    filter: brightness(0.92);
+}
+
+.te-calendar-popover {
+    position: fixed;
+    background: white;
+    border: 1px solid var(--gray-200);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 10px;
+    font-size: 0.8rem;
+    max-width: 260px;
+    z-index: 1000;
+}
+
+.te-calendar-popover .popover-header {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.te-calendar-popover .popover-detail {
+    color: var(--gray-500);
+    margin-bottom: 2px;
+}
+
+.te-calendar-popover .popover-actions {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+}
+
+.te-calendar-legend {
+    margin-top: 8px;
+    display: flex;
+    gap: 12px;
+    font-size: 0.7rem;
+    color: var(--gray-500);
+    flex-wrap: wrap;
+}
+
+.te-calendar-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+}
+
+.te-calendar-legend-swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
     .sidebar {

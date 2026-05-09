@@ -2162,7 +2162,77 @@ const Pages = {
 
         Pages.showEntryPopover = (event, entryId) => {
             event.stopPropagation();
-            console.log('Popover for entry', entryId);
+            const existing = document.querySelector('.te-calendar-popover');
+            if (existing) existing.remove();
+
+            const entry = calState.entries.find(e => e.entry_id === entryId);
+            if (!entry) return;
+
+            const colors = teChipColors[entry.status] || teChipColors.draft;
+            const isUnassigned = !entry.tech_id;
+            const techName = entry.tech_name || 'Unassigned';
+            const timeRange = entry.time_in && entry.time_out
+                ? `${App.format12Hour(entry.time_in)} – ${App.format12Hour(entry.time_out)}`
+                : '';
+            const detailParts = [techName, `${entry.hours_worked || '-'} hrs`, timeRange].filter(Boolean);
+
+            let buttons = '';
+            if (entry.status === 'draft' && !isUnassigned) {
+                buttons += `<button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entryId})">Edit</button>`;
+                buttons += `<button class="btn btn-sm btn-success" onclick="Pages.submitEntry(${entryId})">Submit</button>`;
+            }
+            if (entry.status === 'draft' && isUnassigned && isManager) {
+                buttons += `<button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entryId})">Edit</button>`;
+                buttons += `<button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entryId})">Assign</button>`;
+            }
+            if (entry.status !== 'draft' && entry.status !== 'paid' && isManager) {
+                buttons += `<button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entryId})">Edit</button>`;
+            }
+            if (entry.status === 'submitted' && isManager) {
+                buttons += `<button class="btn btn-sm btn-success" onclick="Pages.verifyEntry(${entryId})">Verify</button>`;
+                buttons += `<button class="btn btn-sm btn-danger" onclick="Pages.rejectEntry(${entryId})">Reject</button>`;
+            }
+            if (isManager) {
+                buttons += `<button class="btn btn-sm btn-secondary" onclick="Pages.copyEntry(${entryId})">Copy</button>`;
+                buttons += `<button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entryId})">Delete</button>`;
+            } else if (entry.status === 'draft') {
+                buttons += `<button class="btn btn-sm btn-danger" onclick="Pages.deleteEntry(${entryId})">Delete</button>`;
+            }
+
+            const popover = document.createElement('div');
+            popover.className = 'te-calendar-popover';
+            popover.innerHTML = `
+                <div class="popover-header">${entry.job_ticket || ''} · ${entry.job_client || ''}</div>
+                <div class="popover-detail">${detailParts.join(' · ')}</div>
+                ${entry.mileage ? `<div class="popover-detail">Mileage: ${entry.mileage} mi</div>` : ''}
+                <div style="margin: 4px 0;">${App.getStatusBadge(entry.status)}</div>
+                <div class="popover-actions">${buttons}</div>
+            `;
+
+            document.body.appendChild(popover);
+
+            const rect = event.currentTarget.getBoundingClientRect();
+            let top = rect.bottom + 4;
+            let left = rect.left;
+
+            if (top + popover.offsetHeight > window.innerHeight) {
+                top = rect.top - popover.offsetHeight - 4;
+            }
+            if (left + popover.offsetWidth > window.innerWidth) {
+                left = window.innerWidth - popover.offsetWidth - 8;
+            }
+            if (left < 0) left = 8;
+
+            popover.style.top = top + 'px';
+            popover.style.left = left + 'px';
+
+            const closePopover = (e) => {
+                if (!popover.contains(e.target)) {
+                    popover.remove();
+                    document.removeEventListener('click', closePopover);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closePopover), 0);
         };
 
         Pages.entriesGroupedPage = loadGroupedEntries;

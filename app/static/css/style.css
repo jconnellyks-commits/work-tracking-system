@@ -702,6 +702,26 @@ tr:hover {
     border-left: 1px solid var(--gray-100);
 }
 
+.te-calendar-day--2week {
+    min-height: 220px;
+}
+
+.te-calendar-day--2week .te-calendar-timeline {
+    height: 180px;
+}
+
+.te-calendar-day--2week .te-calendar-entry {
+    font-size: 9px;
+}
+
+.te-calendar-day--2week .te-calendar-flat-entry {
+    font-size: 9px;
+}
+
+.te-calendar-day--2week .te-calendar-day-number {
+    font-size: 0.8rem;
+}
+
 .te-calendar-entry {
     position: absolute;
     border-radius: 2px;

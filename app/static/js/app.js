@@ -1922,6 +1922,8 @@ const Pages = {
         const calState = {
             year: new Date().getFullYear(),
             month: new Date().getMonth(),
+            viewMode: 'month',
+            weekStart: null,
             entries: []
         };
 
@@ -1939,7 +1941,8 @@ const Pages = {
             return h * 60 + (m || 0);
         }
 
-        function computeOverlapLayout(entries) {
+        function computeOverlapLayout(entries, timelineHeight) {
+            const tlHeight = timelineHeight || 80;
             const timed = entries.filter(e => e.time_in && e.time_out).sort((a, b) => {
                 const aMin = timeToMinutes(a.time_in);
                 const bMin = timeToMinutes(b.time_in);
@@ -1970,8 +1973,8 @@ const Pages = {
                     const startMin = Math.max(timeToMinutes(entry.time_in), 420);
                     const endMin = Math.min(timeToMinutes(entry.time_out), 1080);
                     const duration = endMin - startMin;
-                    const top = ((startMin - 420) / 660) * 80;
-                    const height = Math.max((duration / 660) * 80, 14);
+                    const top = ((startMin - 420) / 660) * tlHeight;
+                    const height = Math.max((duration / 660) * tlHeight, 14);
                     const widthPct = 100 / count;
                     const leftPct = idx * widthPct;
                     layout.push({ entry, top, height, widthPct, leftPct });
@@ -2006,6 +2009,34 @@ const Pages = {
             </div>`;
         }
 
+        function groupEntriesByDate() {
+            const map = {};
+            for (const entry of calState.entries) {
+                if (!entry.date_worked) continue;
+                if (!map[entry.date_worked]) map[entry.date_worked] = [];
+                map[entry.date_worked].push(entry);
+            }
+            return map;
+        }
+
+        function renderDayContent(entriesByDate, dateStr, timelineHeight) {
+            const tlH = timelineHeight || 80;
+            const dayEntries = entriesByDate[dateStr] || [];
+            if (dayEntries.length === 0) return `<div class="te-calendar-timeline" style="height:${tlH}px;"></div>`;
+
+            const { timed, untimed } = computeOverlapLayout(dayEntries, tlH);
+            let html = '';
+            for (const e of untimed) {
+                html += renderFlatChip(e);
+            }
+            html += `<div class="te-calendar-timeline" style="height:${tlH}px;">`;
+            for (const item of timed) {
+                html += renderCalendarChip(item.entry, item);
+            }
+            html += '</div>';
+            return html;
+        }
+
         function buildEntryCalendarHTML() {
             const year = calState.year;
             const month = calState.month;
@@ -2015,31 +2046,8 @@ const Pages = {
             const firstDow = new Date(year, month, 1).getDay();
             const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-            const entriesByDate = {};
-            for (const entry of calState.entries) {
-                if (!entry.date_worked) continue;
-                if (!entriesByDate[entry.date_worked]) entriesByDate[entry.date_worked] = [];
-                entriesByDate[entry.date_worked].push(entry);
-            }
-
+            const entriesByDate = groupEntriesByDate();
             const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-            function renderDayContent(dateStr) {
-                const dayEntries = entriesByDate[dateStr] || [];
-                if (dayEntries.length === 0) return '<div class="te-calendar-timeline"></div>';
-
-                const { timed, untimed } = computeOverlapLayout(dayEntries);
-                let html = '';
-                for (const e of untimed) {
-                    html += renderFlatChip(e);
-                }
-                html += '<div class="te-calendar-timeline">';
-                for (const item of timed) {
-                    html += renderCalendarChip(item.entry, item);
-                }
-                html += '</div>';
-                return html;
-            }
 
             let cells = '';
             const prevMonthDays = new Date(year, month, 0).getDate();
@@ -2049,7 +2057,7 @@ const Pages = {
                 const dateStr = dt.toLocaleDateString('en-CA');
                 cells += `<div class="te-calendar-day te-calendar-day--other">
                     <div class="te-calendar-day-number">${d}</div>
-                    ${renderDayContent(dateStr)}
+                    ${renderDayContent(entriesByDate, dateStr)}
                 </div>`;
             }
             for (let d = 1; d <= daysInMonth; d++) {
@@ -2057,7 +2065,7 @@ const Pages = {
                 const isToday = dateStr === todayStr;
                 cells += `<div class="te-calendar-day ${isToday ? 'te-calendar-day--today' : ''}">
                     <div class="te-calendar-day-number">${d}</div>
-                    ${renderDayContent(dateStr)}
+                    ${renderDayContent(entriesByDate, dateStr)}
                 </div>`;
             }
             const totalCells = firstDow + daysInMonth;
@@ -2067,7 +2075,7 @@ const Pages = {
                 const dateStr = dt.toLocaleDateString('en-CA');
                 cells += `<div class="te-calendar-day te-calendar-day--other">
                     <div class="te-calendar-day-number">${i}</div>
-                    ${renderDayContent(dateStr)}
+                    ${renderDayContent(entriesByDate, dateStr)}
                 </div>`;
             }
 
@@ -2090,7 +2098,84 @@ const Pages = {
                     <h3 class="card-title" style="margin: 0; min-width: 180px; text-align: center;">${monthLabel}</h3>
                     <button class="btn btn-sm btn-secondary" id="te-cal-next"><i class="fas fa-chevron-right"></i></button>
                     <button class="btn btn-sm btn-primary" id="te-cal-today">Today</button>
-                    <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'} this month</span>
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'}</span>
+                        <button class="btn btn-sm btn-primary" id="te-cal-mode-month" disabled>Month</button>
+                        <button class="btn btn-sm btn-secondary" id="te-cal-mode-2week">2 Week</button>
+                    </div>
+                </div>
+                <div style="padding: 0.5rem;">
+                    <div class="te-calendar-grid te-calendar-grid--header">
+                        ${dayHeaders.map(h => `<div class="te-calendar-day-header">${h}</div>`).join('')}
+                    </div>
+                    <div class="te-calendar-grid">
+                        ${cells}
+                    </div>
+                    <div class="te-calendar-legend">${legendHtml}</div>
+                </div>
+            `;
+        }
+
+        function build2WeekCalendarHTML() {
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('en-CA');
+            const tlHeight = 180;
+
+            let start = calState.weekStart;
+            if (!start) {
+                const d = new Date(today);
+                d.setDate(d.getDate() - d.getDay());
+                start = new Date(d);
+                calState.weekStart = start;
+            }
+            const end = new Date(start);
+            end.setDate(end.getDate() + 13);
+
+            const entriesByDate = groupEntriesByDate();
+            const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+            let cells = '';
+            for (let i = 0; i < 14; i++) {
+                const dt = new Date(start);
+                dt.setDate(dt.getDate() + i);
+                const dateStr = dt.toLocaleDateString('en-CA');
+                const isToday = dateStr === todayStr;
+                const dayNum = dt.getDate();
+                const showMonth = dayNum === 1 || i === 0;
+                const monthAbbr = dt.toLocaleDateString('en-US', { month: 'short' });
+                const label = showMonth ? `${monthAbbr} ${dayNum}` : `${dayNum}`;
+                cells += `<div class="te-calendar-day te-calendar-day--2week ${isToday ? 'te-calendar-day--today' : ''}">
+                    <div class="te-calendar-day-number">${label}</div>
+                    ${renderDayContent(entriesByDate, dateStr, tlHeight)}
+                </div>`;
+            }
+
+            const startLabel = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            const endLabel = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            const rangeLabel = `${startLabel} – ${endLabel}`;
+
+            const legendItems = [
+                { label: 'Draft', bg: '#fef3c7', border: '#f59e0b' },
+                { label: 'Submitted', bg: '#dbeafe', border: '#2563eb' },
+                { label: 'Verified', bg: '#d1fae5', border: '#10b981' },
+                { label: 'Billed', bg: '#ffedd5', border: '#ea580c' },
+                { label: 'Paid', bg: '#f3f4f6', border: '#9ca3af' }
+            ];
+            const legendHtml = legendItems.map(l =>
+                `<span class="te-calendar-legend-item"><span class="te-calendar-legend-swatch" style="background:${l.bg}; border:1px solid ${l.border};"></span>${l.label}</span>`
+            ).join('');
+
+            return `
+                <div class="card-header" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button class="btn btn-sm btn-secondary" id="te-cal-prev"><i class="fas fa-chevron-left"></i></button>
+                    <h3 class="card-title" style="margin: 0; min-width: 220px; text-align: center;">${rangeLabel}</h3>
+                    <button class="btn btn-sm btn-secondary" id="te-cal-next"><i class="fas fa-chevron-right"></i></button>
+                    <button class="btn btn-sm btn-primary" id="te-cal-today">Today</button>
+                    <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'}</span>
+                        <button class="btn btn-sm btn-secondary" id="te-cal-mode-month">Month</button>
+                        <button class="btn btn-sm btn-primary" id="te-cal-mode-2week" disabled>2 Week</button>
+                    </div>
                 </div>
                 <div style="padding: 0.5rem;">
                     <div class="te-calendar-grid te-calendar-grid--header">
@@ -2108,15 +2193,28 @@ const Pages = {
             const calendarView = document.getElementById('entries-calendar-view');
             calendarView.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
 
-            const year = calState.year;
-            const month = calState.month;
-            const firstDow = new Date(year, month, 1).getDay();
-            const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const totalCells = firstDow + daysInMonth;
-            const trailingCells = (7 - (totalCells % 7)) % 7;
+            let fromDate, toDate;
 
-            let fromDate = new Date(year, month, 1 - firstDow).toLocaleDateString('en-CA');
-            let toDate = new Date(year, month + 1, trailingCells).toLocaleDateString('en-CA');
+            if (calState.viewMode === '2week') {
+                if (!calState.weekStart) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - d.getDay());
+                    calState.weekStart = new Date(d);
+                }
+                fromDate = calState.weekStart.toLocaleDateString('en-CA');
+                const end = new Date(calState.weekStart);
+                end.setDate(end.getDate() + 13);
+                toDate = end.toLocaleDateString('en-CA');
+            } else {
+                const year = calState.year;
+                const month = calState.month;
+                const firstDow = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const totalCells = firstDow + daysInMonth;
+                const trailingCells = (7 - (totalCells % 7)) % 7;
+                fromDate = new Date(year, month, 1 - firstDow).toLocaleDateString('en-CA');
+                toDate = new Date(year, month + 1, trailingCells).toLocaleDateString('en-CA');
+            }
 
             const userFrom = document.getElementById('entry-from-date').value;
             const userTo = document.getElementById('entry-to-date').value;
@@ -2141,21 +2239,51 @@ const Pages = {
             const data = await API.timeEntries.list(params);
             calState.entries = data.time_entries || [];
 
-            calendarView.innerHTML = buildEntryCalendarHTML();
+            calendarView.innerHTML = calState.viewMode === '2week' ? build2WeekCalendarHTML() : buildEntryCalendarHTML();
 
             document.getElementById('te-cal-prev').addEventListener('click', async () => {
-                calState.month--;
-                if (calState.month < 0) { calState.month = 11; calState.year--; }
+                if (calState.viewMode === '2week') {
+                    calState.weekStart.setDate(calState.weekStart.getDate() - 14);
+                } else {
+                    calState.month--;
+                    if (calState.month < 0) { calState.month = 11; calState.year--; }
+                }
                 await loadCalendarEntries();
             });
             document.getElementById('te-cal-next').addEventListener('click', async () => {
-                calState.month++;
-                if (calState.month > 11) { calState.month = 0; calState.year++; }
+                if (calState.viewMode === '2week') {
+                    calState.weekStart.setDate(calState.weekStart.getDate() + 14);
+                } else {
+                    calState.month++;
+                    if (calState.month > 11) { calState.month = 0; calState.year++; }
+                }
                 await loadCalendarEntries();
             });
             document.getElementById('te-cal-today').addEventListener('click', async () => {
-                calState.year = new Date().getFullYear();
-                calState.month = new Date().getMonth();
+                if (calState.viewMode === '2week') {
+                    const d = new Date();
+                    d.setDate(d.getDate() - d.getDay());
+                    calState.weekStart = new Date(d);
+                } else {
+                    calState.year = new Date().getFullYear();
+                    calState.month = new Date().getMonth();
+                }
+                await loadCalendarEntries();
+            });
+
+            document.getElementById('te-cal-mode-month').addEventListener('click', async () => {
+                if (calState.viewMode === 'month') return;
+                calState.viewMode = 'month';
+                await loadCalendarEntries();
+            });
+            document.getElementById('te-cal-mode-2week').addEventListener('click', async () => {
+                if (calState.viewMode === '2week') return;
+                calState.viewMode = '2week';
+                if (!calState.weekStart) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - d.getDay());
+                    calState.weekStart = new Date(d);
+                }
                 await loadCalendarEntries();
             });
         };

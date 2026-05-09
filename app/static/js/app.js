@@ -2330,7 +2330,7 @@ const Pages = {
             const popover = document.createElement('div');
             popover.className = 'te-calendar-popover';
             popover.innerHTML = `
-                <div class="popover-header">${entry.job_ticket || ''} · ${entry.job_client || ''}</div>
+                <div class="popover-header">${entry.external_url ? `<a href="${entry.external_url}" target="_blank" rel="noopener">${entry.job_ticket || ''}</a>` : (entry.job_ticket || '')} · ${entry.job_client || ''}</div>
                 <div class="popover-detail">${detailParts.join(' · ')}</div>
                 ${entry.mileage ? `<div class="popover-detail">Mileage: ${entry.mileage} mi</div>` : ''}
                 <div style="margin: 4px 0;">${App.getStatusBadge(entry.status)}</div>

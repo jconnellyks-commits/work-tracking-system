@@ -254,6 +254,7 @@ class TimeEntry(db.Model):
             'job_ticket': self.job.ticket_number if self.job else None,
             'job_title': self.job.description if self.job else None,
             'job_client': self.job.client_name if self.job else None,
+            'external_url': self.job.external_url if self.job else None,
             'tech_id': self.tech_id,
             'tech_name': self.technician.name if self.technician else None,
             'period_id': self.period_id,

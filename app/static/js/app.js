@@ -2101,7 +2101,7 @@ const Pages = {
                     <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
                         <span style="color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'}</span>
                         <button class="btn btn-sm btn-primary" id="te-cal-mode-month" disabled>Month</button>
-                        <button class="btn btn-sm btn-secondary" id="te-cal-mode-2week">2 Week</button>
+                        <button class="btn btn-sm btn-secondary" id="te-cal-mode-2week">3 Week</button>
                     </div>
                 </div>
                 <div style="padding: 0.5rem;">
@@ -2125,17 +2125,17 @@ const Pages = {
             if (!start) {
                 const d = new Date(today);
                 d.setDate(d.getDate() - d.getDay());
-                start = new Date(d);
-                calState.weekStart = start;
+                calState.weekStart = new Date(d);
+                start = calState.weekStart;
             }
             const end = new Date(start);
-            end.setDate(end.getDate() + 13);
+            end.setDate(end.getDate() + 20);
 
             const entriesByDate = groupEntriesByDate();
             const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
             let cells = '';
-            for (let i = 0; i < 14; i++) {
+            for (let i = 0; i < 21; i++) {
                 const dt = new Date(start);
                 dt.setDate(dt.getDate() + i);
                 const dateStr = dt.toLocaleDateString('en-CA');
@@ -2174,7 +2174,7 @@ const Pages = {
                     <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
                         <span style="color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'}</span>
                         <button class="btn btn-sm btn-secondary" id="te-cal-mode-month">Month</button>
-                        <button class="btn btn-sm btn-primary" id="te-cal-mode-2week" disabled>2 Week</button>
+                        <button class="btn btn-sm btn-primary" id="te-cal-mode-2week" disabled>3 Week</button>
                     </div>
                 </div>
                 <div style="padding: 0.5rem;">
@@ -2203,7 +2203,7 @@ const Pages = {
                 }
                 fromDate = calState.weekStart.toLocaleDateString('en-CA');
                 const end = new Date(calState.weekStart);
-                end.setDate(end.getDate() + 13);
+                end.setDate(end.getDate() + 20);
                 toDate = end.toLocaleDateString('en-CA');
             } else {
                 const year = calState.year;
@@ -2243,7 +2243,7 @@ const Pages = {
 
             document.getElementById('te-cal-prev').addEventListener('click', async () => {
                 if (calState.viewMode === '2week') {
-                    calState.weekStart.setDate(calState.weekStart.getDate() - 14);
+                    calState.weekStart.setDate(calState.weekStart.getDate() - 7);
                 } else {
                     calState.month--;
                     if (calState.month < 0) { calState.month = 11; calState.year--; }
@@ -2252,7 +2252,7 @@ const Pages = {
             });
             document.getElementById('te-cal-next').addEventListener('click', async () => {
                 if (calState.viewMode === '2week') {
-                    calState.weekStart.setDate(calState.weekStart.getDate() + 14);
+                    calState.weekStart.setDate(calState.weekStart.getDate() + 7);
                 } else {
                     calState.month++;
                     if (calState.month > 11) { calState.month = 0; calState.year++; }

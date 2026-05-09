@@ -1679,6 +1679,7 @@ const Pages = {
                     <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
                     <button class="btn btn-secondary btn-sm" id="toggle-group-btn"><i class="fas fa-layer-group"></i> Group by Job</button>
+                    <button class="btn btn-secondary btn-sm" id="toggle-calendar-btn"><i class="fas fa-calendar-alt"></i> Calendar</button>
                 </div>
                 <div id="entries-list-view" class="table-container">
                     <table>
@@ -1700,6 +1701,7 @@ const Pages = {
                     </table>
                 </div>
                 <div id="entries-grouped-view" style="display: none;"></div>
+                <div id="entries-calendar-view" style="display: none;"></div>
                 <div class="pagination" id="entries-pagination"></div>
             </div>
         `;
@@ -1707,6 +1709,7 @@ const Pages = {
         container.innerHTML = html;
 
         let isGroupedView = false;
+        let isCalendarView = false;
         let currentSort = { by: 'date_worked', order: 'desc' };
 
         const updateSortIcons = () => {
@@ -1915,40 +1918,105 @@ const Pages = {
             document.getElementById('entries-pagination').innerHTML = `<span style="padding: 0.5rem;">Showing ${data.total_jobs} jobs with ${data.total_entries} entries</span>`;
         };
 
+        // Calendar view loader (stub — implemented in Task 3)
+        const loadCalendarEntries = async () => {
+            const calendarView = document.getElementById('entries-calendar-view');
+            calendarView.innerHTML = '<p class="text-center" style="padding: 2rem;">Calendar view loading...</p>';
+        };
+
         Pages.entriesGroupedPage = loadGroupedEntries;
 
         // Smart reload - checks which view is active
         Pages.reloadEntries = () => {
-            const groupedView = document.getElementById('entries-grouped-view');
-            if (groupedView && groupedView.style.display !== 'none') {
+            if (isCalendarView) {
+                loadCalendarEntries();
+            } else if (isGroupedView) {
                 loadGroupedEntries();
             } else {
                 loadEntries(1);
             }
         };
 
+        // Calendar view toggle handler
+        document.getElementById('toggle-calendar-btn').addEventListener('click', async () => {
+            isCalendarView = !isCalendarView;
+            const listView = document.getElementById('entries-list-view');
+            const groupedView = document.getElementById('entries-grouped-view');
+            const calendarView = document.getElementById('entries-calendar-view');
+            const calBtn = document.getElementById('toggle-calendar-btn');
+            const groupBtn = document.getElementById('toggle-group-btn');
+            const pagination = document.getElementById('entries-pagination');
+            const bulkSubmit = document.getElementById('bulk-submit-btn');
+            const bulkVerify = document.getElementById('bulk-verify-btn');
+
+            if (isCalendarView) {
+                isGroupedView = false;
+                listView.style.display = 'none';
+                groupedView.style.display = 'none';
+                calendarView.style.display = 'block';
+                pagination.style.display = 'none';
+                if (bulkSubmit) bulkSubmit.style.display = 'none';
+                if (bulkVerify) bulkVerify.style.display = 'none';
+                calBtn.innerHTML = '<i class="fas fa-list"></i> List View';
+                calBtn.classList.add('btn-primary');
+                calBtn.classList.remove('btn-secondary');
+                groupBtn.innerHTML = '<i class="fas fa-layer-group"></i> Group by Job';
+                groupBtn.classList.remove('btn-primary');
+                groupBtn.classList.add('btn-secondary');
+                await loadCalendarEntries();
+            } else {
+                listView.style.display = 'block';
+                calendarView.style.display = 'none';
+                pagination.style.display = '';
+                if (bulkSubmit) bulkSubmit.style.display = '';
+                if (bulkVerify) bulkVerify.style.display = '';
+                calBtn.innerHTML = '<i class="fas fa-calendar-alt"></i> Calendar';
+                calBtn.classList.remove('btn-primary');
+                calBtn.classList.add('btn-secondary');
+                await loadEntries(1);
+            }
+        });
+
         // Toggle view handler
         document.getElementById('toggle-group-btn').addEventListener('click', async () => {
             isGroupedView = !isGroupedView;
+            isCalendarView = false;
             const listView = document.getElementById('entries-list-view');
             const groupedView = document.getElementById('entries-grouped-view');
+            const calendarView = document.getElementById('entries-calendar-view');
             const toggleBtn = document.getElementById('toggle-group-btn');
+            const calBtn = document.getElementById('toggle-calendar-btn');
+            const pagination = document.getElementById('entries-pagination');
+            const bulkSubmit = document.getElementById('bulk-submit-btn');
+            const bulkVerify = document.getElementById('bulk-verify-btn');
+
+            calendarView.style.display = 'none';
+            pagination.style.display = '';
+            if (bulkSubmit) bulkSubmit.style.display = '';
+            if (bulkVerify) bulkVerify.style.display = '';
+            calBtn.innerHTML = '<i class="fas fa-calendar-alt"></i> Calendar';
+            calBtn.classList.remove('btn-primary');
+            calBtn.classList.add('btn-secondary');
 
             if (isGroupedView) {
                 listView.style.display = 'none';
                 groupedView.style.display = 'block';
                 toggleBtn.innerHTML = '<i class="fas fa-list"></i> List View';
+                toggleBtn.classList.add('btn-primary');
+                toggleBtn.classList.remove('btn-secondary');
                 await loadGroupedEntries();
             } else {
                 listView.style.display = 'block';
                 groupedView.style.display = 'none';
                 toggleBtn.innerHTML = '<i class="fas fa-layer-group"></i> Group by Job';
+                toggleBtn.classList.remove('btn-primary');
+                toggleBtn.classList.add('btn-secondary');
                 await loadEntries(1);
             }
         });
 
         // Event listeners - multi-select filters
-        const reloadEntries = () => isGroupedView ? loadGroupedEntries() : loadEntries(1);
+        const reloadEntries = () => isCalendarView ? loadCalendarEntries() : (isGroupedView ? loadGroupedEntries() : loadEntries(1));
         App.initMultiSelect('entry-status-filter', 'All Statuses', reloadEntries);
         if (isManager) {
             App.initMultiSelect('entry-tech-filter', 'All Technicians', reloadEntries);

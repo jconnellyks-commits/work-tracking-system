@@ -1918,10 +1918,251 @@ const Pages = {
             document.getElementById('entries-pagination').innerHTML = `<span style="padding: 0.5rem;">Showing ${data.total_jobs} jobs with ${data.total_entries} entries</span>`;
         };
 
-        // Calendar view loader (stub — implemented in Task 3)
+        // Calendar view
+        const calState = {
+            year: new Date().getFullYear(),
+            month: new Date().getMonth(),
+            entries: []
+        };
+
+        const teChipColors = {
+            draft:     { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+            submitted: { bg: '#dbeafe', border: '#2563eb', text: '#1e3a8a' },
+            verified:  { bg: '#d1fae5', border: '#10b981', text: '#064e3b' },
+            billed:    { bg: '#ffedd5', border: '#ea580c', text: '#7c2d12' },
+            paid:      { bg: '#f3f4f6', border: '#9ca3af', text: '#6b7280' }
+        };
+
+        function timeToMinutes(timeStr) {
+            if (!timeStr) return null;
+            const [h, m] = timeStr.split(':').map(Number);
+            return h * 60 + (m || 0);
+        }
+
+        function computeOverlapLayout(entries) {
+            const timed = entries.filter(e => e.time_in && e.time_out).sort((a, b) => {
+                const aMin = timeToMinutes(a.time_in);
+                const bMin = timeToMinutes(b.time_in);
+                return aMin - bMin;
+            });
+            const untimed = entries.filter(e => !e.time_in || !e.time_out);
+
+            const groups = [];
+            for (const entry of timed) {
+                const entryStart = timeToMinutes(entry.time_in);
+                const entryEnd = timeToMinutes(entry.time_out);
+                let placed = false;
+                for (const group of groups) {
+                    const groupEnd = Math.max(...group.map(e => timeToMinutes(e.time_out)));
+                    if (entryStart < groupEnd) {
+                        group.push(entry);
+                        placed = true;
+                        break;
+                    }
+                }
+                if (!placed) groups.push([entry]);
+            }
+
+            const layout = [];
+            for (const group of groups) {
+                const count = group.length;
+                group.forEach((entry, idx) => {
+                    const startMin = Math.max(timeToMinutes(entry.time_in), 420);
+                    const endMin = Math.min(timeToMinutes(entry.time_out), 1080);
+                    const duration = endMin - startMin;
+                    const top = ((startMin - 420) / 660) * 80;
+                    const height = Math.max((duration / 660) * 80, 14);
+                    const widthPct = 100 / count;
+                    const leftPct = idx * widthPct;
+                    layout.push({ entry, top, height, widthPct, leftPct });
+                });
+            }
+
+            return { timed: layout, untimed };
+        }
+
+        function renderCalendarChip(entry, style) {
+            const colors = teChipColors[entry.status] || teChipColors.draft;
+            const techName = entry.tech_name ? entry.tech_name.split(' ')[0] : '?';
+            const hours = entry.hours_worked || '-';
+            const ticket = entry.job_ticket || '';
+            return `<div class="te-calendar-entry" data-entry-id="${entry.entry_id}"
+                style="top:${style.top}px; height:${style.height}px; left:${style.leftPct}%; width:${style.widthPct}%;
+                background:${colors.bg}; border:1px solid ${colors.border}; border-left:2px solid ${colors.border}; color:${colors.text};"
+                onclick="Pages.showEntryPopover(event, ${entry.entry_id})">
+                <div style="font-weight:700;">${hours}h·${techName}</div>
+                <div style="opacity:0.7;">${ticket}</div>
+            </div>`;
+        }
+
+        function renderFlatChip(entry) {
+            const colors = teChipColors[entry.status] || teChipColors.draft;
+            const techName = entry.tech_name ? entry.tech_name.split(' ')[0] : '?';
+            const hours = entry.hours_worked || '-';
+            return `<div class="te-calendar-flat-entry" data-entry-id="${entry.entry_id}"
+                style="background:${colors.bg}; border:1px solid ${colors.border}; border-left:2px solid ${colors.border}; color:${colors.text};"
+                onclick="Pages.showEntryPopover(event, ${entry.entry_id})">
+                ${hours}h·${techName}
+            </div>`;
+        }
+
+        function buildEntryCalendarHTML() {
+            const year = calState.year;
+            const month = calState.month;
+            const today = new Date();
+            const todayStr = today.toLocaleDateString('en-CA');
+
+            const firstDow = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+            const entriesByDate = {};
+            for (const entry of calState.entries) {
+                if (!entry.date_worked) continue;
+                if (!entriesByDate[entry.date_worked]) entriesByDate[entry.date_worked] = [];
+                entriesByDate[entry.date_worked].push(entry);
+            }
+
+            const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+            function renderDayContent(dateStr) {
+                const dayEntries = entriesByDate[dateStr] || [];
+                if (dayEntries.length === 0) return '<div class="te-calendar-timeline"></div>';
+
+                const { timed, untimed } = computeOverlapLayout(dayEntries);
+                let html = '';
+                for (const e of untimed) {
+                    html += renderFlatChip(e);
+                }
+                html += '<div class="te-calendar-timeline">';
+                for (const item of timed) {
+                    html += renderCalendarChip(item.entry, item);
+                }
+                html += '</div>';
+                return html;
+            }
+
+            let cells = '';
+            const prevMonthDays = new Date(year, month, 0).getDate();
+            for (let i = firstDow - 1; i >= 0; i--) {
+                const d = prevMonthDays - i;
+                const dt = new Date(year, month - 1, d);
+                const dateStr = dt.toLocaleDateString('en-CA');
+                cells += `<div class="te-calendar-day te-calendar-day--other">
+                    <div class="te-calendar-day-number">${d}</div>
+                    ${renderDayContent(dateStr)}
+                </div>`;
+            }
+            for (let d = 1; d <= daysInMonth; d++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                const isToday = dateStr === todayStr;
+                cells += `<div class="te-calendar-day ${isToday ? 'te-calendar-day--today' : ''}">
+                    <div class="te-calendar-day-number">${d}</div>
+                    ${renderDayContent(dateStr)}
+                </div>`;
+            }
+            const totalCells = firstDow + daysInMonth;
+            const trailingCells = (7 - (totalCells % 7)) % 7;
+            for (let i = 1; i <= trailingCells; i++) {
+                const dt = new Date(year, month + 1, i);
+                const dateStr = dt.toLocaleDateString('en-CA');
+                cells += `<div class="te-calendar-day te-calendar-day--other">
+                    <div class="te-calendar-day-number">${i}</div>
+                    ${renderDayContent(dateStr)}
+                </div>`;
+            }
+
+            const monthLabel = new Date(year, month, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+            const legendItems = [
+                { label: 'Draft', bg: '#fef3c7', border: '#f59e0b' },
+                { label: 'Submitted', bg: '#dbeafe', border: '#2563eb' },
+                { label: 'Verified', bg: '#d1fae5', border: '#10b981' },
+                { label: 'Billed', bg: '#ffedd5', border: '#ea580c' },
+                { label: 'Paid', bg: '#f3f4f6', border: '#9ca3af' }
+            ];
+            const legendHtml = legendItems.map(l =>
+                `<span class="te-calendar-legend-item"><span class="te-calendar-legend-swatch" style="background:${l.bg}; border:1px solid ${l.border};"></span>${l.label}</span>`
+            ).join('');
+
+            return `
+                <div class="card-header" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+                    <button class="btn btn-sm btn-secondary" id="te-cal-prev"><i class="fas fa-chevron-left"></i></button>
+                    <h3 class="card-title" style="margin: 0; min-width: 180px; text-align: center;">${monthLabel}</h3>
+                    <button class="btn btn-sm btn-secondary" id="te-cal-next"><i class="fas fa-chevron-right"></i></button>
+                    <button class="btn btn-sm btn-primary" id="te-cal-today">Today</button>
+                    <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${calState.entries.length} entr${calState.entries.length !== 1 ? 'ies' : 'y'} this month</span>
+                </div>
+                <div style="padding: 0.5rem;">
+                    <div class="te-calendar-grid te-calendar-grid--header">
+                        ${dayHeaders.map(h => `<div class="te-calendar-day-header">${h}</div>`).join('')}
+                    </div>
+                    <div class="te-calendar-grid">
+                        ${cells}
+                    </div>
+                    <div class="te-calendar-legend">${legendHtml}</div>
+                </div>
+            `;
+        }
+
         const loadCalendarEntries = async () => {
             const calendarView = document.getElementById('entries-calendar-view');
-            calendarView.innerHTML = '<p class="text-center" style="padding: 2rem;">Calendar view loading...</p>';
+            calendarView.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+
+            const year = calState.year;
+            const month = calState.month;
+            const firstDow = new Date(year, month, 1).getDay();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const totalCells = firstDow + daysInMonth;
+            const trailingCells = (7 - (totalCells % 7)) % 7;
+
+            let fromDate = new Date(year, month, 1 - firstDow).toLocaleDateString('en-CA');
+            let toDate = new Date(year, month + 1, trailingCells).toLocaleDateString('en-CA');
+
+            const userFrom = document.getElementById('entry-from-date').value;
+            const userTo = document.getElementById('entry-to-date').value;
+            if (userFrom && userFrom > fromDate) fromDate = userFrom;
+            if (userTo && userTo < toDate) toDate = userTo;
+
+            const params = { from_date: fromDate, to_date: toDate, per_page: 500, page: 1 };
+            const statuses = App.getMultiSelectValues('entry-status-filter');
+            const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
+            const jobSearch = document.getElementById('entry-job-search').value;
+
+            if (statuses.length > 0) params.status = statuses.join(',');
+            if (techFilters.includes('unassigned')) {
+                params.unassigned = 'true';
+                const techIds = techFilters.filter(t => t !== 'unassigned');
+                if (techIds.length > 0) params.tech_id = techIds.join(',');
+            } else if (techFilters.length > 0) {
+                params.tech_id = techFilters.join(',');
+            }
+            if (jobSearch) params.job_search = jobSearch;
+
+            const data = await API.timeEntries.list(params);
+            calState.entries = data.time_entries || [];
+
+            calendarView.innerHTML = buildEntryCalendarHTML();
+
+            document.getElementById('te-cal-prev').addEventListener('click', async () => {
+                calState.month--;
+                if (calState.month < 0) { calState.month = 11; calState.year--; }
+                await loadCalendarEntries();
+            });
+            document.getElementById('te-cal-next').addEventListener('click', async () => {
+                calState.month++;
+                if (calState.month > 11) { calState.month = 0; calState.year++; }
+                await loadCalendarEntries();
+            });
+            document.getElementById('te-cal-today').addEventListener('click', async () => {
+                calState.year = new Date().getFullYear();
+                calState.month = new Date().getMonth();
+                await loadCalendarEntries();
+            });
+        };
+
+        Pages.showEntryPopover = (event, entryId) => {
+            event.stopPropagation();
+            console.log('Popover for entry', entryId);
         };
 
         Pages.entriesGroupedPage = loadGroupedEntries;

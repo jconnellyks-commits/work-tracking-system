@@ -3294,12 +3294,13 @@ const Pages = {
                                     ${tech.jobs.map(job => {
                                         const profitColor = job.tech_profit_share >= 0 ? 'var(--success)' : 'var(--danger)';
                                         const ratioDisplay = job.hours_ratio < 1 ? ` <small>(${(job.hours_ratio * 100).toFixed(0)}%)</small>` : '';
+                                        const bundleIcon = (job.job && job.job.bundle_id) ? '<i class="fas fa-layer-group" style="color:#6366f1;margin-right:4px" title="Bundled"></i>' : '';
                                         return `
                                         <tr>
                                             <td style="white-space: nowrap;">${job.date_display || '-'}</td>
                                             <td>
                                                 <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary); text-decoration: underline;">
-                                                    ${job.ticket_number || 'Job #' + job.job_id}
+                                                    ${bundleIcon}${job.ticket_number || 'Job #' + job.job_id}
                                                 </a>
                                                 <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
                                             </td>
@@ -3602,12 +3603,13 @@ const Pages = {
                                 const profitColor = job.net_profit >= 0 ? 'var(--success)' : 'var(--danger)';
                                 const rowStyle = job.is_projected ? 'background: #fff8e6; opacity: 0.85;' : '';
                                 const projectedBadge = job.is_projected ? '<span style="background: var(--warning); color: white; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem; margin-left: 0.3rem;">PROJECTED</span>' : '';
+                                const bundleIcon = job.bundle_id ? '<i class="fas fa-layer-group" style="color:#6366f1;margin-right:4px" title="Bundled"></i>' : '';
                                 return `
                                 <tr style="${rowStyle}">
                                     <td>${job.job_date ? App.formatDate(job.job_date) : '-'}${projectedBadge}</td>
                                     <td>
                                         <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary);">
-                                            ${job.ticket_number || 'Job #' + job.job_id}
+                                            ${bundleIcon}${job.ticket_number || 'Job #' + job.job_id}
                                         </a>
                                         <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
                                     </td>

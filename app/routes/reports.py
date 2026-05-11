@@ -283,7 +283,9 @@ def income_expense_report():
             'total_expenses': float(total_expenses),
             'net_profit': float(net_profit),
             'is_projected': is_projected,
-            'entry_hours_by_date': entry_hours_by_date
+            'entry_hours_by_date': entry_hours_by_date,
+            'bundle_id': job.bundle_id,
+            'bundle_name': job.bundle.display_name if job.bundle else None
         }
         jobs_data.append(job_entry)
 

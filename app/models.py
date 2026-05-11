@@ -817,3 +817,37 @@ class PayoutAdjustment(db.Model):
             'resolved_at': self.resolved_at.isoformat() if self.resolved_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class EmailParserLog(db.Model):
+    """Log of emails processed by the email parser daemon."""
+    __tablename__ = 'email_parser_log'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    timestamp = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    platform = db.Column(db.String(20), nullable=False)
+    email_type = db.Column(db.String(30), nullable=False)
+    ticket_number = db.Column(db.String(50))
+    client_name = db.Column(db.String(200))
+    subject = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(20), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id', ondelete='SET NULL'))
+    error_message = db.Column(db.Text)
+    gmail_message_id = db.Column(db.String(100))
+
+    job = db.relationship('Job', backref=db.backref('email_parser_logs', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'platform': self.platform,
+            'email_type': self.email_type,
+            'ticket_number': self.ticket_number,
+            'client_name': self.client_name,
+            'subject': self.subject,
+            'status': self.status,
+            'job_id': self.job_id,
+            'error_message': self.error_message,
+            'gmail_message_id': self.gmail_message_id,
+        }

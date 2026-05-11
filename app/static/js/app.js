@@ -63,7 +63,8 @@ const App = {
             { id: 'technicians', icon: 'fas fa-hard-hat', label: 'Technicians', roles: ['admin'] },
             { id: 'users', icon: 'fas fa-users', label: 'Users', roles: ['admin'] },
             { id: 'settings', icon: 'fas fa-cog', label: 'Settings', roles: ['admin'] },
-            { id: 'backups', icon: 'fas fa-database', label: 'Backups', roles: ['admin'] }
+            { id: 'backups', icon: 'fas fa-database', label: 'Backups', roles: ['admin'] },
+            { id: 'email-parser', icon: 'fas fa-envelope', label: 'Email Parser', roles: ['admin'] }
         ];
 
         nav.innerHTML = menuItems
@@ -97,6 +98,12 @@ const App = {
     async navigate(page) {
         this.currentPage = page;
 
+        // Stop email parser polling when navigating away
+        if (Pages._emailParserInterval) {
+            clearInterval(Pages._emailParserInterval);
+            Pages._emailParserInterval = null;
+        }
+
         // Update active nav item
         document.querySelectorAll('.nav-item').forEach(item => {
             item.classList.toggle('active', item.dataset.page === page);
@@ -116,7 +123,8 @@ const App = {
             'payout': 'Payout',
             'my-payouts': 'My Payouts',
             'settings': 'System Settings',
-            'backups': 'Backup & Recovery'
+            'backups': 'Backup & Recovery',
+            'email-parser': 'Email Parser'
         };
         document.getElementById('page-title').textContent = titles[page] || 'Dashboard';
 
@@ -164,6 +172,9 @@ const App = {
                     break;
                 case 'backups':
                     await Pages.backups(content);
+                    break;
+                case 'email-parser':
+                    await Pages.emailParser(content);
                     break;
                 default:
                     await Pages.dashboard(content);
@@ -5552,6 +5563,223 @@ const Pages = {
             await Pages.loadSmsLog();
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    // --- Email Parser Status & Log ---
+    _emailParserInterval: null,
+
+    async emailParser(container) {
+        if (App.user.role !== 'admin') {
+            container.innerHTML = '<div class="alert alert-error">Access denied</div>';
+            return;
+        }
+
+        // Clear any previous polling interval
+        if (Pages._emailParserInterval) {
+            clearInterval(Pages._emailParserInterval);
+            Pages._emailParserInterval = null;
+        }
+
+        container.innerHTML = `
+            <div class="card" style="margin-bottom: 1.5rem;">
+                <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 class="card-title"><i class="fas fa-heartbeat"></i> Service Status</h3>
+                    <button class="btn btn-sm btn-secondary" onclick="Pages.refreshEmailParserStatus()">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+                <div id="ep-status-body" style="padding: 1rem;">
+                    <div class="loading"><div class="spinner"></div>Checking service status...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-list"></i> Activity Log</h3>
+                </div>
+                <div style="padding: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+                    <div class="form-group" style="margin: 0;">
+                        <label>Platform</label>
+                        <select id="ep-filter-platform" class="form-control">
+                            <option value="">All</option>
+                            <option value="TST">TST</option>
+                            <option value="TechLink">TechLink</option>
+                            <option value="Unknown">Unknown</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>Status</label>
+                        <select id="ep-filter-status" class="form-control">
+                            <option value="">All</option>
+                            <option value="success">Success</option>
+                            <option value="failed">Failed</option>
+                            <option value="review">Review</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>From</label>
+                        <input type="date" id="ep-filter-from" class="form-control">
+                    </div>
+                    <div class="form-group" style="margin: 0;">
+                        <label>To</label>
+                        <input type="date" id="ep-filter-to" class="form-control">
+                    </div>
+                    <button class="btn btn-secondary" onclick="Pages.loadEmailParserLogs()">
+                        <i class="fas fa-search"></i> Filter
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Platform</th>
+                                <th>Type</th>
+                                <th>Ticket #</th>
+                                <th>Client</th>
+                                <th>Status</th>
+                                <th>Job</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ep-log-table">
+                            <tr><td colspan="8" class="text-center">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div id="ep-pagination" style="padding: 1rem; display: flex; justify-content: center; gap: 0.5rem;"></div>
+            </div>
+        `;
+
+        // Attach filter listeners
+        ['ep-filter-platform', 'ep-filter-status', 'ep-filter-from', 'ep-filter-to'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => Pages.loadEmailParserLogs());
+        });
+
+        // Initial load
+        await Pages.refreshEmailParserStatus();
+        await Pages.loadEmailParserLogs();
+
+        // Auto-refresh status every 30s
+        Pages._emailParserInterval = setInterval(() => {
+            if (App.currentPage !== 'email-parser') {
+                clearInterval(Pages._emailParserInterval);
+                Pages._emailParserInterval = null;
+                return;
+            }
+            Pages.refreshEmailParserStatus();
+        }, 30000);
+    },
+
+    async refreshEmailParserStatus() {
+        const body = document.getElementById('ep-status-body');
+        if (!body) return;
+
+        try {
+            const data = await API.emailParser.getStatus();
+            const dot = data.running
+                ? '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#27ae60;margin-right:8px;"></span>'
+                : '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#e74c3c;margin-right:8px;"></span>';
+            const stateText = data.running ? 'Running' : 'Stopped';
+
+            body.innerHTML = `
+                <div style="display: flex; gap: 2rem; align-items: center; flex-wrap: wrap;">
+                    <div style="font-size: 1.1rem; font-weight: 600;">
+                        ${dot}${stateText}
+                    </div>
+                    ${data.uptime ? `<div><strong>Uptime:</strong> ${data.uptime}</div>` : ''}
+                    ${data.since ? `<div><strong>Since:</strong> ${data.since}</div>` : ''}
+                    <div><strong>Restarts:</strong> ${data.restart_count}</div>
+                </div>
+            `;
+        } catch (e) {
+            body.innerHTML = `<div class="alert alert-error">Failed to check status: ${e.message}</div>`;
+        }
+    },
+
+    _emailParserCurrentPage: 1,
+
+    async loadEmailParserLogs(page) {
+        if (page !== undefined) Pages._emailParserCurrentPage = page;
+        const currentPage = Pages._emailParserCurrentPage || 1;
+
+        const params = { page: currentPage, per_page: 25 };
+        const platform = document.getElementById('ep-filter-platform')?.value;
+        const status = document.getElementById('ep-filter-status')?.value;
+        const dateFrom = document.getElementById('ep-filter-from')?.value;
+        const dateTo = document.getElementById('ep-filter-to')?.value;
+
+        if (platform) params.platform = platform;
+        if (status) params.status = status;
+        if (dateFrom) params.date_from = dateFrom;
+        if (dateTo) params.date_to = dateTo;
+
+        const tbody = document.getElementById('ep-log-table');
+        if (!tbody) return;
+
+        try {
+            const data = await API.emailParser.getLogs(params);
+            const logs = data.logs || [];
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No log entries found</td></tr>';
+                document.getElementById('ep-pagination').innerHTML = '';
+                return;
+            }
+
+            const statusBadge = (s) => {
+                const cls = { success: 'badge-success', failed: 'badge-danger', review: 'badge-warning' };
+                return `<span class="badge ${cls[s] || 'badge-secondary'}">${s}</span>`;
+            };
+
+            const typeLabel = (t) => {
+                const labels = {
+                    service_order: 'Service Order',
+                    special_update: 'Special Update',
+                    work_order: 'Work Order',
+                    unrecognized: 'Unrecognized',
+                };
+                return labels[t] || t;
+            };
+
+            tbody.innerHTML = logs.map(log => {
+                const jobLink = log.job_id
+                    ? `<a href="#jobs" onclick="event.preventDefault(); window.location.hash='jobs'; setTimeout(() => Pages.viewJob(${log.job_id}), 100);">#${log.job_id}</a>`
+                    : '-';
+                const details = log.status === 'failed' && log.error_message
+                    ? `<span style="color:#e74c3c;font-size:0.85rem;" title="${log.error_message.replace(/"/g, '&quot;')}">${log.error_message.length > 50 ? log.error_message.substring(0, 50) + '...' : log.error_message}</span>`
+                    : log.status === 'success' ? '<span style="color:#27ae60;font-size:0.85rem;">Imported</span>'
+                    : log.status === 'review' ? '<span style="color:#f39c12;font-size:0.85rem;">Needs review</span>'
+                    : '-';
+
+                return `
+                    <tr>
+                        <td style="white-space:nowrap;">${log.timestamp || '-'}</td>
+                        <td>${log.platform}</td>
+                        <td>${typeLabel(log.email_type)}</td>
+                        <td>${log.ticket_number || '-'}</td>
+                        <td>${log.client_name || '-'}</td>
+                        <td>${statusBadge(log.status)}</td>
+                        <td>${jobLink}</td>
+                        <td>${details}</td>
+                    </tr>`;
+            }).join('');
+
+            // Pagination
+            const pagDiv = document.getElementById('ep-pagination');
+            if (data.pages > 1) {
+                let html = '';
+                html += `<button class="btn btn-sm btn-secondary" ${currentPage <= 1 ? 'disabled' : ''} onclick="Pages.loadEmailParserLogs(${currentPage - 1})">Prev</button>`;
+                html += `<span style="padding: 0.4rem 0.8rem;">Page ${data.page} of ${data.pages} (${data.total} total)</span>`;
+                html += `<button class="btn btn-sm btn-secondary" ${currentPage >= data.pages ? 'disabled' : ''} onclick="Pages.loadEmailParserLogs(${currentPage + 1})">Next</button>`;
+                pagDiv.innerHTML = html;
+            } else {
+                pagDiv.innerHTML = data.total > 0 ? `<span style="color:#666;font-size:0.9rem;">${data.total} entries</span>` : '';
+            }
+
+        } catch (error) {
+            tbody.innerHTML = `<tr><td colspan="8" class="text-center text-danger">Error loading logs: ${error.message}</td></tr>`;
         }
     }
 };

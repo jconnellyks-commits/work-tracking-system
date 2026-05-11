@@ -607,6 +607,180 @@ const Pages = {
         }
     },
 
+    // Bundle management methods
+    async createBundle() {
+        const data = await API.jobs.list({ per_page: 200, sort_by: 'job_date', sort_order: 'desc' });
+        const unbundledJobs = data.jobs.filter(j => !j.bundle_id && j.job_status !== 'cancelled');
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal" style="max-width:600px">
+                <div class="modal-header">
+                    <h3>Create Job Bundle</h3>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Bundle Name (optional)</label>
+                        <input type="text" class="form-control" id="bundle-name" placeholder="Leave blank for auto-name">
+                    </div>
+                    <div class="form-group">
+                        <label>Select Jobs</label>
+                        <input type="text" class="form-control" id="bundle-job-search" placeholder="Search jobs..." style="margin-bottom:8px">
+                        <div id="bundle-job-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:8px">
+                            ${unbundledJobs.map(j => `
+                                <label style="display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer">
+                                    <input type="checkbox" value="${j.job_id}" class="bundle-job-check">
+                                    <span><strong>${j.ticket_number || 'No ticket'}</strong> - ${j.description} (${j.client_name || 'No client'})</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                    <button class="btn btn-primary" id="save-bundle-btn">Create Bundle</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        document.getElementById('bundle-job-search').addEventListener('input', (e) => {
+            const search = e.target.value.toLowerCase();
+            document.querySelectorAll('.bundle-job-check').forEach(cb => {
+                const label = cb.closest('label');
+                label.style.display = label.textContent.toLowerCase().includes(search) ? 'flex' : 'none';
+            });
+        });
+
+        document.getElementById('save-bundle-btn').addEventListener('click', async () => {
+            const selected = [...document.querySelectorAll('.bundle-job-check:checked')].map(cb => parseInt(cb.value));
+            if (selected.length < 1) {
+                App.showToast('Select at least one job', 'error');
+                return;
+            }
+            const name = document.getElementById('bundle-name').value.trim();
+            try {
+                await API.bundles.create({ name: name || undefined, job_ids: selected });
+                App.showToast('Bundle created', 'success');
+                modal.remove();
+                Pages.jobsPage(1);
+            } catch (e) {
+                App.showToast(e.message || 'Failed to create bundle', 'error');
+            }
+        });
+    },
+
+    async viewBundle(bundleId) {
+        const data = await API.bundles.get(bundleId);
+        const bundle = data.bundle;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal" style="max-width:700px">
+                <div class="modal-header">
+                    <h3><i class="fas fa-layer-group"></i> ${bundle.display_name}</h3>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <h4>Jobs in Bundle (${bundle.jobs.length})</h4>
+                    <table style="width:100%">
+                        <thead><tr><th>Ticket</th><th>Description</th><th>Client</th><th>Billing</th><th>Status</th></tr></thead>
+                        <tbody>
+                            ${bundle.jobs.map(j => `
+                                <tr>
+                                    <td>${j.ticket_number || '-'}</td>
+                                    <td>${j.description}</td>
+                                    <td>${j.client_name || '-'}</td>
+                                    <td>$${(j.billing_amount || 0).toFixed(2)}</td>
+                                    <td>${App.getStatusBadge(j.job_status)}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="font-weight:bold">
+                                <td colspan="3">Pooled Total</td>
+                                <td>$${bundle.jobs.reduce((s, j) => s + (j.billing_amount || 0), 0).toFixed(2)}</td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
+
+    async addJobToBundle(jobId) {
+        const bundlesData = await API.bundles.list({ status: 'active' });
+        const bundles = bundlesData.bundles;
+
+        const modal = document.createElement('div');
+        modal.className = 'modal-overlay';
+        modal.innerHTML = `
+            <div class="modal" style="max-width:400px">
+                <div class="modal-header">
+                    <h3>Add to Bundle</h3>
+                    <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    ${bundles.length > 0 ? `
+                        <div class="form-group">
+                            <label>Select Existing Bundle</label>
+                            <select class="form-control" id="select-bundle">
+                                <option value="">-- Select --</option>
+                                ${bundles.map(b => `<option value="${b.bundle_id}">${b.display_name} (${b.job_count} jobs)</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="text-align:center;padding:8px;color:var(--text-secondary)">— or —</div>
+                    ` : ''}
+                    <button class="btn btn-outline" id="new-bundle-for-job" style="width:100%">Create New Bundle with This Job</button>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
+                    ${bundles.length > 0 ? '<button class="btn btn-primary" id="add-to-bundle-btn">Add</button>' : ''}
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        if (bundles.length > 0) {
+            document.getElementById('add-to-bundle-btn').addEventListener('click', async () => {
+                const bundleId = document.getElementById('select-bundle').value;
+                if (!bundleId) { App.showToast('Select a bundle', 'error'); return; }
+                try {
+                    await API.bundles.addJobs(parseInt(bundleId), [jobId]);
+                    App.showToast('Job added to bundle', 'success');
+                    modal.remove();
+                    Pages.jobsPage(1);
+                } catch (e) {
+                    App.showToast(e.message || 'Failed', 'error');
+                }
+            });
+        }
+
+        document.getElementById('new-bundle-for-job').addEventListener('click', () => {
+            modal.remove();
+            Pages.createBundle();
+        });
+    },
+
+    async removeJobFromBundle(jobId, bundleId) {
+        if (!confirm('Remove this job from its bundle?')) return;
+        try {
+            await API.bundles.removeJob(bundleId, jobId);
+            App.showToast('Job removed from bundle', 'success');
+            Pages.jobsPage(1);
+        } catch (e) {
+            App.showToast(e.message || 'Failed', 'error');
+        }
+    },
+
     // Jobs page
     async jobs(container) {
         const isManager = ['admin', 'manager'].includes(App.user.role);
@@ -616,6 +790,7 @@ const Pages = {
                 <div class="card-header">
                     <h3 class="card-title">Jobs</h3>
                     ${isManager ? '<button class="btn btn-primary" id="new-job-btn"><i class="fas fa-plus"></i> New Job</button>' : ''}
+                    ${isManager ? '<button class="btn btn-secondary" id="create-bundle-btn" style="margin-left:8px"><i class="fas fa-layer-group"></i> Create Bundle</button>' : ''}
                 </div>
                 <div class="filters">
                     <select class="form-control" id="job-status-filter">
@@ -694,7 +869,7 @@ const Pages = {
                     return `
                     <tr>
                         <td>${ticketCell}</td>
-                        <td>${job.description}</td>
+                        <td>${job.description}${job.bundle_name ? ` <span class="badge badge-bundle" onclick="Pages.viewBundle(${job.bundle_id})" title="Bundle: ${job.bundle_name}" style="cursor:pointer;background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:0.75rem;margin-left:4px"><i class="fas fa-layer-group"></i> ${job.bundle_name}</span>` : ''}</td>
                         <td>${job.platform_name || '-'}</td>
                         <td>${job.client_name || '-'}</td>
                         <td>${App.formatDate(job.job_date)}</td>
@@ -704,6 +879,8 @@ const Pages = {
                             <button class="btn btn-sm btn-success" onclick="Pages.addTimeToJob(${job.job_id})">+ Time</button>
                             ${isManager ? `<button class="btn btn-sm btn-info" onclick="Pages.assignTechniciansToJob(${job.job_id})" title="Assign Technicians"><i class="fas fa-user-plus"></i></button>` : ''}
                             ${isManager ? `<button class="btn btn-sm btn-danger" onclick="Pages.deleteJob(${job.job_id})">Delete</button>` : ''}
+                            ${isManager && !job.bundle_id ? `<button class="btn btn-sm btn-outline" onclick="Pages.addJobToBundle(${job.job_id})" title="Add to Bundle"><i class="fas fa-layer-group"></i></button>` : ''}
+                            ${isManager && job.bundle_id ? `<button class="btn btn-sm btn-outline" onclick="Pages.removeJobFromBundle(${job.job_id}, ${job.bundle_id})" title="Remove from Bundle"><i class="fas fa-unlink"></i></button>` : ''}
                         </td>
                     </tr>
                 `}).join('');
@@ -746,6 +923,11 @@ const Pages = {
 
         if (isManager) {
             document.getElementById('new-job-btn').addEventListener('click', () => Pages.editJob(null));
+        }
+
+        if (isManager) {
+            const bundleBtn = document.getElementById('create-bundle-btn');
+            if (bundleBtn) bundleBtn.addEventListener('click', () => Pages.createBundle());
         }
 
         await loadJobs(1);
@@ -1766,7 +1948,7 @@ const Pages = {
                     <tr>
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
-                        <td title="${entry.job_title || ''}"><a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
+                        <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
                         ${isManager ? `<td>${techDisplay}</td>` : ''}
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
@@ -2548,6 +2730,7 @@ const Pages = {
 
         // Get jobs for dropdown (exclude cancelled and completed, but keep current job if editing)
         const jobsData = await API.jobs.list({ per_page: 200 });
+        const bundlesData = await API.bundles.list({ status: 'active' });
         const openStatuses = ['pending', 'assigned', 'in_progress'];
         const getJobOptions = (includeCompleted = false) => jobsData.jobs
             .filter(j => j.job_status !== 'cancelled' &&
@@ -2583,6 +2766,12 @@ const Pages = {
                     </label>
                 </div>
                 ${techField}
+                <div class="form-group">
+                    <label>Bundle (optional)</label>
+                    <select class="form-control" name="bundle_id" id="entry-bundle-select">
+                        <option value="">-- None --</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label>Date Worked *</label>
                     <input type="date" class="form-control" name="date_worked" value="${entry.date_worked || new Date().toLocaleDateString('en-CA')}" required>
@@ -2629,6 +2818,37 @@ const Pages = {
 
         App.showModal(entryId ? 'Edit Time Entry' : 'New Time Entry', body, footer);
 
+        // Populate bundle dropdown
+        const bundleSelect = document.getElementById('entry-bundle-select');
+        if (bundlesData && bundlesData.bundles) {
+            bundlesData.bundles.forEach(b => {
+                const opt = document.createElement('option');
+                opt.value = b.bundle_id;
+                opt.textContent = `${b.display_name} (${b.job_count} jobs)`;
+                bundleSelect.appendChild(opt);
+            });
+            if (entry && entry.bundle_id) {
+                bundleSelect.value = entry.bundle_id;
+            }
+        }
+
+        // Make job optional when bundle is selected
+        const jobSelect = document.getElementById('entry-job-select');
+        const jobLabel = jobSelect.closest('.form-group').querySelector('label');
+        bundleSelect.addEventListener('change', () => {
+            if (bundleSelect.value) {
+                jobSelect.required = false;
+                jobLabel.textContent = 'Job (optional)';
+            } else {
+                jobSelect.required = true;
+                jobLabel.textContent = 'Job *';
+            }
+        });
+        // If editing an entry with bundle_id set, trigger the change
+        if (entry && entry.bundle_id) {
+            bundleSelect.dispatchEvent(new Event('change'));
+        }
+
         // Add event listener for show completed jobs checkbox
         document.getElementById('show-completed-jobs').addEventListener('change', (e) => {
             const select = document.getElementById('entry-job-select');
@@ -2659,6 +2879,10 @@ const Pages = {
         const form = document.getElementById('entry-form');
         const formData = new FormData(form);
         const data = Object.fromEntries(formData);
+
+        // Convert empty strings to null for optional fields
+        if (!data.bundle_id) data.bundle_id = null;
+        if (!data.job_id) data.job_id = null;
 
         try {
             if (entryId) {

@@ -74,3 +74,23 @@ class WorkTrackingClient:
     def import_techlink(self, jobs):
         """POST /api/imports/techlink — create/update TechLink jobs."""
         return self._post('/imports/techlink', jobs)
+
+    def log_email_processed(self, platform, email_type, subject, status,
+                            ticket_number=None, client_name=None,
+                            job_id=None, error_message=None, gmail_message_id=None):
+        """POST a log entry to the work tracking API."""
+        payload = {
+            'platform': platform,
+            'email_type': email_type,
+            'subject': subject,
+            'status': status,
+            'ticket_number': ticket_number,
+            'client_name': client_name,
+            'job_id': job_id,
+            'error_message': error_message,
+            'gmail_message_id': gmail_message_id,
+        }
+        try:
+            return self._post('/email-parser/logs', payload)
+        except Exception as e:
+            logger.warning(f"Failed to log email processing: {e}")

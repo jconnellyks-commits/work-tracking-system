@@ -19,7 +19,7 @@ def get_status():
     """Check email-parser systemd service status via subprocess."""
     try:
         result = subprocess.run(
-            ['systemctl', 'show', 'email-parser',
+            ['/usr/bin/systemctl', 'show', 'email-parser',
              '--property=ActiveState,SubState,ExecMainStartTimestamp,NRestarts'],
             capture_output=True, text=True, timeout=5
         )

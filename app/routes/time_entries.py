@@ -103,6 +103,10 @@ def list_time_entries():
     if job_id:
         query = query.filter(TimeEntry.job_id == job_id)
 
+    bundle_id = request.args.get('bundle_id', type=int)
+    if bundle_id:
+        query = query.filter(TimeEntry.bundle_id == bundle_id)
+
     if job_search:
         query = query.join(Job).filter(
             db.or_(
@@ -184,18 +188,28 @@ def create_time_entry():
         return jsonify({'error': 'Request body required'}), 400
 
     job_id = data.get('job_id')
+    bundle_id = data.get('bundle_id')
     date_worked = data.get('date_worked')
 
-    if not job_id:
-        return jsonify({'error': 'Job ID required'}), 400
+    if not job_id and not bundle_id:
+        return jsonify({'error': 'Job ID or Bundle ID required'}), 400
 
     if not date_worked:
         return jsonify({'error': 'Date worked required'}), 400
 
-    # Validate job
-    job = Job.query.get(job_id)
-    if not job:
-        return jsonify({'error': 'Job not found'}), 404
+    # Validate job if provided
+    job = None
+    if job_id:
+        job = Job.query.get(job_id)
+        if not job:
+            return jsonify({'error': 'Job not found'}), 404
+
+    # Validate bundle if provided
+    from app.models import JobBundle
+    if bundle_id:
+        bundle = JobBundle.query.get(bundle_id)
+        if not bundle:
+            return jsonify({'error': 'Bundle not found'}), 404
 
     # Determine tech_id
     tech_id = data.get('tech_id')
@@ -239,6 +253,7 @@ def create_time_entry():
 
     entry = TimeEntry(
         job_id=job_id,
+        bundle_id=bundle_id,
         tech_id=tech_id,
         period_id=period_id,
         date_worked=date_worked,
@@ -255,7 +270,8 @@ def create_time_entry():
 
     db.session.add(entry)
     # Recalculate billing for hourly jobs
-    job.recalculate_hourly_billing()
+    if job:
+        job.recalculate_hourly_billing()
     db.session.commit()
 
     logger.info(f"Time entry created: {entry.entry_id} for job {job_id}")
@@ -264,7 +280,7 @@ def create_time_entry():
         entity_type='time_entry',
         entity_id=entry.entry_id,
         new_values=entry.to_dict(),
-        description=f"Time entry created for job {job.ticket_number}",
+        description=f"Time entry created for job {job.ticket_number if job else None} bundle {bundle_id}",
         user_id=user.user_id
     )
 
@@ -321,13 +337,21 @@ def update_time_entry(entry_id):
     if 'per_diem' in data:
         entry.per_diem = data['per_diem'] or 0
 
-    # Managers can update job_id and tech_id
+    # Managers can update job_id, bundle_id and tech_id
     if user.role in ('admin', 'manager'):
         if 'job_id' in data:
             job = Job.query.get(data['job_id'])
             if not job:
                 return jsonify({'error': 'Job not found'}), 404
             entry.job_id = data['job_id']
+
+        if 'bundle_id' in data:
+            if data['bundle_id']:
+                from app.models import JobBundle
+                bundle = JobBundle.query.get(data['bundle_id'])
+                if not bundle:
+                    return jsonify({'error': 'Bundle not found'}), 404
+            entry.bundle_id = data['bundle_id'] or None
 
         if 'tech_id' in data:
             tech = Technician.query.get(data['tech_id'])

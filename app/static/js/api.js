@@ -677,5 +677,17 @@ const API = {
         async stub(id) {
             return API.request(`/my/payouts/${id}/stub`);
         },
+    },
+
+    // Email parser endpoints
+    emailParser: {
+        async getStatus() {
+            return API.request('/email-parser/status');
+        },
+
+        async getLogs(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/email-parser/logs${query ? '?' + query : ''}`);
+        },
     }
 };

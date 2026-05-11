@@ -238,6 +238,55 @@ const API = {
         }
     },
 
+    // Bundle endpoints
+    bundles: {
+        async list(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/bundles${query ? '?' + query : ''}`);
+        },
+
+        async get(bundleId) {
+            return API.request(`/bundles/${bundleId}`);
+        },
+
+        async create(data) {
+            return API.request('/bundles', {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async update(bundleId, data) {
+            return API.request(`/bundles/${bundleId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async delete(bundleId) {
+            return API.request(`/bundles/${bundleId}`, {
+                method: 'DELETE'
+            });
+        },
+
+        async addJobs(bundleId, jobIds) {
+            return API.request(`/bundles/${bundleId}/jobs`, {
+                method: 'POST',
+                body: JSON.stringify({ job_ids: jobIds })
+            });
+        },
+
+        async removeJob(bundleId, jobId) {
+            return API.request(`/bundles/${bundleId}/jobs/${jobId}`, {
+                method: 'DELETE'
+            });
+        },
+
+        async getPay(bundleId) {
+            return API.request(`/bundles/${bundleId}/pay`);
+        }
+    },
+
     // Time entries endpoints
     timeEntries: {
         async list(params = {}) {

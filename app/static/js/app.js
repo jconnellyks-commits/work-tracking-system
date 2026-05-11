@@ -613,7 +613,7 @@ const Pages = {
         const unbundledJobs = data.jobs.filter(j => !j.bundle_id && j.job_status !== 'cancelled');
 
         const modal = document.createElement('div');
-        modal.className = 'modal-overlay';
+        modal.className = 'modal-overlay active';
         modal.innerHTML = `
             <div class="modal" style="max-width:600px">
                 <div class="modal-header">
@@ -677,7 +677,7 @@ const Pages = {
         const bundle = data.bundle;
 
         const modal = document.createElement('div');
-        modal.className = 'modal-overlay';
+        modal.className = 'modal-overlay active';
         modal.innerHTML = `
             <div class="modal" style="max-width:700px">
                 <div class="modal-header">
@@ -721,7 +721,7 @@ const Pages = {
         const bundles = bundlesData.bundles;
 
         const modal = document.createElement('div');
-        modal.className = 'modal-overlay';
+        modal.className = 'modal-overlay active';
         modal.innerHTML = `
             <div class="modal" style="max-width:400px">
                 <div class="modal-header">

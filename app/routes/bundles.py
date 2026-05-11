@@ -213,3 +213,13 @@ def remove_job_from_bundle(bundle_id, job_id):
         'message': 'Job removed from bundle',
         'bundle': bundle.to_dict()
     }), 200
+
+
+@bundles_bp.route('/<int:bundle_id>/pay', methods=['GET'])
+@manager_required
+def bundle_pay(bundle_id):
+    from app.utils.pay_calculator import calculate_bundle_pay
+    result = calculate_bundle_pay(bundle_id)
+    if not result:
+        return jsonify({'error': 'Bundle not found'}), 404
+    return jsonify(result), 200

@@ -23,7 +23,7 @@ Four Payouts per Tech per Job:
 """
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import func
-from app.models import Job, TimeEntry, Technician, MileageRateHistory, PayPeriod, JobReimbursable
+from app.models import Job, JobBundle, TimeEntry, Technician, MileageRateHistory, PayPeriod, JobReimbursable
 
 
 def calculate_job_pay(job_id):
@@ -242,6 +242,231 @@ def calculate_job_pay(job_id):
     }
 
 
+def calculate_bundle_pay(bundle_id):
+    """
+    Calculate pay breakdown for all technicians across a job bundle.
+
+    Pools billing/expenses/commissions from all bundled jobs and gathers
+    all time entries (on bundled jobs via job_id + entries directly on
+    the bundle via bundle_id).  Applies the same pay formula as
+    calculate_job_pay.
+
+    Returns:
+        dict: Same shape as calculate_job_pay plus 'bundle' and 'jobs' keys.
+    """
+    from app import db
+
+    bundle = JobBundle.query.get(bundle_id)
+    if not bundle:
+        return None
+
+    jobs = bundle.jobs.all()
+    job_ids = [j.job_id for j in jobs]
+
+    # Gather ALL entries: on bundled jobs OR directly on the bundle
+    if job_ids:
+        entries = TimeEntry.query.filter(
+            db.or_(
+                TimeEntry.job_id.in_(job_ids),
+                TimeEntry.bundle_id == bundle_id
+            )
+        ).all()
+    else:
+        entries = TimeEntry.query.filter_by(bundle_id=bundle_id).all()
+
+    # Pool financials from all jobs
+    billing_amount = sum((Decimal(str(j.billing_amount or 0)) for j in jobs), Decimal('0'))
+    expenses = sum((Decimal(str(j.expenses or 0)) for j in jobs), Decimal('0'))
+    commissions = sum((Decimal(str(j.commissions or 0)) for j in jobs), Decimal('0'))
+    job_net = billing_amount - expenses - commissions
+
+    if not entries:
+        return {
+            'bundle': bundle.to_dict(),
+            'jobs': [j.to_dict() for j in jobs],
+            'job': {
+                'job_id': f'bundle:{bundle_id}',
+                'ticket_number': bundle.display_name,
+                'description': bundle.display_name,
+                'billing_amount': float(billing_amount),
+                'expenses': float(expenses),
+                'commissions': float(commissions),
+            },
+            'job_net': 0,
+            'tech_pool': 0,
+            'total_deductions': 0,
+            'total_reimbursables': 0,
+            'reimbursables': [],
+            'technicians': [],
+            'totals': {
+                'total_hours': 0,
+                'total_base_pay': 0,
+                'total_mileage_pay': 0,
+                'total_per_diem': 0,
+                'total_personal_expenses': 0,
+                'total_reimbursables': 0,
+                'total_pay': 0
+            }
+        }
+
+    # Group entries by technician
+    tech_data = {}
+    for entry in entries:
+        tech_id_val = entry.tech_id
+        if tech_id_val not in tech_data:
+            tech = Technician.query.get(tech_id_val)
+            tech_data[tech_id_val] = {
+                'tech_id': tech_id_val,
+                'tech_name': tech.name if tech else f'Tech #{tech_id_val}',
+                'min_pay': Decimal(str(tech.hourly_rate or 0)) if tech else Decimal('0'),
+                'hours': Decimal('0'),
+                'mileage': Decimal('0'),
+                'per_diem': Decimal('0'),
+                'personal_expenses': Decimal('0'),
+                'entries': []
+            }
+
+        mileage_rate = MileageRateHistory.get_rate_for_date(entry.date_worked)
+        entry_data = entry.to_dict()
+        entry_data['mileage_rate'] = mileage_rate
+        entry_data['mileage_pay'] = float(Decimal(str(entry.mileage or 0)) * Decimal(str(mileage_rate)))
+
+        tech_data[tech_id_val]['entries'].append(entry_data)
+        tech_data[tech_id_val]['hours'] += Decimal(str(entry.hours_worked or 0))
+        tech_data[tech_id_val]['mileage'] += Decimal(str(entry.mileage or 0))
+        tech_data[tech_id_val]['per_diem'] += Decimal(str(entry.per_diem or 0))
+        tech_data[tech_id_val]['personal_expenses'] += Decimal(str(entry.personal_expenses or 0))
+
+    # Calculate total deductions
+    total_mileage_pay = Decimal('0')
+    total_per_diem = Decimal('0')
+    total_personal_expenses = Decimal('0')
+
+    for tid, data in tech_data.items():
+        mileage_pay = Decimal('0')
+        for entry in data['entries']:
+            mileage_pay += Decimal(str(entry['mileage_pay']))
+        data['mileage_pay'] = mileage_pay
+        total_mileage_pay += mileage_pay
+        total_per_diem += data['per_diem']
+        total_personal_expenses += data['personal_expenses']
+
+    total_deductions = total_mileage_pay + total_per_diem + total_personal_expenses
+
+    # Gather reimbursables from all bundled jobs
+    reimbursables = []
+    total_reimbursables = Decimal('0')
+    for j in jobs:
+        job_reimb = JobReimbursable.query.filter_by(job_id=j.job_id).all()
+        reimbursables.extend(job_reimb)
+        total_reimbursables += sum((Decimal(str(r.amount)) for r in job_reimb), Decimal('0'))
+
+    # Tech pool
+    tech_pool = (job_net - total_deductions) / 2
+    if tech_pool < 0:
+        tech_pool = Decimal('0')
+
+    total_hours = sum(data['hours'] for data in tech_data.values())
+    weighted_sum = sum(data['min_pay'] * data['hours'] for data in tech_data.values())
+
+    # Calculate base pay for each tech
+    technicians = []
+    total_base_pay = Decimal('0')
+
+    for tid, data in tech_data.items():
+        using_minimum = False
+        if total_hours == 0:
+            weight = Decimal('0')
+            base_pay = Decimal('0')
+            effective_rate = Decimal('0')
+        elif len(tech_data) == 1:
+            weight = Decimal('1')
+            if data['hours'] > 0:
+                calculated_rate = tech_pool / data['hours']
+                if calculated_rate < data['min_pay']:
+                    using_minimum = True
+                    effective_rate = data['min_pay']
+                else:
+                    effective_rate = calculated_rate
+                base_pay = data['hours'] * effective_rate
+            else:
+                effective_rate = data['min_pay']
+                base_pay = Decimal('0')
+        else:
+            if weighted_sum > 0:
+                weight = (data['min_pay'] * data['hours']) / weighted_sum
+            else:
+                weight = Decimal('1') / len(tech_data)
+
+            weighted_base = tech_pool * weight
+            min_pay_amount = data['hours'] * data['min_pay']
+            if weighted_base < min_pay_amount:
+                using_minimum = True
+                base_pay = min_pay_amount
+            else:
+                base_pay = weighted_base
+
+            if data['hours'] > 0:
+                effective_rate = base_pay / data['hours']
+            else:
+                effective_rate = data['min_pay']
+
+        # Reimbursable share
+        if total_hours > 0 and total_reimbursables > 0:
+            reimbursable_share = total_reimbursables * (data['hours'] / total_hours)
+        else:
+            reimbursable_share = Decimal('0')
+
+        total_pay = base_pay + data['mileage_pay'] + data['per_diem'] + data['personal_expenses'] + reimbursable_share
+        total_base_pay += base_pay
+
+        technicians.append({
+            'tech_id': tid,
+            'tech_name': data['tech_name'],
+            'hours': float(data['hours'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'min_pay': float(data['min_pay'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'weight': float(weight.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)) if len(tech_data) > 1 else 1.0,
+            'base_pay': float(base_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'mileage': float(data['mileage'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'mileage_pay': float(data['mileage_pay'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'per_diem': float(data['per_diem'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'personal_expenses': float(data['personal_expenses'].quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'reimbursable_share': float(reimbursable_share.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_pay': float(total_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'effective_rate': float(effective_rate.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'using_minimum': using_minimum,
+            'entries': data['entries']
+        })
+
+    return {
+        'bundle': bundle.to_dict(),
+        'jobs': [j.to_dict() for j in jobs],
+        'job': {
+            'job_id': f'bundle:{bundle_id}',
+            'ticket_number': bundle.display_name,
+            'description': bundle.display_name,
+            'billing_amount': float(billing_amount),
+            'expenses': float(expenses),
+            'commissions': float(commissions),
+        },
+        'job_net': float(job_net.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'tech_pool': float(tech_pool.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_deductions': float(total_deductions.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'total_reimbursables': float(total_reimbursables.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+        'reimbursables': [r.to_dict() for r in reimbursables],
+        'technicians': technicians,
+        'totals': {
+            'total_hours': float(total_hours.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_base_pay': float(total_base_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_mileage_pay': float(total_mileage_pay.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_per_diem': float(total_per_diem.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_personal_expenses': float(total_personal_expenses.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_reimbursables': float(total_reimbursables.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)),
+            'total_pay': float((total_base_pay + total_mileage_pay + total_per_diem + total_personal_expenses + total_reimbursables).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP))
+        }
+    }
+
+
 def calculate_tech_pay_summary(tech_id, start_date=None, end_date=None):
     """
     Calculate pay summary for a technician over a date range.
@@ -428,32 +653,123 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
 
     entries = entry_query.all()
 
-    # Group entries by job → tech
-    # {job_id: {tech_id: [entries]}}
+    # Group entries by unit (job or bundle) → tech
+    # For bundled jobs, entries merge under "bundle:<id>" key
+    # For standalone jobs, entries stay under job_id key
+    # {unit_key: {tech_id: [entries]}}
     job_tech_entries = {}
+    seen_entry_ids = set()
+
     for entry in entries:
-        if entry.job_id not in job_tech_entries:
-            job_tech_entries[entry.job_id] = {}
-        if entry.tech_id not in job_tech_entries[entry.job_id]:
-            job_tech_entries[entry.job_id][entry.tech_id] = []
-        job_tech_entries[entry.job_id][entry.tech_id].append(entry)
+        # Determine unit key: bundle or standalone job
+        if entry.bundle_id and not entry.job_id:
+            # Bundle-only entry (no job)
+            unit_key = f"bundle:{entry.bundle_id}"
+        elif entry.job_id:
+            job = Job.query.get(entry.job_id)
+            if job and job.bundle_id:
+                unit_key = f"bundle:{job.bundle_id}"
+            else:
+                unit_key = entry.job_id
+        else:
+            continue  # skip entries with neither job nor bundle
 
-    # Precompute total job hours (ALL entries, not just period) for each job
+        if unit_key not in job_tech_entries:
+            job_tech_entries[unit_key] = {}
+        if entry.tech_id not in job_tech_entries[unit_key]:
+            job_tech_entries[unit_key][entry.tech_id] = []
+        job_tech_entries[unit_key][entry.tech_id].append(entry)
+        seen_entry_ids.add(entry.entry_id)
+
+    # Also pick up bundle-only entries (bundle_id set, job_id NULL) not already found
+    bundle_only_query = TimeEntry.query.filter(
+        TimeEntry.date_worked >= start_date,
+        TimeEntry.date_worked <= end_date,
+        TimeEntry.status.in_(['verified', 'billed', 'paid']),
+        TimeEntry.bundle_id.isnot(None),
+        TimeEntry.job_id.is_(None),
+    )
+    if tech_ids:
+        bundle_only_query = bundle_only_query.filter(TimeEntry.tech_id.in_(tech_ids))
+
+    for entry in bundle_only_query.all():
+        if entry.entry_id in seen_entry_ids:
+            continue
+        unit_key = f"bundle:{entry.bundle_id}"
+        if unit_key not in job_tech_entries:
+            job_tech_entries[unit_key] = {}
+        if entry.tech_id not in job_tech_entries[unit_key]:
+            job_tech_entries[unit_key][entry.tech_id] = []
+        job_tech_entries[unit_key][entry.tech_id].append(entry)
+
+    # Precompute total hours (ALL entries, not just period) for each unit
     job_total_hours = {}
-    for jid in job_tech_entries:
-        total = db.session.query(func.sum(TimeEntry.hours_worked)).filter_by(job_id=jid).scalar()
-        job_total_hours[jid] = Decimal(str(total or 0))
+    for unit_key in job_tech_entries:
+        if isinstance(unit_key, str) and unit_key.startswith("bundle:"):
+            bid = int(unit_key.split(":")[1])
+            bundle_obj = JobBundle.query.get(bid)
+            if bundle_obj:
+                bundled_job_ids = [j.job_id for j in bundle_obj.jobs.all()]
+                if bundled_job_ids:
+                    total = db.session.query(func.sum(TimeEntry.hours_worked)).filter(
+                        db.or_(
+                            TimeEntry.job_id.in_(bundled_job_ids),
+                            TimeEntry.bundle_id == bid
+                        )
+                    ).scalar()
+                else:
+                    total = db.session.query(func.sum(TimeEntry.hours_worked)).filter_by(bundle_id=bid).scalar()
+            else:
+                total = Decimal('0')
+            job_total_hours[unit_key] = Decimal(str(total or 0))
+        else:
+            total = db.session.query(func.sum(TimeEntry.hours_worked)).filter_by(job_id=unit_key).scalar()
+            job_total_hours[unit_key] = Decimal(str(total or 0))
 
-    # Process each job, distribute pay across techs
+    # Process each unit (job or bundle), distribute pay across techs
     # Accumulate results per tech: {tech_id: {tech_data}}
     tech_results = {}
 
-    for job_id, tech_entries_map in job_tech_entries.items():
-        job = Job.query.get(job_id)
-        if not job:
-            continue
+    for unit_key, tech_entries_map in job_tech_entries.items():
+        # Build the job object: real Job for standalone, virtual object for bundles
+        if isinstance(unit_key, str) and unit_key.startswith("bundle:"):
+            bid = int(unit_key.split(":")[1])
+            bundle_obj = JobBundle.query.get(bid)
+            if not bundle_obj:
+                continue
+            bundled_jobs = bundle_obj.jobs.all()
 
-        # --- Aggregate per-tech data for this job ---
+            # Create a virtual job object with pooled financials
+            class _VirtualBundleJob:
+                pass
+            job = _VirtualBundleJob()
+            job.job_id = unit_key
+            job.ticket_number = bundle_obj.display_name
+            job.description = bundle_obj.display_name
+            job.external_url = None
+            job.billing_amount = float(sum(Decimal(str(j.billing_amount or 0)) for j in bundled_jobs))
+            job.expenses = float(sum(Decimal(str(j.expenses or 0)) for j in bundled_jobs))
+            job.commissions = float(sum(Decimal(str(j.commissions or 0)) for j in bundled_jobs))
+            # to_dict for _accumulate_tech_result
+            _bundle_dict = {
+                'job_id': unit_key,
+                'ticket_number': bundle_obj.display_name,
+                'description': bundle_obj.display_name,
+                'billing_amount': job.billing_amount,
+                'expenses': job.expenses,
+                'commissions': job.commissions,
+                'external_url': None,
+                'bundle_id': bid,
+                'bundle_name': bundle_obj.display_name,
+            }
+            job.to_dict = lambda _d=_bundle_dict: _d
+        else:
+            job_id = unit_key
+            job = Job.query.get(job_id)
+            if not job:
+                continue
+
+        # --- Aggregate per-tech data for this unit ---
         job_techs = {}
         job_period_hours = Decimal('0')
         pooled_deductions = Decimal('0')
@@ -503,7 +819,7 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
             continue
 
         # --- Prorate job-level amounts by period share ---
-        total_hours_for_job = job_total_hours.get(job_id, Decimal('0'))
+        total_hours_for_job = job_total_hours.get(unit_key, Decimal('0'))
         if total_hours_for_job > 0:
             job_period_ratio = job_period_hours / total_hours_for_job
         else:
@@ -525,7 +841,7 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
 
         # --- Weighted distribution ---
         if len(job_techs) == 1:
-            # Single tech on this job in this period
+            # Single tech on this unit in this period
             tid = next(iter(job_techs))
             td = job_techs[tid]
             min_pay_rate = Decimal(str(td['tech'].hourly_rate or 0))

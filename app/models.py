@@ -97,6 +97,7 @@ class Job(db.Model):
 
     # External platform URL
     external_url = db.Column(db.String(500))
+    bundle_id = db.Column(db.Integer, db.ForeignKey('job_bundles.bundle_id'), nullable=True)
 
     # Status
     job_status = db.Column(
@@ -135,6 +136,8 @@ class Job(db.Model):
             'expenses': float(self.expenses) if self.expenses else 0,
             'commissions': float(self.commissions) if self.commissions else 0,
             'external_url': self.external_url,
+            'bundle_id': self.bundle_id,
+            'bundle_name': self.bundle.display_name if self.bundle else None,
             'job_status': self.job_status,
             'job_date': self.job_date.isoformat() if self.job_date else None,
             'scheduled_start_time': self.scheduled_start_time.strftime('%H:%M') if self.scheduled_start_time else None,
@@ -181,6 +184,45 @@ class JobReimbursable(db.Model):
         }
 
 
+class JobBundle(db.Model):
+    """Bundle of related jobs for pooled pay calculation."""
+    __tablename__ = 'job_bundles'
+
+    bundle_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(255), nullable=True)
+    status = db.Column(db.Enum('active', 'closed'), default='active')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    jobs = db.relationship('Job', backref='bundle', lazy='dynamic')
+    time_entries = db.relationship('TimeEntry', backref='bundle', lazy='dynamic')
+    created_by_user = db.relationship('User', foreign_keys=[created_by])
+
+    @property
+    def display_name(self):
+        if self.name:
+            return self.name
+        first_job = self.jobs.order_by(Job.job_id).first()
+        if first_job:
+            return f"{first_job.description} Bundle"
+        return f"Bundle #{self.bundle_id}"
+
+    def to_dict(self):
+        jobs_list = self.jobs.all()
+        return {
+            'bundle_id': self.bundle_id,
+            'name': self.name,
+            'display_name': self.display_name,
+            'status': self.status,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'job_count': len(jobs_list),
+            'job_ids': [j.job_id for j in jobs_list],
+        }
+
+
 class PayPeriod(db.Model):
     """Pay period model for organizing time entries."""
     __tablename__ = 'pay_periods'
@@ -214,9 +256,10 @@ class TimeEntry(db.Model):
     __tablename__ = 'time_entries'
 
     entry_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=True)
     tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id'), nullable=True)
     period_id = db.Column(db.Integer, db.ForeignKey('pay_periods.period_id'))
+    bundle_id = db.Column(db.Integer, db.ForeignKey('job_bundles.bundle_id'), nullable=True)
 
     # Time information
     date_worked = db.Column(db.Date, nullable=False)
@@ -255,6 +298,8 @@ class TimeEntry(db.Model):
             'job_title': self.job.description if self.job else None,
             'job_client': self.job.client_name if self.job else None,
             'external_url': self.job.external_url if self.job else None,
+            'bundle_id': self.bundle_id,
+            'bundle_name': self.bundle.display_name if self.bundle else None,
             'tech_id': self.tech_id,
             'tech_name': self.technician.name if self.technician else None,
             'period_id': self.period_id,

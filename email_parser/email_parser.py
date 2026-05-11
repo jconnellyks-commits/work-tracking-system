@@ -113,8 +113,18 @@ def process_message(gmail_client, api_client, msg_id):
                 try:
                     result = api_client.import_tst([job])
                     logger.info(f"TST import result: {result}")
+                    api_client.log_email_processed(
+                        platform='TST', email_type='service_order', subject=subject,
+                        status='success', ticket_number=ticket, client_name=client,
+                        gmail_message_id=msg_id,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to import TST-{ticket}: {e}")
+                    api_client.log_email_processed(
+                        platform='TST', email_type='service_order', subject=subject,
+                        status='failed', ticket_number=ticket, client_name=client,
+                        error_message=str(e), gmail_message_id=msg_id,
+                    )
                     gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
                     return
             gmail_client.apply_labels(
@@ -129,8 +139,17 @@ def process_message(gmail_client, api_client, msg_id):
                 try:
                     result = api_client.import_tst([update])
                     logger.info(f"TST update result: {result}")
+                    api_client.log_email_processed(
+                        platform='TST', email_type='special_update', subject=subject,
+                        status='success', ticket_number=ticket, gmail_message_id=msg_id,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to import TST update {ticket}: {e}")
+                    api_client.log_email_processed(
+                        platform='TST', email_type='special_update', subject=subject,
+                        status='failed', ticket_number=ticket,
+                        error_message=str(e), gmail_message_id=msg_id,
+                    )
                     gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
                     return
             gmail_client.apply_labels(
@@ -141,6 +160,10 @@ def process_message(gmail_client, api_client, msg_id):
 
         else:
             logger.info(f"TST email not recognized as SO or SU, flagging for review: {subject!r}")
+            api_client.log_email_processed(
+                platform='TST', email_type='unrecognized', subject=subject,
+                status='review', gmail_message_id=msg_id,
+            )
             gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
 
     # --- TechLink ---
@@ -153,8 +176,19 @@ def process_message(gmail_client, api_client, msg_id):
                 try:
                     result = api_client.import_techlink([job])
                     logger.info(f"TechLink import result: {result}")
+                    api_client.log_email_processed(
+                        platform='TechLink', email_type='work_order', subject=subject,
+                        status='success', ticket_number=ticket,
+                        client_name=job.get('client_name'),
+                        gmail_message_id=msg_id,
+                    )
                 except Exception as e:
                     logger.error(f"Failed to import TL-{ticket}: {e}")
+                    api_client.log_email_processed(
+                        platform='TechLink', email_type='work_order', subject=subject,
+                        status='failed', ticket_number=ticket,
+                        error_message=str(e), gmail_message_id=msg_id,
+                    )
                     gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
                     return
             gmail_client.apply_labels(
@@ -164,6 +198,10 @@ def process_message(gmail_client, api_client, msg_id):
             )
         else:
             logger.info(f"TechLink email not recognized as Assigned, flagging for review: {subject!r}")
+            api_client.log_email_processed(
+                platform='TechLink', email_type='unrecognized', subject=subject,
+                status='review', gmail_message_id=msg_id,
+            )
             gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
 
     else:

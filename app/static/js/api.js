@@ -644,6 +644,36 @@ const API = {
         }
     },
 
+    schedule: {
+        async getJobSchedule(jobId) {
+            return API.request(`/schedule/job/${jobId}`);
+        },
+
+        async addEntries(jobId, entries) {
+            return API.request(`/schedule/job/${jobId}`, {
+                method: 'POST',
+                body: JSON.stringify({ entries })
+            });
+        },
+
+        async updateEntry(jobId, entryId, data) {
+            return API.request(`/schedule/job/${jobId}/${entryId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async deleteEntry(jobId, entryId) {
+            return API.request(`/schedule/job/${jobId}/${entryId}`, {
+                method: 'DELETE'
+            });
+        },
+
+        async getRange(from, to) {
+            return API.request(`/schedule?from=${from}&to=${to}`);
+        }
+    },
+
     // SMS log endpoint
     sms: {
         async getLog(params = {}) {

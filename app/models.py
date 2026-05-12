@@ -144,6 +144,7 @@ class Job(db.Model):
             'due_date': self.due_date.isoformat() if self.due_date else None,
             'completed_date': self.completed_date.isoformat() if self.completed_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'has_schedule': self.schedule_entries.count() > 0 if self.schedule_entries else False,
         }
 
     def recalculate_hourly_billing(self):
@@ -180,6 +181,33 @@ class JobReimbursable(db.Model):
             'description': self.description,
             'amount': float(self.amount) if self.amount else 0,
             'category': self.category,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class JobSchedule(db.Model):
+    """Scheduled day for a job, optionally assigned to a specific tech."""
+    __tablename__ = 'job_schedule'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id', ondelete='CASCADE'), nullable=False)
+    scheduled_date = db.Column(db.Date, nullable=False)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id', ondelete='SET NULL'), nullable=True)
+    notes = db.Column(db.String(255), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Relationships
+    job = db.relationship('Job', backref=db.backref('schedule_entries', lazy='dynamic', cascade='all, delete-orphan'))
+    technician = db.relationship('Technician', backref=db.backref('scheduled_days', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'job_id': self.job_id,
+            'scheduled_date': self.scheduled_date.isoformat() if self.scheduled_date else None,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'notes': self.notes,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

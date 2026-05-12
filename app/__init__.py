@@ -76,6 +76,7 @@ def create_app(config_class=None):
     from app.routes.my import my_bp
     from app.routes.email_parser import email_parser_bp
     from app.routes.bundles import bundles_bp
+    from app.routes.schedule import schedule_bp
 
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(jobs_bp, url_prefix='/api/jobs')
@@ -91,6 +92,7 @@ def create_app(config_class=None):
     app.register_blueprint(my_bp, url_prefix='/api/my')
     app.register_blueprint(email_parser_bp, url_prefix='/api/email-parser')
     app.register_blueprint(bundles_bp, url_prefix='/api/bundles')
+    app.register_blueprint(schedule_bp)
     app.register_blueprint(sms_webhook_bp)  # No prefix — route is /sms/inbound
     app.register_blueprint(frontend_bp)
 

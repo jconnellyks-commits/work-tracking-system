@@ -1100,6 +1100,28 @@ const Pages = {
                     </div>`;
             }
 
+            // Build unassigned jobs alert for today and tomorrow
+            const todayDate = new Date();
+            const tomorrowDate = new Date(todayDate);
+            tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const todayKey = todayDate.toLocaleDateString('en-CA');
+            const tomorrowKey = tomorrowDate.toLocaleDateString('en-CA');
+            const unassigned = [];
+            for (const dateKey of [todayKey, tomorrowKey]) {
+                const dayLabel = dateKey === todayKey ? 'Today' : 'Tomorrow';
+                for (const job of (jobsByDate[dateKey] || [])) {
+                    if (job.job_status === 'completed' || job.job_status === 'cancelled') continue;
+                    const hasNoTech = job._from_schedule ? !job.tech_name : (!job.assigned_techs || !job.assigned_techs.length);
+                    if (hasNoTech) unassigned.push({ ...job, dayLabel });
+                }
+            }
+            const alertHTML = unassigned.length ? `
+                <div style="background: #fef2f2; border: 1px solid #fca5a5; border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.85rem; color: #991b1b;">
+                    <i class="fas fa-exclamation-triangle" style="margin-right: 0.35rem;"></i>
+                    <strong>${unassigned.length} unassigned ticket${unassigned.length !== 1 ? 's' : ''}:</strong>
+                    ${unassigned.map(u => `<span style="cursor:pointer;text-decoration:underline;margin-left:0.5rem;" onclick="Pages.viewJob(${u.job_id})">${u.ticket_number || '#' + u.job_id} (${u.dayLabel})</span>`).join(',')}
+                </div>` : '';
+
             return `
                 <div class="card">
                     <div class="card-header" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1109,6 +1131,7 @@ const Pages = {
                         <button class="btn btn-sm btn-primary" id="cal-today">Today</button>
                         <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${(state.scheduleEntries || []).length + (state.fallbackJobs || []).length} job${((state.scheduleEntries || []).length + (state.fallbackJobs || []).length) !== 1 ? 's' : ''} this month</span>
                     </div>
+                    ${alertHTML}
                     <div style="padding: 0.5rem;">
                         <div class="calendar-grid calendar-grid--header">
                             ${dayHeaders.map(h => `<div class="calendar-day-header">${h}</div>`).join('')}

@@ -1648,7 +1648,21 @@ const Pages = {
         }
 
         try {
-            await API.schedule.addEntries(jobId, [{ scheduled_date: date, tech_id: techId, notes }]);
+            // Check if this is the first schedule entry — offer to include original date
+            const existing = await API.schedule.getJobSchedule(jobId);
+            const entries = [{ scheduled_date: date, tech_id: techId, notes }];
+
+            if ((existing.schedule || []).length === 0) {
+                const jobData = await API.jobs.get(jobId);
+                const origDate = jobData.job && jobData.job.job_date;
+                if (origDate && origDate !== date) {
+                    if (confirm(`Include original date (${App.formatDate(origDate)}) in the schedule?`)) {
+                        entries.unshift({ scheduled_date: origDate, tech_id: null, notes: null });
+                    }
+                }
+            }
+
+            await API.schedule.addEntries(jobId, entries);
             App.showAlert('Schedule day added', 'success');
             await Pages.jobModal(jobId, 'view');
         } catch (error) {

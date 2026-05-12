@@ -396,7 +396,7 @@ def delete_time_entry(entry_id):
     user = g.current_user
     entry = TimeEntry.query.get_or_404(entry_id)
 
-    if entry.status != 'draft':
+    if entry.status != 'draft' and user.role != 'admin':
         return jsonify({'error': 'Only draft entries can be deleted'}), 400
 
     if user.role == 'technician' and entry.tech_id != user.tech_id:

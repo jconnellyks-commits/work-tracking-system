@@ -3065,8 +3065,21 @@ const Pages = {
 
     // Delete entry
     async deleteEntry(entryId) {
-        if (!confirm('Are you sure you want to delete this time entry? This cannot be undone.')) {
-            return;
+        const isAdmin = App.user.role === 'admin';
+        let entry = null;
+
+        if (isAdmin) {
+            try {
+                const data = await API.timeEntries.get(entryId);
+                entry = data.time_entry || data;
+            } catch (e) { /* proceed with basic confirm */ }
+        }
+
+        if (entry && entry.status !== 'draft' && isAdmin) {
+            if (!confirm(`This entry is "${entry.status}" (not draft). Are you sure you want to delete it?`)) return;
+            if (!confirm(`FINAL WARNING: Deleting a ${entry.status} entry cannot be undone. Confirm delete?`)) return;
+        } else {
+            if (!confirm('Are you sure you want to delete this time entry? This cannot be undone.')) return;
         }
 
         try {

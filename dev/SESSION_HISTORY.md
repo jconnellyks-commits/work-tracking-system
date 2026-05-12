@@ -1,5 +1,64 @@
 # Work Tracking System - Session History
 
+## Session: May 11, 2026 (3rd — Multi-Date Job Scheduling)
+
+### Summary
+Designed, implemented, and deployed multi-date scheduling for jobs. Jobs can now have multiple scheduled days with per-day tech assignments. Calendar renders from the schedule table with fallback to `job_date` for jobs without schedule entries.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Design spec | Done | `docs/superpowers/specs/2026-05-11-job-multi-date-schedule-design.md` |
+| Implementation plan | Done | `docs/superpowers/plans/2026-05-11-job-multi-date-schedule.md` |
+| Migration 018: job_schedule table | Done | `4438296` |
+| JobSchedule model + has_schedule on Job.to_dict() | Done | `f71aaf0` |
+| Schedule API routes (CRUD + calendar range) | Done | `5e96a80` |
+| Register schedule blueprint | Done | `5e96a80` |
+| API.schedule client methods | Done | `0a7cbb7` |
+| Job modal schedule section (add/remove days) | Done | `dcf1a4b` |
+| Calendar renders from schedule with job_date fallback | Done | `dcf1a4b` |
+| Fix calendar job counter (state.jobs → schedule entries) | Done | `2431ebc` |
+| Deploy + verify live | Done | Table created, all features working |
+
+### Technical Notes
+
+**Architecture**:
+- `job_schedule` table: id, job_id (FK CASCADE), scheduled_date, tech_id (FK SET NULL), notes
+- Unique constraint on (job_id, scheduled_date, tech_id)
+- Calendar endpoint (`GET /api/schedule?from=&to=`) returns both scheduled entries AND fallback jobs (no schedule entries, uses job_date)
+- Tech dropdown in "Add Day" modal only shows techs assigned to that job
+
+**Endpoints**:
+- `GET /api/schedule/job/:id` — list schedule entries for a job
+- `POST /api/schedule/job/:id` — add entries (bulk supported)
+- `PUT /api/schedule/job/:id/:entry_id` — update entry
+- `DELETE /api/schedule/job/:id/:entry_id` — delete entry
+- `GET /api/schedule?from=&to=` — calendar range query
+
+**Calendar behavior**:
+- Jobs WITH schedule entries show ONLY on their scheduled dates (not job_date)
+- Jobs WITHOUT schedule entries fall back to job_date (backwards compatible)
+- Chips show tech name per day when assigned: `WO-1234 – Client (TechName)`
+
+### Files Created
+- `app/routes/schedule.py` — 5 endpoints
+- `database/migrations/018_job_schedule.sql`
+- `docs/superpowers/specs/2026-05-11-job-multi-date-schedule-design.md`
+- `docs/superpowers/plans/2026-05-11-job-multi-date-schedule.md`
+
+### Files Modified
+- `app/models.py` — JobSchedule model, has_schedule on Job
+- `app/__init__.py` — register schedule_bp
+- `app/static/js/api.js` — API.schedule namespace
+- `app/static/js/app.js` — job modal schedule section, calendar refactored to use schedule endpoint
+
+### Next Steps
+- Use in real scheduling over next few weeks, adjust based on feedback
+- Possible future: "Schedule Bundle" shortcut for bulk scheduling all jobs in a bundle
+
+---
+
 ## Session: May 11, 2026 (2nd — Job Bundling)
 
 ### Summary

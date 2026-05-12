@@ -1013,6 +1013,15 @@ const Pages = {
                 });
             }
 
+            // Build job → all assigned tech names map from schedule entries
+            const jobTechsMap = {};
+            for (const entry of (state.scheduleEntries || [])) {
+                if (entry.tech_name) {
+                    if (!jobTechsMap[entry.job_id]) jobTechsMap[entry.job_id] = new Set();
+                    jobTechsMap[entry.job_id].add(entry.tech_name);
+                }
+            }
+
             // Fallback jobs (have job_date but no schedule entries)
             for (const job of (state.fallbackJobs || [])) {
                 if (!job.job_date) continue;
@@ -1025,6 +1034,7 @@ const Pages = {
                     job_status: job.job_status,
                     scheduled_start_time: job.scheduled_start_time,
                     tech_name: null,
+                    assigned_techs: job.assigned_techs || [],
                     _from_schedule: false
                 });
             }
@@ -1042,7 +1052,15 @@ const Pages = {
                     const techLabel = job.tech_name ? ` <span style="opacity:0.7; font-size:0.85em;">(${job.tech_name})</span>` : '';
                     const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
                     const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
-                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${job.description || ''}">${label}${techLabel}${timeLabel}</div>`;
+                    let tooltipLines = [job.description || ''];
+                    if (job._from_schedule) {
+                        const allTechs = jobTechsMap[job.job_id] ? [...jobTechsMap[job.job_id]] : [];
+                        if (allTechs.length) tooltipLines.push('Techs: ' + allTechs.join(', '));
+                    } else if (job.assigned_techs && job.assigned_techs.length) {
+                        tooltipLines.push('Techs: ' + job.assigned_techs.join(', '));
+                    }
+                    const tooltip = tooltipLines.filter(Boolean).join('\n').replace(/"/g, '&quot;');
+                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${tooltip}">${label}${techLabel}${timeLabel}</div>`;
                 }).join('');
             }
 

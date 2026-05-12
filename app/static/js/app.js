@@ -965,12 +965,13 @@ const Pages = {
             const totalCells = firstDow + lastDay.getDate();
             const trailingCells = (7 - (totalCells % 7)) % 7;
 
-            // Extend range to cover overflow days from prev/next month
             const fromDate = new Date(state.year, state.month, 1 - firstDow).toLocaleDateString('en-CA');
             const toDate = new Date(state.year, state.month + 1, trailingCells).toLocaleDateString('en-CA');
 
-            const data = await API.jobs.list({ from_date: fromDate, to_date: toDate, per_page: 200, page: 1 });
-            state.jobs = data.jobs || [];
+            // Fetch schedule data (scheduled entries + fallback jobs)
+            const schedData = await API.schedule.getRange(fromDate, toDate);
+            state.scheduleEntries = schedData.entries || [];
+            state.fallbackJobs = schedData.fallback_jobs || [];
 
             // For technicians, fetch their assigned job IDs
             state.myJobIds = new Set();
@@ -993,12 +994,39 @@ const Pages = {
             const firstDow = new Date(year, month, 1).getDay(); // 0=Sun
             const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-            // Group jobs by date (exclude cancelled)
+            // Group by date: schedule entries + fallback jobs
             const jobsByDate = {};
-            for (const job of state.jobs) {
-                if (!job.job_date || job.job_status === 'cancelled') continue;
+
+            // Scheduled entries (from job_schedule table)
+            for (const entry of (state.scheduleEntries || [])) {
+                const dateStr = entry.scheduled_date;
+                if (!jobsByDate[dateStr]) jobsByDate[dateStr] = [];
+                jobsByDate[dateStr].push({
+                    job_id: entry.job_id,
+                    ticket_number: entry.ticket_number,
+                    client_name: entry.client_name,
+                    description: entry.description,
+                    job_status: entry.job_status,
+                    scheduled_start_time: entry.scheduled_start_time,
+                    tech_name: entry.tech_name,
+                    _from_schedule: true
+                });
+            }
+
+            // Fallback jobs (have job_date but no schedule entries)
+            for (const job of (state.fallbackJobs || [])) {
+                if (!job.job_date) continue;
                 if (!jobsByDate[job.job_date]) jobsByDate[job.job_date] = [];
-                jobsByDate[job.job_date].push(job);
+                jobsByDate[job.job_date].push({
+                    job_id: job.job_id,
+                    ticket_number: job.ticket_number,
+                    client_name: job.client_name,
+                    description: job.description,
+                    job_status: job.job_status,
+                    scheduled_start_time: job.scheduled_start_time,
+                    tech_name: null,
+                    _from_schedule: false
+                });
             }
 
             const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1011,9 +1039,10 @@ const Pages = {
                     const timeLabel = job.scheduled_start_time
                         ? ` <span style="opacity:0.75;">(${App.format12Hour(job.scheduled_start_time)})</span>`
                         : '';
+                    const techLabel = job.tech_name ? ` <span style="opacity:0.7; font-size:0.85em;">(${job.tech_name})</span>` : '';
                     const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
                     const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
-                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${job.description || ''}">${label}${timeLabel}</div>`;
+                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${job.description || ''}">${label}${techLabel}${timeLabel}</div>`;
                 }).join('');
             }
 
@@ -1126,6 +1155,7 @@ const Pages = {
         let assignmentsHtml = '';
         let payHtml = '';
         let entriesHtml = '';
+        let scheduleHtml = '';
 
         if (!isNew) {
             jobData = await API.jobs.get(jobId);
@@ -1199,6 +1229,38 @@ const Pages = {
                     console.error('Failed to load assignments:', e);
                 }
             }
+
+            // Fetch schedule
+            try {
+                const schedData = await API.schedule.getJobSchedule(jobId);
+                const schedEntries = schedData.schedule || [];
+                if (isManager || schedEntries.length > 0) {
+                    let schedRows = '';
+                    if (schedEntries.length > 0) {
+                        schedRows = `<table class="table table-sm" style="margin-top: 0.5rem;">
+                            <thead><tr><th>Date</th><th>Technician</th><th>Notes</th>${isManager ? '<th></th>' : ''}</tr></thead>
+                            <tbody>
+                                ${schedEntries.map(entry => `<tr>
+                                    <td>${App.formatDate(entry.scheduled_date)}</td>
+                                    <td>${entry.tech_name || '<em>Any</em>'}</td>
+                                    <td>${entry.notes || ''}</td>
+                                    ${isManager ? `<td><button class="btn btn-sm btn-outline-danger" onclick="Pages.deleteScheduleDay(${jobId}, ${entry.id})"><i class="fas fa-trash"></i></button></td>` : ''}
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>`;
+                    } else {
+                        schedRows = '<p class="text-muted" style="margin-top: 0.5rem;">No scheduled days</p>';
+                    }
+                    scheduleHtml = `
+                        <div style="margin-top: 1rem; border-top: 1px solid #eee; padding-top: 1rem;">
+                            <label style="display: flex; justify-content: space-between; align-items: center;">
+                                Schedule (${schedEntries.length} day${schedEntries.length !== 1 ? 's' : ''})
+                                ${isManager ? `<button class="btn btn-sm btn-outline-primary" onclick="Pages.addScheduleDay(${jobId})"><i class="fas fa-plus"></i> Add Day</button>` : ''}
+                            </label>
+                            ${schedRows}
+                        </div>`;
+                }
+            } catch (e) { /* non-fatal */ }
 
             // Fetch pay calculation (managers only)
             if (isManager && entries.length > 0) {
@@ -1401,6 +1463,7 @@ const Pages = {
                     </div>
                 `;
             })() : ''}
+            ${scheduleHtml}
             ${!isNew ? assignmentsHtml : ''}
             ${!isNew ? entriesHtml : ''}
             ${!isNew ? payHtml : ''}
@@ -1537,6 +1600,70 @@ const Pages = {
             await Pages.jobModal(jobId, 'view');
         } catch (error) {
             App.showAlert(error.message, 'danger');
+        }
+    },
+
+    async addScheduleDay(jobId) {
+        // Get techs assigned to this job for the dropdown
+        const assignData = await API.assignments.getJobAssignments(jobId);
+        const techs = (assignData.assignments || [])
+            .filter(a => ['accepted', 'invited'].includes(a.status))
+            .map(a => ({ tech_id: a.tech_id, name: a.tech_name }));
+
+        const techOptions = `<option value="">Any assigned tech</option>` +
+            techs.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('');
+
+        const body = `
+            <form id="schedule-day-form">
+                <div class="form-group">
+                    <label>Date *</label>
+                    <input type="date" class="form-control" name="scheduled_date" required>
+                </div>
+                <div class="form-group">
+                    <label>Technician</label>
+                    <select class="form-control" name="tech_id">${techOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <input type="text" class="form-control" name="notes" placeholder="e.g., morning only, finish wiring">
+                </div>
+            </form>
+        `;
+
+        App.showModal('Add Schedule Day', body, `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.saveScheduleDay(${jobId})">Add</button>
+        `);
+    },
+
+    async saveScheduleDay(jobId) {
+        const form = document.getElementById('schedule-day-form');
+        const date = form.querySelector('[name="scheduled_date"]').value;
+        const techId = form.querySelector('[name="tech_id"]').value || null;
+        const notes = form.querySelector('[name="notes"]').value;
+
+        if (!date) {
+            App.showAlert('Date is required', 'warning');
+            return;
+        }
+
+        try {
+            await API.schedule.addEntries(jobId, [{ scheduled_date: date, tech_id: techId, notes }]);
+            App.showAlert('Schedule day added', 'success');
+            await Pages.jobModal(jobId, 'view');
+        } catch (error) {
+            App.showAlert(error.message || 'Failed to add schedule day', 'danger');
+        }
+    },
+
+    async deleteScheduleDay(jobId, entryId) {
+        if (!confirm('Remove this scheduled day?')) return;
+        try {
+            await API.schedule.deleteEntry(jobId, entryId);
+            App.showAlert('Schedule day removed', 'success');
+            await Pages.jobModal(jobId, 'view');
+        } catch (error) {
+            App.showAlert(error.message || 'Failed to remove', 'danger');
         }
     },
 

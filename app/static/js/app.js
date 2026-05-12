@@ -1051,6 +1051,12 @@ const Pages = {
                         : '';
                     const techLabel = job.tech_name ? ` <span style="opacity:0.7; font-size:0.85em;">(${job.tech_name})</span>` : '';
                     const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
+                    const statusLabel = job.job_status ? ` <span style="opacity:0.65; font-size:0.8em; text-transform:capitalize;">[${job.job_status.replace('_', ' ')}]</span>` : '';
+                    const hasNoTech = job._from_schedule ? !job.tech_name : (!job.assigned_techs || !job.assigned_techs.length);
+                    const unassignedStyle = hasNoTech && job.job_status !== 'completed' && job.job_status !== 'cancelled'
+                        ? 'border: 2px solid #ef4444;' : `border: 1px solid ${colors.border};`;
+                    const unassignedClass = hasNoTech && job.job_status !== 'completed' && job.job_status !== 'cancelled'
+                        ? ' calendar-chip--unassigned' : '';
                     const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
                     let tooltipLines = [job.description || ''];
                     if (job._from_schedule) {
@@ -1060,7 +1066,7 @@ const Pages = {
                         tooltipLines.push('Techs: ' + job.assigned_techs.join(', '));
                     }
                     const tooltip = tooltipLines.filter(Boolean).join('\n').replace(/"/g, '&quot;');
-                    return `<div class="calendar-chip" style="background:${colors.bg}; color:${colors.text}; border: 1px solid ${colors.border}; ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${tooltip}">${label}${techLabel}${timeLabel}</div>`;
+                    return `<div class="calendar-chip${unassignedClass}" style="background:${colors.bg}; color:${colors.text}; ${unassignedStyle} ${mineStyle}" onclick="Pages.viewJob(${job.job_id})" title="${tooltip}">${label}${statusLabel}${techLabel}${timeLabel}</div>`;
                 }).join('');
             }
 

@@ -640,6 +640,10 @@ tr:hover {
 .calendar-chip:hover {
     filter: brightness(0.92);
 }
+.calendar-chip--unassigned:hover {
+    background: #fee2e2 !important;
+    filter: none;
+}
 
 /* Time Entry Calendar */
 .te-calendar-grid {

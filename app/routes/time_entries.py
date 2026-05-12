@@ -212,7 +212,7 @@ def create_time_entry():
             return jsonify({'error': 'Bundle not found'}), 404
 
     # Determine tech_id
-    tech_id = data.get('tech_id')
+    tech_id = data.get('tech_id') or None
     if user.role == 'technician':
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400

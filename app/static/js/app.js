@@ -2883,6 +2883,7 @@ const Pages = {
         // Convert empty strings to null for optional fields
         if (!data.bundle_id) data.bundle_id = null;
         if (!data.job_id) data.job_id = null;
+        if (!data.tech_id) data.tech_id = null;
 
         try {
             if (entryId) {

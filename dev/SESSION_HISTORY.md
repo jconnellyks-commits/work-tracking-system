@@ -1,5 +1,52 @@
 # Work Tracking System - Session History
 
+## Session: May 12, 2026 — Calendar Polish & Schedule SMS
+
+### Summary
+Continued multi-date scheduling work: wired up SMS notifications for schedule day tech assignments, enhanced calendar tooltips with tech names, added unassigned ticket alert banner, and improved chip visuals with status labels and red unassigned styling.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| SMS send_schedule_notification method | Done | Added to `sms_service.py` (previous session) |
+| Wire SMS into schedule routes | Done | `66f2438` — calls on add/update when tech_id set |
+| Calendar tooltip: show all assigned techs | Done | `c9aeeda` — aggregates from schedule + fallback assignments |
+| Fallback jobs: return assigned_techs from API | Done | `c9aeeda` — schedule.py get_schedule_range |
+| Unassigned ticket alert banner | Done | `2624443` — red banner at top for today/tomorrow |
+| Job status label on calendar chips | Done | `f221037` — `[status]` text on each chip |
+| Red outline + hover for unassigned chips | Done | `f221037` — 2px red border, red hover bg |
+| Admin delete verified time entries | Done | Double confirmation, `time_entries.py` check bypassed for admin |
+| Cache busting updates | Done | `?v=20260512f` |
+
+### Technical Notes
+
+**SMS for schedule assignments**:
+- `send_schedule_notification(entry)` in sms_service.py formats ticket/date/client/location
+- Called in `add_schedule_entry` (loop created entries with tech_id) and `update_schedule_entry` (when tech_id changes)
+- Failures logged as warnings, don't block the HTTP response
+
+**Calendar enhancements**:
+- Tooltip: line 1 = description, line 2 = "Techs: Name1, Name2" (all techs across all schedule days)
+- `jobTechsMap`: built from schedule entries, aggregates unique tech names per job_id
+- Fallback jobs get `assigned_techs` array from JobAssignment query in backend
+- Alert banner: scans `jobsByDate` for today/tomorrow, filters completed/cancelled, shows clickable ticket links
+- Chips: `[status]` label after ticket-client, `calendar-chip--unassigned` class for red border + hover
+
+### Files Modified
+- `app/routes/schedule.py` — SMS import + calls, assigned_techs in fallback response
+- `app/utils/sms_service.py` — send_schedule_notification method
+- `app/routes/time_entries.py` — admin bypass for delete restriction
+- `app/static/js/app.js` — tooltips, alert banner, status labels, unassigned styling
+- `app/static/css/style.css` — `.calendar-chip--unassigned:hover` rule
+- `app/templates/index.html` — cache bust v=20260512f
+
+### Next Steps
+- Test SMS notifications with real schedule assignments
+- Use scheduling in production over next couple weeks, iterate on feedback
+
+---
+
 ## Session: May 11, 2026 (3rd — Multi-Date Job Scheduling)
 
 ### Summary

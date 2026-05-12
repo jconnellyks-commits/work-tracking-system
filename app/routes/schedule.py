@@ -8,6 +8,7 @@ from app import db
 from app.models import Job, JobSchedule, JobAssignment, Technician
 from app.utils.auth import jwt_required_with_user, manager_required
 from app.utils.logging import get_logger
+from app.utils.sms_service import get_sms_service
 
 schedule_bp = Blueprint('schedule', __name__, url_prefix='/api/schedule')
 logger = get_logger(__name__)
@@ -77,6 +78,14 @@ def add_schedule_entry(job_id):
     db.session.commit()
     logger.info(f"Added {len(created)} schedule entries to job {job_id}")
 
+    sms = get_sms_service()
+    for entry in created:
+        if entry.tech_id:
+            try:
+                sms.send_schedule_notification(entry)
+            except Exception as e:
+                logger.warning(f"SMS failed for schedule entry {entry.id}: {e}")
+
     return jsonify({
         'message': f'{len(created)} schedule entries added',
         'schedule': [e.to_dict() for e in created]
@@ -98,6 +107,7 @@ def update_schedule_entry(job_id, entry_id):
         except ValueError:
             return jsonify({'error': 'Invalid date format'}), 400
 
+    old_tech_id = entry.tech_id
     if 'tech_id' in data:
         tech_id = data['tech_id'] or None
         if tech_id:
@@ -112,6 +122,14 @@ def update_schedule_entry(job_id, entry_id):
         entry.notes = data['notes'].strip() or None
 
     db.session.commit()
+
+    if entry.tech_id and entry.tech_id != old_tech_id:
+        try:
+            sms = get_sms_service()
+            sms.send_schedule_notification(entry)
+        except Exception as e:
+            logger.warning(f"SMS failed for schedule entry {entry.id}: {e}")
+
     return jsonify({'message': 'Updated', 'entry': entry.to_dict()}), 200
 
 

@@ -1,5 +1,122 @@
 # Work Tracking System - Session History
 
+## Session: May 11, 2026 (2nd — Job Bundling)
+
+### Summary
+Designed, implemented, and deployed the Job Bundling feature. Groups related jobs so their financials pool for pay calculation. Includes bundle CRUD, pay calculator integration, time entry support, report indicators, and full frontend management.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Design spec for job bundling | Done | `docs/superpowers/specs/2026-05-11-job-bundling-design.md` |
+| Implementation plan (10 tasks) | Done | `docs/superpowers/plans/2026-05-11-job-bundling.md` |
+| Migration 017: job_bundles table, bundle_id on jobs/time_entries | Done | `657fcc4` |
+| JobBundle model + bundle_id FK on Job/TimeEntry | Done | `e02dcd1` |
+| Bundle CRUD + membership API routes | Done | `c3d7227` |
+| Pay calculator: calculate_bundle_pay + bundle-aware period pay | Done | `c515209` |
+| Time entry routes: bundle_id support, job_id now optional | Done | `a38ad91` |
+| API client: API.bundles namespace (8 methods) | Done | `4d78c85` |
+| Frontend: Jobs page bundle management (create/view/add/remove) | Done | `6286ec7` |
+| Frontend: Time entry form bundle dropdown | Done | `6286ec7` |
+| Frontend: Bundle indicators in payroll + income/expense reports | Done | `5bf4ab0` |
+| Bundle_id/bundle_name in income/expense report API | Done | `5bf4ab0` |
+| Deploy migration + code to server | Done | Verified tables + service running |
+| Bugfix: modal overlays missing 'active' CSS class | Done | `f45a7f9` |
+| Bugfix: App.showToast → App.showAlert (method didn't exist) | Done | `1154e29` |
+| Bugfix: empty tech_id string causing MySQL DataError | Done | `60e393c` |
+
+### Technical Notes
+
+**Job Bundling Architecture**:
+- `job_bundles` table with auto-name (first job's description + "Bundle" if name is null)
+- Jobs get `bundle_id` FK; time entries get `bundle_id` FK + `job_id` becomes nullable
+- A time entry must have at least one of `job_id` or `bundle_id` (app-layer enforcement)
+
+**Pay Calculation**:
+- `calculate_bundle_pay(bundle_id)`: pools billing/expenses/commissions from all jobs in bundle, queries entries via `job_id IN (bundle_jobs) OR bundle_id = X`
+- `calculate_period_pay()`: bundled jobs merge under `"bundle:<id>"` key using `_VirtualBundleJob` with pooled financials; unbundled jobs unchanged
+
+**Frontend**:
+- "Create Bundle" button on Jobs page opens modal with job multi-select + search
+- Bundle badge (purple layer-group icon) on bundled job descriptions, clickable to view bundle details
+- "Add to Bundle" / "Remove from Bundle" buttons in job actions column
+- Time entry form: bundle dropdown alongside job dropdown; selecting bundle makes job optional
+- Reports: bundle icon prefix on bundled job rows in payroll and income/expense reports
+
+**Bugs Found & Fixed**:
+1. Modal CSS requires `.active` class — bundle modals created without it were invisible
+2. `App.showToast` doesn't exist (correct: `App.showAlert`) — JS error prevented dialog close
+3. Empty string `tech_id` from form sent to MySQL as `''` for INT column — converted to null in both frontend and backend
+
+### Files Created
+- `app/routes/bundles.py` — 8 endpoints (CRUD, membership, pay)
+- `database/migrations/017_job_bundles.sql`
+- `docs/superpowers/specs/2026-05-11-job-bundling-design.md`
+- `docs/superpowers/plans/2026-05-11-job-bundling.md`
+
+### Files Modified
+- `app/models.py` — JobBundle model, bundle_id on Job/TimeEntry, job_id nullable
+- `app/__init__.py` — register bundles_bp
+- `app/utils/pay_calculator.py` — calculate_bundle_pay, _VirtualBundleJob, bundle-aware period pay
+- `app/routes/time_entries.py` — bundle_id in create/update/list, tech_id empty→null
+- `app/routes/reports.py` — bundle_id/bundle_name in income/expense response
+- `app/static/js/api.js` — API.bundles namespace
+- `app/static/js/app.js` — bundle management UI, entry form, report indicators, bug fixes
+
+### Next Steps
+- Test pay calculation with real bundled jobs in upcoming pay period
+- Verify pooled financials produce expected results
+- Consider adding bundle pay preview in the bundle detail modal
+
+---
+
+## Session: May 11, 2026
+
+### Summary
+Fixed email parser service (expired OAuth2 token, missing Pub/Sub subscription), then designed and built a full Email Parser Status & Log page for the admin frontend.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Diagnose email parser crash loop | Done | Token expired + Pub/Sub subscription missing |
+| Regenerate OAuth2 token | Done | Ran `auth_setup.py` locally, SCP'd to server |
+| Create Pub/Sub subscription | Done | `gmail-dispatch-sub` on `gmail-dispatch-notifications` topic |
+| Design spec for email parser status page | Done | `docs/superpowers/specs/2026-05-11-email-parser-status-page-design.md` |
+| Implementation plan | Done | `docs/superpowers/plans/2026-05-11-email-parser-status-page.md` |
+| DB migration 016: email_parser_log table | Done | Deployed via `/tmp/dbrun.sh` |
+| SQLAlchemy EmailParserLog model | Done | `app/models.py` |
+| Backend API routes (status, GET/POST logs) | Done | `app/routes/email_parser.py` |
+| Blueprint registration | Done | `app/__init__.py` |
+| Frontend API client methods | Done | `app/static/js/api.js` |
+| Frontend sidebar, router, page title | Done | `app/static/js/app.js` |
+| Frontend email parser page (status card + activity log) | Done | `app/static/js/app.js` |
+| Daemon api_client.log_email_processed() | Done | `email_parser/api_client.py` |
+| Daemon process_message logging integration | Done | `email_parser/email_parser.py` |
+| Deploy and verify in browser | Done | All services restarted, page verified |
+| Bugfix: systemctl not in gunicorn PATH | Done | Changed to `/usr/bin/systemctl` absolute path |
+
+### Technical Notes
+
+**Email Parser Page** (`#email-parser`, admin-only):
+- **Status card**: Green/red dot, uptime, since timestamp, restart count. Auto-refreshes every 30s, clears interval on navigation.
+- **Activity log**: Filterable by platform (TST/TechLink/Unknown), status (success/failed/review), date range. Paginated 25/page. Job column links to `#jobs?id=X`.
+- **API**: `GET /api/email-parser/status` (systemctl show), `GET /api/email-parser/logs` (paginated query), `POST /api/email-parser/logs` (daemon posts entries).
+- **Daemon integration**: `log_email_processed()` called at every TST/TechLink processing outcome, wrapped in try/except.
+
+**Key bug found**: Gunicorn runs as `www-data` which doesn't have `/usr/bin` in PATH. `systemctl` call failed with `FileNotFoundError`. Fixed by using absolute path `/usr/bin/systemctl`.
+
+**Forwarded emails**: Emails forwarded from TechLink to Gmail have `@gmail.com` as sender, so they don't match `TECHLINK_SENDER_DOMAIN`. Only direct emails from `@techlinksvc.net` and `@techservicetoday.com` are processed and logged.
+
+### Next Steps
+- Activity log will populate as real TST/TechLink emails arrive
+- Consider publishing OAuth consent screen to production to prevent 7-day token expiry
+- Period 12 payout adjustments still pending
+- SMS notifications for technicians
+
+---
+
 ## Session: April 18, 2026
 
 ### Summary

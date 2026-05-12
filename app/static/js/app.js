@@ -657,17 +657,17 @@ const Pages = {
         document.getElementById('save-bundle-btn').addEventListener('click', async () => {
             const selected = [...document.querySelectorAll('.bundle-job-check:checked')].map(cb => parseInt(cb.value));
             if (selected.length < 1) {
-                App.showToast('Select at least one job', 'error');
+                App.showAlert('Select at least one job', 'error');
                 return;
             }
             const name = document.getElementById('bundle-name').value.trim();
             try {
                 await API.bundles.create({ name: name || undefined, job_ids: selected });
-                App.showToast('Bundle created', 'success');
+                App.showAlert('Bundle created', 'success');
                 modal.remove();
                 Pages.jobsPage(1);
             } catch (e) {
-                App.showToast(e.message || 'Failed to create bundle', 'error');
+                App.showAlert(e.message || 'Failed to create bundle', 'error');
             }
         });
     },
@@ -752,14 +752,14 @@ const Pages = {
         if (bundles.length > 0) {
             document.getElementById('add-to-bundle-btn').addEventListener('click', async () => {
                 const bundleId = document.getElementById('select-bundle').value;
-                if (!bundleId) { App.showToast('Select a bundle', 'error'); return; }
+                if (!bundleId) { App.showAlert('Select a bundle', 'error'); return; }
                 try {
                     await API.bundles.addJobs(parseInt(bundleId), [jobId]);
-                    App.showToast('Job added to bundle', 'success');
+                    App.showAlert('Job added to bundle', 'success');
                     modal.remove();
                     Pages.jobsPage(1);
                 } catch (e) {
-                    App.showToast(e.message || 'Failed', 'error');
+                    App.showAlert(e.message || 'Failed', 'error');
                 }
             });
         }
@@ -774,10 +774,10 @@ const Pages = {
         if (!confirm('Remove this job from its bundle?')) return;
         try {
             await API.bundles.removeJob(bundleId, jobId);
-            App.showToast('Job removed from bundle', 'success');
+            App.showAlert('Job removed from bundle', 'success');
             Pages.jobsPage(1);
         } catch (e) {
-            App.showToast(e.message || 'Failed', 'error');
+            App.showAlert(e.message || 'Failed', 'error');
         }
     },
 

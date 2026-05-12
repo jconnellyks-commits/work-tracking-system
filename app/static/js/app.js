@@ -1089,7 +1089,7 @@ const Pages = {
                         <h3 class="card-title" style="margin: 0; min-width: 180px; text-align: center;" id="cal-month-label">${formatMonthYear(year, month)}</h3>
                         <button class="btn btn-sm btn-secondary" id="cal-next"><i class="fas fa-chevron-right"></i></button>
                         <button class="btn btn-sm btn-primary" id="cal-today">Today</button>
-                        <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${state.jobs.length} job${state.jobs.length !== 1 ? 's' : ''} this month</span>
+                        <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${(state.scheduleEntries || []).length + (state.fallbackJobs || []).length} job${((state.scheduleEntries || []).length + (state.fallbackJobs || []).length) !== 1 ? 's' : ''} this month</span>
                     </div>
                     <div style="padding: 0.5rem;">
                         <div class="calendar-grid calendar-grid--header">

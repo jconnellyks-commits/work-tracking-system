@@ -1242,7 +1242,7 @@ const Pages = {
                             <tbody>
                                 ${schedEntries.map(entry => `<tr>
                                     <td>${App.formatDate(entry.scheduled_date)}</td>
-                                    <td>${entry.tech_name || '<em>Any</em>'}</td>
+                                    <td>${isManager ? `<a href="#" onclick="event.preventDefault(); Pages.editScheduleDay(${jobId}, ${entry.id}, '${entry.scheduled_date}')" style="text-decoration: underline; cursor: pointer;">${entry.tech_name || '<em>Any</em>'}</a>` : (entry.tech_name || '<em>Any</em>')}</td>
                                     <td>${entry.notes || ''}</td>
                                     ${isManager ? `<td><button class="btn btn-sm btn-outline-danger" onclick="Pages.deleteScheduleDay(${jobId}, ${entry.id})"><i class="fas fa-trash"></i></button></td>` : ''}
                                 </tr>`).join('')}
@@ -1678,6 +1678,51 @@ const Pages = {
             await Pages.jobModal(jobId, 'view');
         } catch (error) {
             App.showAlert(error.message || 'Failed to remove', 'danger');
+        }
+    },
+
+    async editScheduleDay(jobId, entryId, scheduledDate) {
+        const assignData = await API.assignments.getJobAssignments(jobId);
+        const techs = (assignData.assignments || [])
+            .filter(a => ['accepted', 'invited'].includes(a.status))
+            .map(a => ({ tech_id: a.tech_id, name: a.tech_name }));
+
+        const techOptions = `<option value="">Any assigned tech</option>` +
+            techs.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('');
+
+        const body = `
+            <form id="edit-schedule-form">
+                <div class="form-group">
+                    <label>Date: <strong>${App.formatDate(scheduledDate)}</strong></label>
+                </div>
+                <div class="form-group">
+                    <label>Technician</label>
+                    <select class="form-control" name="tech_id">${techOptions}</select>
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <input type="text" class="form-control" name="notes" placeholder="e.g., morning only">
+                </div>
+            </form>
+        `;
+
+        App.showModal('Edit Schedule Day', body, `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="Pages.updateScheduleDay(${jobId}, ${entryId})">Save</button>
+        `);
+    },
+
+    async updateScheduleDay(jobId, entryId) {
+        const form = document.getElementById('edit-schedule-form');
+        const techId = form.querySelector('[name="tech_id"]').value || null;
+        const notes = form.querySelector('[name="notes"]').value;
+
+        try {
+            await API.schedule.updateEntry(jobId, entryId, { tech_id: techId, notes });
+            App.showAlert('Schedule day updated', 'success');
+            await Pages.jobModal(jobId, 'view');
+        } catch (error) {
+            App.showAlert(error.message || 'Failed to update', 'danger');
         }
     },
 

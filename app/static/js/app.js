@@ -1866,11 +1866,13 @@ const Pages = {
         const jobData = await API.jobs.get(jobId);
         const job = jobData.job;
 
-        // Get existing assignments
+        // Get existing active assignments (exclude cancelled/declined/expired)
         let existingTechIds = [];
         try {
             const assignmentsData = await API.assignments.getJobAssignments(jobId);
-            existingTechIds = (assignmentsData.assignments || []).map(a => a.tech_id);
+            existingTechIds = (assignmentsData.assignments || [])
+                .filter(a => ['accepted', 'invited'].includes(a.status))
+                .map(a => a.tech_id);
         } catch (e) {
             console.error('Failed to load existing assignments:', e);
         }

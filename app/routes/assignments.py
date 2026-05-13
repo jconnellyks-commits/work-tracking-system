@@ -25,9 +25,11 @@ def get_job_assignments(job_id):
     """
     job = Job.query.get_or_404(job_id)
 
-    assignments = JobAssignment.query.filter_by(job_id=job_id)\
-        .order_by(JobAssignment.assigned_at.desc())\
-        .all()
+    include_cancelled = request.args.get('include_cancelled', 'false').lower() == 'true'
+    query = JobAssignment.query.filter_by(job_id=job_id)
+    if not include_cancelled:
+        query = query.filter(JobAssignment.status.notin_(['cancelled', 'declined', 'expired']))
+    assignments = query.order_by(JobAssignment.assigned_at.desc()).all()
 
     return jsonify({
         'job': job.to_dict(),
@@ -176,35 +178,45 @@ def assign_technicians_to_job(job_id):
         existing = JobAssignment.query.filter_by(
             job_id=job_id,
             tech_id=tech_id
-        ).filter(JobAssignment.status.in_(['accepted', 'invited'])).first()
+        ).first()
 
         if existing:
-            errors.append({
-                'tech_id': tech_id,
-                'error': 'Technician already assigned to this job',
-                'assignment_id': existing.assignment_id
-            })
-            continue
+            if existing.status in ('accepted', 'invited'):
+                errors.append({
+                    'tech_id': tech_id,
+                    'error': 'Technician already assigned to this job',
+                    'assignment_id': existing.assignment_id
+                })
+                continue
+            # Reactivate cancelled/declined/expired assignment
+            existing.status = 'accepted'
+            existing.assigned_by = user.user_id
+            existing.assigned_at = datetime.utcnow()
+            existing.notes = notes
+            existing.sms_sent = False
+            existing.sms_sent_at = None
+            existing.sms_delivery_status = 'pending'
+            assignment = existing
+        else:
+            # Determine if this is the primary technician (first one assigned)
+            existing_count = JobAssignment.query.filter_by(
+                job_id=job_id,
+                status='accepted'
+            ).count()
+            is_primary = existing_count == 0
 
-        # Determine if this is the primary technician (first one assigned)
-        existing_count = JobAssignment.query.filter_by(
-            job_id=job_id,
-            status='accepted'
-        ).count()
-        is_primary = existing_count == 0
+            # Create assignment
+            assignment = JobAssignment(
+                job_id=job_id,
+                tech_id=tech_id,
+                status='accepted',
+                is_primary=is_primary,
+                assigned_by=user.user_id,
+                assigned_at=datetime.utcnow(),
+                notes=notes
+            )
 
-        # Create assignment
-        assignment = JobAssignment(
-            job_id=job_id,
-            tech_id=tech_id,
-            status='accepted',
-            is_primary=is_primary,
-            assigned_by=user.user_id,
-            assigned_at=datetime.utcnow(),
-            notes=notes
-        )
-
-        db.session.add(assignment)
+            db.session.add(assignment)
         db.session.flush()  # Get the assignment_id
 
         created_assignments.append(assignment)

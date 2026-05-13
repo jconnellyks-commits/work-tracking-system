@@ -601,9 +601,9 @@ class SMSNotification(db.Model):
             'provider_message_id': self.provider_message_id,
             'error_message': self.error_message,
             'is_spam': self.is_spam,
-            'sent_at': self.sent_at.isoformat() if self.sent_at else None,
-            'delivered_at': self.delivered_at.isoformat() if self.delivered_at else None,
-            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'sent_at': (self.sent_at.isoformat() + 'Z') if self.sent_at else None,
+            'delivered_at': (self.delivered_at.isoformat() + 'Z') if self.delivered_at else None,
+            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
         }
 
 

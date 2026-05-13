@@ -89,8 +89,6 @@ def role_required(*allowed_roles):
             from app.models import User
 
             try:
-                auth_header = request.headers.get('Authorization')
-                logger.debug(f"Auth header present: {bool(auth_header)}, type: {type(auth_header)}, value: {auth_header[:30] + '...' if auth_header and len(auth_header) > 30 else auth_header}")
                 verify_jwt_in_request()
                 user_id = get_jwt_identity()
                 user = User.query.get(int(user_id))
@@ -121,7 +119,7 @@ def role_required(*allowed_roles):
 
                 return fn(*args, **kwargs)
             except Exception as e:
-                logger.error(f"Authorization error: {str(e)}", exc_info=True)
+                logger.error(f"Authorization error: {str(e)}")
                 return jsonify({'error': 'Authentication required'}), 401
 
         return wrapper

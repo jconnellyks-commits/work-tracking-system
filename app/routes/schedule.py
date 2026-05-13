@@ -70,7 +70,7 @@ def add_schedule_entry(job_id):
             job_id=job_id,
             scheduled_date=date_obj,
             tech_id=tech_id,
-            notes=entry.get('notes', '').strip() or None
+            notes=(entry.get('notes') or '').strip() or None
         )
         db.session.add(schedule_entry)
         created.append(schedule_entry)

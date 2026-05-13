@@ -49,15 +49,25 @@ def add_schedule_entry(job_id):
 
         tech_id = entry.get('tech_id') or None
 
-        # Validate tech is assigned to this job (if specified)
+        # Auto-assign tech to job if not already assigned
         if tech_id:
-            assignment = JobAssignment.query.filter_by(
+            tech = Technician.query.get(tech_id)
+            if not tech:
+                return jsonify({'error': f'Technician ID {tech_id} not found'}), 400
+            existing_assignment = JobAssignment.query.filter_by(
                 job_id=job_id, tech_id=tech_id
-            ).filter(JobAssignment.status.in_(['accepted', 'invited'])).first()
-            if not assignment:
-                tech = Technician.query.get(tech_id)
-                name = tech.name if tech else f'ID {tech_id}'
-                return jsonify({'error': f'{name} is not assigned to this job'}), 400
+            ).first()
+            if not existing_assignment:
+                new_assignment = JobAssignment(
+                    job_id=job_id, tech_id=tech_id, status='accepted',
+                    is_primary=False, assigned_by=g.current_user.user_id,
+                    assigned_at=datetime.utcnow()
+                )
+                db.session.add(new_assignment)
+            elif existing_assignment.status not in ('accepted', 'invited'):
+                existing_assignment.status = 'accepted'
+                existing_assignment.assigned_at = datetime.utcnow()
+                existing_assignment.assigned_by = g.current_user.user_id
 
         # Check for duplicate
         existing = JobSchedule.query.filter_by(
@@ -111,15 +121,27 @@ def update_schedule_entry(job_id, entry_id):
     if 'tech_id' in data:
         tech_id = data['tech_id'] or None
         if tech_id:
-            assignment = JobAssignment.query.filter_by(
+            tech = Technician.query.get(tech_id)
+            if not tech:
+                return jsonify({'error': f'Technician ID {tech_id} not found'}), 400
+            existing_assignment = JobAssignment.query.filter_by(
                 job_id=job_id, tech_id=tech_id
-            ).filter(JobAssignment.status.in_(['accepted', 'invited'])).first()
-            if not assignment:
-                return jsonify({'error': 'Technician is not assigned to this job'}), 400
+            ).first()
+            if not existing_assignment:
+                new_assignment = JobAssignment(
+                    job_id=job_id, tech_id=tech_id, status='accepted',
+                    is_primary=False, assigned_by=g.current_user.user_id,
+                    assigned_at=datetime.utcnow()
+                )
+                db.session.add(new_assignment)
+            elif existing_assignment.status not in ('accepted', 'invited'):
+                existing_assignment.status = 'accepted'
+                existing_assignment.assigned_at = datetime.utcnow()
+                existing_assignment.assigned_by = g.current_user.user_id
         entry.tech_id = tech_id
 
     if 'notes' in data:
-        entry.notes = data['notes'].strip() or None
+        entry.notes = (data.get('notes') or '').strip() or None
 
     db.session.commit()
 

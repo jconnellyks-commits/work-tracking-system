@@ -1651,13 +1651,10 @@ const Pages = {
     },
 
     async addScheduleDay(jobId) {
-        // Get techs assigned to this job for the dropdown
-        const assignData = await API.assignments.getJobAssignments(jobId);
-        const techs = (assignData.assignments || [])
-            .filter(a => ['accepted', 'invited'].includes(a.status))
-            .map(a => ({ tech_id: a.tech_id, name: a.tech_name }));
+        // Show all active technicians (auto-assigns to job on save)
+        const techs = (App.technicians || []).filter(t => t.status === 'active');
 
-        const techOptions = `<option value="">Any assigned tech</option>` +
+        const techOptions = `<option value="">Unassigned</option>` +
             techs.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('');
 
         const body = `
@@ -1729,12 +1726,10 @@ const Pages = {
     },
 
     async editScheduleDay(jobId, entryId, scheduledDate) {
-        const assignData = await API.assignments.getJobAssignments(jobId);
-        const techs = (assignData.assignments || [])
-            .filter(a => ['accepted', 'invited'].includes(a.status))
-            .map(a => ({ tech_id: a.tech_id, name: a.tech_name }));
+        // Show all active technicians (auto-assigns to job on save)
+        const techs = (App.technicians || []).filter(t => t.status === 'active');
 
-        const techOptions = `<option value="">Any assigned tech</option>` +
+        const techOptions = `<option value="">Unassigned</option>` +
             techs.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('');
 
         const body = `

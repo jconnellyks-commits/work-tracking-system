@@ -68,15 +68,12 @@ const API = {
             if (!response.ok) {
                 // Handle authentication errors
                 if (response.status === 401) {
-                    // Try to refresh token first
-                    if (data.code === 'token_expired' || data.error?.includes('expired')) {
-                        const refreshed = await this.refreshToken();
-                        if (refreshed) {
-                            // Retry the request with new token
-                            return this.request(endpoint, options);
-                        }
+                    // Try to refresh token on any 401
+                    const refreshed = await this.refreshToken();
+                    if (refreshed) {
+                        return this.request(endpoint, options);
                     }
-                    // Refresh failed or other auth error - redirect to login
+                    // Refresh failed - redirect to login
                     this.clearTokens();
                     window.location.href = '/login';
                     return;

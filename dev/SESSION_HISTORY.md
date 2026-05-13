@@ -1,9 +1,9 @@
 # Work Tracking System - Session History
 
-## Session: May 13, 2026 — Bug Fixes (SMS Log Timezone, Schedule Entry Crash)
+## Session: May 13, 2026 — Bug Fixes & Assignment Cleanup
 
 ### Summary
-Fixed SMS log timestamps displaying wrong timezone, and debugged a crash when adding schedule days that was masquerading as a 401 auth error.
+Fixed SMS log timezone, debugged a schedule entry crash masquerading as a 401 auth error, and cleaned up cancelled assignment handling so techs can be properly removed and re-assigned.
 
 ### Completed Tasks
 
@@ -13,6 +13,7 @@ Fixed SMS log timestamps displaying wrong timezone, and debugged a crash when ad
 | Schedule entry crash (null notes) | Done | `7dae40e` — `entry.get('notes', '')` returns `None` when key exists with null value |
 | Fix infinite 401 retry loop | Done | `cc5ae45` — added `_retried` guard to API.request() |
 | Retry token refresh on any 401 | Done | `0008cbc` — removed expired-token-specific check |
+| Clean up cancelled assignment handling | Done | `c4ce8f9` — hide cancelled, allow re-assign, reactivate records |
 
 ### Technical Notes
 
@@ -22,12 +23,19 @@ Fixed SMS log timestamps displaying wrong timezone, and debugged a crash when ad
 
 **Auth retry**: The broad `except` in `role_required` masks all route errors as 401. The frontend previously only tried token refresh for `'expired'` error messages, so the generic 401 kicked the user to login. Now retries once on any 401. Also added `_retried` flag to prevent infinite refresh loops.
 
+**Cancelled assignments**: Three-part fix:
+1. `GET /api/assignments/job/:id` now excludes cancelled/declined/expired by default (`?include_cancelled=true` to see all)
+2. Assign dialog only blocks techs with active (`accepted`/`invited`) status, so cancelled techs reappear as available
+3. Re-assigning a previously cancelled tech reactivates the existing DB record instead of creating a duplicate
+
 ### Files Modified
 - `app/models.py` — SMSNotification.to_dict() timestamps with Z suffix
 - `app/routes/schedule.py` — null-safe notes handling
+- `app/routes/assignments.py` — filter cancelled from GET, reactivate on re-assign
 - `app/utils/auth.py` — debug logging (added then removed)
 - `app/static/js/api.js` — retry guard, universal 401 refresh
-- `app/templates/index.html` — cache bust v=20260513a
+- `app/static/js/app.js` — assign dialog filters only active assignments
+- `app/templates/index.html` — cache bust v=20260513b
 
 ---
 

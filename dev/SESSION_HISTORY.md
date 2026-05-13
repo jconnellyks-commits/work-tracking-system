@@ -1,5 +1,36 @@
 # Work Tracking System - Session History
 
+## Session: May 13, 2026 — Bug Fixes (SMS Log Timezone, Schedule Entry Crash)
+
+### Summary
+Fixed SMS log timestamps displaying wrong timezone, and debugged a crash when adding schedule days that was masquerading as a 401 auth error.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| SMS log timezone fix | Done | `42dfd2c` — append `Z` to UTC isoformat strings in SMSNotification.to_dict() |
+| Schedule entry crash (null notes) | Done | `7dae40e` — `entry.get('notes', '')` returns `None` when key exists with null value |
+| Fix infinite 401 retry loop | Done | `cc5ae45` — added `_retried` guard to API.request() |
+| Retry token refresh on any 401 | Done | `0008cbc` — removed expired-token-specific check |
+
+### Technical Notes
+
+**SMS timezone**: Timestamps stored as UTC via `datetime.utcnow` but serialized with `.isoformat()` (no timezone indicator). Browser interpreted as local time. Fix: append `'Z'` suffix so `new Date()` treats as UTC.
+
+**Schedule entry crash**: `entry.get('notes', '')` returns `None` (not `''`) when JSON has `"notes": null` — Python `.get()` only uses the default when the key is *missing*, not when the value is `None`. The `.strip()` on `None` raised `AttributeError`, caught by the auth decorator's broad `except Exception` and returned as a 401. Fix: `(entry.get('notes') or '').strip()`.
+
+**Auth retry**: The broad `except` in `role_required` masks all route errors as 401. The frontend previously only tried token refresh for `'expired'` error messages, so the generic 401 kicked the user to login. Now retries once on any 401. Also added `_retried` flag to prevent infinite refresh loops.
+
+### Files Modified
+- `app/models.py` — SMSNotification.to_dict() timestamps with Z suffix
+- `app/routes/schedule.py` — null-safe notes handling
+- `app/utils/auth.py` — debug logging (added then removed)
+- `app/static/js/api.js` — retry guard, universal 401 refresh
+- `app/templates/index.html` — cache bust v=20260513a
+
+---
+
 ## Session: May 12, 2026 — Calendar Polish & Schedule SMS
 
 ### Summary

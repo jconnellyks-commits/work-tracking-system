@@ -44,7 +44,7 @@ const API = {
     },
 
     // Make API request
-    async request(endpoint, options = {}) {
+    async request(endpoint, options = {}, _retried = false) {
         const url = `${this.baseUrl}${endpoint}`;
         const token = this.getToken();
 
@@ -67,11 +67,11 @@ const API = {
 
             if (!response.ok) {
                 // Handle authentication errors
-                if (response.status === 401) {
-                    // Try to refresh token on any 401
+                if (response.status === 401 && !_retried) {
+                    // Try to refresh token on any 401 (once)
                     const refreshed = await this.refreshToken();
                     if (refreshed) {
-                        return this.request(endpoint, options);
+                        return this.request(endpoint, options, true);
                     }
                     // Refresh failed - redirect to login
                     this.clearTokens();

@@ -1,9 +1,9 @@
 # Work Tracking System - Session History
 
-## Session: May 13, 2026 — Bug Fixes & Assignment Cleanup
+## Session: May 13, 2026 — Bug Fixes, Assignment Cleanup & Schedule SMS
 
 ### Summary
-Fixed SMS log timezone, debugged a schedule entry crash masquerading as a 401 auth error, and cleaned up cancelled assignment handling so techs can be properly removed and re-assigned.
+Fixed SMS log timezone, debugged a schedule entry crash masquerading as a 401 auth error, cleaned up cancelled assignment handling, removed the requirement for techs to be job-assigned before scheduling, added SMS notification dialog for schedule day forms, and committed the missing `send_schedule_notification` method.
 
 ### Completed Tasks
 
@@ -14,6 +14,11 @@ Fixed SMS log timezone, debugged a schedule entry crash masquerading as a 401 au
 | Fix infinite 401 retry loop | Done | `cc5ae45` — added `_retried` guard to API.request() |
 | Retry token refresh on any 401 | Done | `0008cbc` — removed expired-token-specific check |
 | Clean up cancelled assignment handling | Done | `c4ce8f9` — hide cancelled, allow re-assign, reactivate records |
+| Remove tech-must-be-assigned gate for scheduling | Done | Schedule route auto-creates JobAssignment when tech is scheduled |
+| Schedule day forms: show all active techs | Done | Dropdown shows all active techs, not just job-assigned ones |
+| SMS checkbox on add/edit schedule day dialogs | Done | Checked by default, passes `send_sms` flag through API |
+| Commit send_schedule_notification method | Done | Was local-only, never committed — deployed to server |
+| Fix null notes bug in update route | Done | Same pattern in `update_schedule_entry` |
 
 ### Technical Notes
 
@@ -28,14 +33,17 @@ Fixed SMS log timezone, debugged a schedule entry crash masquerading as a 401 au
 2. Assign dialog only blocks techs with active (`accepted`/`invited`) status, so cancelled techs reappear as available
 3. Re-assigning a previously cancelled tech reactivates the existing DB record instead of creating a duplicate
 
+**Schedule SMS flow**: Backend auto-creates `JobAssignment` when scheduling a tech (no pre-assignment needed). Frontend schedule day forms show all active techs with an SMS checkbox (checked by default). `API.schedule.addEntries` passes `send_sms` flag. Backend calls `sms_service.send_schedule_notification()` after commit for each created entry with a tech.
+
 ### Files Modified
 - `app/models.py` — SMSNotification.to_dict() timestamps with Z suffix
-- `app/routes/schedule.py` — null-safe notes handling
+- `app/routes/schedule.py` — null-safe notes handling, auto-assign tech on schedule
 - `app/routes/assignments.py` — filter cancelled from GET, reactivate on re-assign
+- `app/utils/sms_service.py` — send_schedule_notification method (committed)
 - `app/utils/auth.py` — debug logging (added then removed)
-- `app/static/js/api.js` — retry guard, universal 401 refresh
-- `app/static/js/app.js` — assign dialog filters only active assignments
-- `app/templates/index.html` — cache bust v=20260513b
+- `app/static/js/api.js` — retry guard, universal 401 refresh, addEntries sendSms param
+- `app/static/js/app.js` — assign dialog, schedule day forms with all techs + SMS checkbox
+- `app/templates/index.html` — cache bust v=20260513d
 
 ---
 

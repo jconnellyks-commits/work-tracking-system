@@ -1671,6 +1671,12 @@ const Pages = {
                     <label>Notes</label>
                     <input type="text" class="form-control" name="notes" placeholder="e.g., morning only, finish wiring">
                 </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="send_sms" checked style="margin-right: 0.5rem;">
+                        Send SMS notification to technician
+                    </label>
+                </div>
             </form>
         `;
 
@@ -1685,6 +1691,7 @@ const Pages = {
         const date = form.querySelector('[name="scheduled_date"]').value;
         const techId = form.querySelector('[name="tech_id"]').value || null;
         const notes = form.querySelector('[name="notes"]').value;
+        const sendSms = form.querySelector('[name="send_sms"]').checked;
 
         if (!date) {
             App.showAlert('Date is required', 'warning');
@@ -1706,7 +1713,7 @@ const Pages = {
                 }
             }
 
-            await API.schedule.addEntries(jobId, entries);
+            await API.schedule.addEntries(jobId, entries, sendSms);
             App.showAlert('Schedule day added', 'success');
             await Pages.jobModal(jobId, 'view');
         } catch (error) {
@@ -1745,6 +1752,12 @@ const Pages = {
                     <label>Notes</label>
                     <input type="text" class="form-control" name="notes" placeholder="e.g., morning only">
                 </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" name="send_sms" checked style="margin-right: 0.5rem;">
+                        Send SMS notification to technician
+                    </label>
+                </div>
             </form>
         `;
 
@@ -1758,9 +1771,10 @@ const Pages = {
         const form = document.getElementById('edit-schedule-form');
         const techId = form.querySelector('[name="tech_id"]').value || null;
         const notes = form.querySelector('[name="notes"]').value;
+        const sendSms = form.querySelector('[name="send_sms"]').checked;
 
         try {
-            await API.schedule.updateEntry(jobId, entryId, { tech_id: techId, notes });
+            await API.schedule.updateEntry(jobId, entryId, { tech_id: techId, notes, send_sms: sendSms });
             App.showAlert('Schedule day updated', 'success');
             await Pages.jobModal(jobId, 'view');
         } catch (error) {

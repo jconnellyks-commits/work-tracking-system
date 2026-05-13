@@ -646,10 +646,10 @@ const API = {
             return API.request(`/schedule/job/${jobId}`);
         },
 
-        async addEntries(jobId, entries) {
+        async addEntries(jobId, entries, sendSms = false) {
             return API.request(`/schedule/job/${jobId}`, {
                 method: 'POST',
-                body: JSON.stringify({ entries })
+                body: JSON.stringify({ entries, send_sms: sendSms })
             });
         },
 

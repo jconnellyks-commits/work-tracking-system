@@ -35,6 +35,7 @@ def add_schedule_entry(job_id):
 
     # Support bulk or single
     entries_data = data.get('entries', [data])
+    send_sms = data.get('send_sms', False)
     created = []
 
     for entry in entries_data:
@@ -88,13 +89,14 @@ def add_schedule_entry(job_id):
     db.session.commit()
     logger.info(f"Added {len(created)} schedule entries to job {job_id}")
 
-    sms = get_sms_service()
-    for entry in created:
-        if entry.tech_id:
-            try:
-                sms.send_schedule_notification(entry)
-            except Exception as e:
-                logger.warning(f"SMS failed for schedule entry {entry.id}: {e}")
+    if send_sms:
+        sms = get_sms_service()
+        for entry in created:
+            if entry.tech_id:
+                try:
+                    sms.send_schedule_notification(entry)
+                except Exception as e:
+                    logger.warning(f"SMS failed for schedule entry {entry.id}: {e}")
 
     return jsonify({
         'message': f'{len(created)} schedule entries added',
@@ -145,7 +147,7 @@ def update_schedule_entry(job_id, entry_id):
 
     db.session.commit()
 
-    if entry.tech_id and entry.tech_id != old_tech_id:
+    if data.get('send_sms') and entry.tech_id and entry.tech_id != old_tech_id:
         try:
             sms = get_sms_service()
             sms.send_schedule_notification(entry)

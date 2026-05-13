@@ -22,7 +22,7 @@ import config
 from api_client import WorkTrackingClient
 from gmail_client import GmailClient
 from parsers.tst import classify_tst_subject, parse_service_order, parse_special_update
-from parsers.techlink import classify_techlink_subject, parse_techlink_email
+from parsers.techlink import classify_techlink_subject, parse_techlink_email, parse_techlink_reminder
 
 logging.basicConfig(
     level=logging.INFO,
@@ -168,9 +168,9 @@ def process_message(gmail_client, api_client, msg_id):
 
     # --- TechLink ---
     elif config.TECHLINK_SENDER_DOMAIN in sender_domain:
-        ticket = classify_techlink_subject(subject)
+        email_type, ticket = classify_techlink_subject(subject)
 
-        if ticket:
+        if email_type == 'assigned' and ticket:
             job = parse_techlink_email(msg, ticket)
             if job:
                 try:
@@ -196,8 +196,35 @@ def process_message(gmail_client, api_client, msg_id):
                 add_label_names=[config.LABEL_TL_PROCESSED],
                 remove_label_ids=['INBOX'],
             )
+
+        elif email_type == 'reminder' and ticket:
+            update = parse_techlink_reminder(msg, ticket)
+            if update:
+                try:
+                    result = api_client.import_techlink([update])
+                    logger.info(f"TechLink reminder update result: {result}")
+                    api_client.log_email_processed(
+                        platform='TechLink', email_type='reminder', subject=subject,
+                        status='success', ticket_number=ticket,
+                        gmail_message_id=msg_id,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to update TL-{ticket} from reminder: {e}")
+                    api_client.log_email_processed(
+                        platform='TechLink', email_type='reminder', subject=subject,
+                        status='failed', ticket_number=ticket,
+                        error_message=str(e), gmail_message_id=msg_id,
+                    )
+                    gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
+                    return
+            gmail_client.apply_labels(
+                msg_id,
+                add_label_names=[config.LABEL_TL_PROCESSED],
+                remove_label_ids=['INBOX'],
+            )
+
         else:
-            logger.info(f"TechLink email not recognized as Assigned, flagging for review: {subject!r}")
+            logger.info(f"TechLink email not recognized, flagging for review: {subject!r}")
             api_client.log_email_processed(
                 platform='TechLink', email_type='unrecognized', subject=subject,
                 status='review', gmail_message_id=msg_id,

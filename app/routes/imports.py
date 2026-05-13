@@ -995,14 +995,20 @@ def import_techlink():
                 except (ValueError, AttributeError):
                     pass
 
-            mapped_status = job_data.get('status', 'assigned')
+            external_url = job_data.get('external_url', '').strip() or None
+            mapped_status = job_data.get('status')
 
             if existing_job:
-                existing_job.job_status = mapped_status
-                if job_date and not existing_job.job_date:
+                if mapped_status:
+                    existing_job.job_status = mapped_status
+                if job_date:
                     existing_job.job_date = job_date
-                if scheduled_start_time and not existing_job.scheduled_start_time:
+                if scheduled_start_time:
                     existing_job.scheduled_start_time = scheduled_start_time
+                if external_url and not existing_job.external_url:
+                    existing_job.external_url = external_url
+                if description and not existing_job.description.startswith(description.split(' | ')[0][:20] if description else ''):
+                    pass  # Don't overwrite richer description from Assigned email
                 results['updated_jobs'] += 1
             else:
                 job = Job(
@@ -1011,7 +1017,8 @@ def import_techlink():
                     client_name=(job_data.get('client_name', '') or 'TechLink')[:200],
                     job_date=job_date,
                     scheduled_start_time=scheduled_start_time,
-                    job_status=mapped_status,
+                    external_url=external_url,
+                    job_status=mapped_status or 'assigned',
                     billing_amount=0,
                     billing_type='hourly',
                     platform_id=platform.platform_id,

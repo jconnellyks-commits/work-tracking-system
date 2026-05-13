@@ -434,6 +434,42 @@ class SMSService:
         return result
 
 
+    def send_schedule_notification(self, schedule_entry):
+        """Send SMS when a tech is assigned to a specific schedule day."""
+        tech = schedule_entry.technician
+        if not tech or not tech.phone:
+            return {'success': False, 'error': 'Technician has no phone number'}
+
+        job = schedule_entry.job
+        if not job:
+            return {'success': False, 'error': 'No associated job'}
+
+        ticket = job.ticket_number or f'Job #{job.job_id}'
+        date_str = schedule_entry.scheduled_date.strftime('%m/%d')
+        client = job.client_name or 'Unknown'
+        if len(client) > 20:
+            client = client[:17] + '...'
+
+        if job.scheduled_start_time:
+            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
+            date_str = f"{date_str} at {start_str}"
+
+        if job.external_url:
+            message = f"Scheduled: {ticket}\nDate: {date_str}\nClient: {client}\n{job.external_url}"
+        else:
+            location = job.location or 'TBD'
+            if len(location) > 25:
+                location = location[:22] + '...'
+            message = f"Scheduled: {ticket}\nDate: {date_str}\nLocation: {location}\nClient: {client}"
+
+        return self.send_sms(
+            to_number=tech.phone,
+            message=message,
+            notification_type='job_assignment',
+            tech_id=tech.tech_id
+        )
+
+
     def send_availability_request(self, assignment):
         """
         Send an availability request SMS for a job.

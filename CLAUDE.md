@@ -2,18 +2,20 @@
 
 ## TODO - Next Session
 - [ ] Apply Period 12 payout adjustments (exact deltas need recalculation — see memory)
-- [ ] SMS notifications for technicians  ← NEXT
+- [ ] Time entries interface adjustments
+- [ ] Audit code
+- [x] SMS notifications for technicians (May 2026)
+- [x] TechLink email parser: Install Reminder handling + external URLs (May 13, 2026)
+- [x] FN scraper: fix false time entries on pre-work jobs (May 13, 2026)
 - [x] Hourly billing auto-calculation + reimbursable line items (Apr 18, 2026)
 - [x] Fix multi-tech pay calculation — shared-pool weighted formula (Apr 14, 2026)
 - [x] Per-entry rows in payroll report/payout views (Apr 14, 2026)
 - [x] Calendar view for assigned jobs
 - [x] Scheduled start time on jobs (scrapers extract it, shows on calendar chips + job modal)
 - [x] Update scraper batch files to use worktracking.sleepybear.tech + SSL=true
-- [x] Automate entry for TechLink (email parser service — deployed, needs live test)
-- [x] Automate entry for Tech Service Today (email parser service — deployed, needs live test)
+- [x] Automate entry for TechLink (email parser service — deployed, live)
+- [x] Automate entry for Tech Service Today (email parser service — deployed, live)
 - [x] Fix timezone bug — reports/dashboard showing wrong day after 6 PM (uses configurable timezone now)
-- [ ] Time entries interface adjustments
-- [ ] Audit code
 
 ## Future Enhancements to Review
 - **Job Dropdown Performance**: Current implementation filters completed jobs by default in time entry forms (editEntry, copyEntry). As job count grows, may need to switch to server-side pagination/search for the job dropdown. Monitor performance when job count exceeds ~500.
@@ -58,6 +60,9 @@ app/
     technicians.py # Technician management
     reports.py     # Payroll, income/expense, dashboard reports
     settings.py    # System settings, mileage rates
+    schedule.py    # Job scheduling (calendar), auto-assigns techs
+    assignments.py # Tech-to-job assignments + SMS notifications
+    imports.py     # Import endpoints (Field Nation, WorkMarket, TST, TechLink)
   models.py        # SQLAlchemy models
   static/
     js/
@@ -70,6 +75,15 @@ app/
     pay_calculator.py  # Pay calculation logic
     auth.py            # JWT auth utilities
     logging.py         # Logging and audit utilities
+    sms_service.py     # Twilio SMS notifications
+email_parser/
+  parsers/
+    techlink.py    # TechLink email parsing (Assigned + Install Reminder)
+    tst.py         # Tech Service Today email parsing
+  email_parser.py  # Main Pub/Sub listener daemon
+  gmail_client.py  # Gmail API wrapper
+  api_client.py    # Work Tracking API client
+  config.py        # Environment config
 ```
 
 ## Pay Calculation System
@@ -206,7 +220,12 @@ set API_VERIFY_SSL=false                  # Set to 'false' for self-signed certs
 - Shows exactly what patterns are matching/failing
 - Use this when time entries aren't being extracted correctly
 
-**Time Entry Extraction Patterns:**
+**Pre-work Job Handling:**
+- Jobs with status Assigned/Confirmed/Scheduled/Pending: NO time entries extracted (prevents false entries)
+- 75% of buyer's estimated hours used for pay estimate only (no time entry created)
+- Minimum hours floor: 0.02h (~1 min) on all calculated time entries
+
+**Time Entry Extraction Patterns (post-work jobs only):**
 The scraper uses multiple patterns to extract time entries from Field Nation pages:
 
 1. **Pattern 1 - Arrow format with hours prefix:**
@@ -335,6 +354,28 @@ S. Scrape only (no auto-import)
 - `--dry-run`, `--no-import`
 - `--min-date YYYY-MM-DD`, `--no-date-filter`
 
+## TechLink Email Parser
+The email parser handles two TechLink email types automatically:
+
+**Email Types:**
+1. **"TechLink Work Order #NNNNN Assigned"** — creates new job with client info, description, address
+2. **"TechLink Install Reminder: WO #NNNNN, ..."** — updates existing job with schedule + portal URL
+
+**Key Details:**
+- Assigned emails do NOT contain schedule or URL — only job details
+- Install Reminder emails contain both `Scheduled Install Time` and portal URL
+- Date format: `MAY 14, 2026 12:30 PM (CDT)` — all-caps month, timezone in parens
+- Portal URL: `https://portal.techlinksvc.net/admin/?mod=workorders&act=edit&id={ticket}`
+- Platform code in DB: `techlink` (platform_id=3), ticket prefix: `TL-`
+- `classify_techlink_subject()` returns `(email_type, ticket_number)` tuple
+
+**Other TechLink email subjects (currently flagged for review):**
+- "TechLink WO #NNNNN - Note Added: ..."
+- "TechLink WO #NNNNN Updated: ..."
+- "TechLink Work Order #NNNNN needs your Invoice"
+- "TechLink Work Order NNNNN is Ready for Your Invoice"
+- "TechLink Work Order #NNNNN Available for Tech ..."
+
 ## Database Migrations Run
 - 001: Initial schema
 - 002: Financial fields (mileage, per_diem, personal_expenses, expenses, commissions)
@@ -422,7 +463,11 @@ S. Scrape only (no auto-import)
 
 **Technician**: name, email, phone, hourly_rate (minimum rate), status
 
-**Platform**: name, code (e.g., "Field Nation", "FN")
+**Platform**: name, code (e.g., "Field Nation"/"FN", "WorkMarket"/"workmarket", "TechLink"/"techlink", "Tech Service Today"/"techservicetoday")
+
+**JobSchedule**: job_id, scheduled_date, tech_id, notes (calendar entries)
+
+**JobAssignment**: job_id, tech_id, status, is_primary, sms_sent
 
 **User**: email, password_hash, role, tech_id (links to technician)
 

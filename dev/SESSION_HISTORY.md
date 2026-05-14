@@ -1,5 +1,43 @@
 # Work Tracking System - Session History
 
+## Session: May 13, 2026 — Scraper Fixes, TechLink Parser Upgrade & DB Cleanup
+
+### Summary
+Fixed false time entries from Field Nation scraper on pre-work jobs, added minimum hours floor to both scrapers, upgraded TechLink email parser to handle Install Reminder emails (schedule extraction + portal URLs), and cleaned up duplicate unassigned time entries.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| FN scraper: false time entries on pre-work jobs | Done | Skip time entry extraction for Assigned/Confirmed/Scheduled/Pending statuses; keep 75% pay estimate |
+| Minimum hours floor (both scrapers) | Done | `max(hours, 0.02)` — prevents 0.00h entries from near-identical check-in/out times |
+| Fix WM-2841518476 bad entries | Done | Deleted 0.00h entry (616) and duplicate draft (615) |
+| TechLink: handle Install Reminder emails | Done | `0e36ac0` — new parser extracts schedule + URL from reminders, updates existing jobs |
+| TechLink: external URLs | Done | All TL jobs get portal URL (`portal.techlinksvc.net/admin/?mod=workorders&act=edit&id=X`) |
+| TechLink: fix date parsing | Done | Strip timezone suffix `(CDT)` before parsing; handle all-caps month names |
+| Add TL-350473 and TL-350471 | Done | Manually inserted from email data; 350471 completed May 12, 350473 scheduled May 22 |
+| Update existing TL jobs with schedules | Done | TL-408313 (May 14 10:30), TL-408319 (May 14 12:30), all TL jobs got external_url |
+| Delete 15 duplicate unassigned WM entries | Done | 12 from Mar-Apr range + 3 more from remaining set |
+
+### Technical Notes
+
+**FN false time entries**: Two causes — (1) intentional 75% estimate logic created synthetic time entries for pre-work jobs, (2) Pattern 4 fallback grabbed estimated duration hours from page. Fix: skip `extract_time_entries()` entirely for pre-work statuses, but keep the 75% pay estimate calculation.
+
+**TechLink email types**: "Assigned" emails contain job details but NO schedule or URL. "Install Reminder" emails contain both the schedule (`Scheduled Install Time: MAY 14, 2026 12:30 PM (CDT)`) and the portal URL. Parser now handles both email types with `classify_techlink_subject()` returning `(email_type, ticket_number)`.
+
+**Date parsing fix**: TechLink uses `MAY 14, 2026 12:30 PM (CDT)` — all caps abbreviated month + timezone in parens. Added `re.sub(r'\s*\([A-Z]{2,4}\)\s*$', '', date_str)` before strptime.
+
+**Platform code mismatch**: TechLink platform code in DB is `techlink` (not `TL`). Ticket prefix is still `TL-` in ticket_number field.
+
+### Files Modified
+- `scraper/fieldnation_scraper.py` — pre-work time entry skip, min hours floor (local only, gitignored)
+- `scraper/workmarket_scraper.py` — min hours floor (local only, gitignored)
+- `email_parser/parsers/techlink.py` — classify both email types, parse reminders, construct URLs, fix date parsing
+- `email_parser/email_parser.py` — handle reminder emails, updated classify signature
+- `app/routes/imports.py` — TechLink import accepts external_url, always updates schedule fields
+
+---
+
 ## Session: May 13, 2026 — Bug Fixes, Assignment Cleanup & Schedule SMS
 
 ### Summary

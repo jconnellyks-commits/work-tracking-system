@@ -1,5 +1,51 @@
 # Work Tracking System - Session History
 
+## Session: May 24, 2026 — Email Parser Recovery & Thread Safety Fix
+
+### Summary
+Email parser had been down since ~May 17 due to OAuth token revocation (caused by publishing GCP consent screen to Production mode for other apps). Fixed token, diagnosed crash-looping from concurrent Pub/Sub callbacks corrupting httplib2's shared connection, deployed thread safety fix, and manually processed 13 missed TST emails.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Diagnose email parser crash | Done | Token revoked by consent screen mode change (Testing → Production) |
+| Regenerate OAuth2 token | Done | `auth_setup.py` locally, SCP'd to server |
+| Fix concurrent Pub/Sub crash (thread safety) | Done | `37be834` — threading.Lock + FlowControl(max_messages=1) |
+| Reset historyId to skip corrupt backlog | Done | Updated state.json to current historyId |
+| Manually process 13 missed TST emails | Done | 3 new jobs created, 2 existing jobs rescheduled |
+| Restore grpcio to 1.78.0 | Done | Crash was threading issue, not grpcio bug |
+
+### New Jobs Created (from missed emails)
+
+| Ticket | Client | Date | Rate | Trip |
+|--------|--------|------|------|------|
+| TST-502873 | Durbin Quarry (Moline, KS) | Jun 3 | $75 | $100 |
+| TST-502875 | Oxford Sand Plant (Oxford, KS) | Jun 3 | $75 | $30 |
+| TST-502867 | Elk City Quarry (Elk City, KS) | May 27 | $75 | $90 |
+
+### Rescheduled Jobs
+
+| Ticket | Client | New Date |
+|--------|--------|----------|
+| TST-502881 | North Wichita Sand Plant | Jun 4 (was Jun 9) |
+| TST-502880 | Wichita Stone Yard | Jun 2 (was Jun 8) |
+
+### Technical Notes
+
+**Root cause of token death**: Publishing Google OAuth consent screen from Testing → Production revokes all tokens issued under Testing mode. This was done for other apps (twovirgosonetable.com, mathlactica.com) sharing the `remoteworkstation` GCP project.
+
+**Token permanence**: Now that consent screen is in Production mode, the new token won't expire every 7 days. Should last indefinitely unless manually revoked or 6 months of inactivity.
+
+**Thread safety fix**: The Pub/Sub Python client fires callbacks in a thread pool. After a week of downtime, hundreds of queued notifications arrived simultaneously. Multiple threads calling `gmail_client.get_new_messages()` corrupted httplib2's shared HTTP connection (SSL WRONG_VERSION_NUMBER error), which then triggered memory corruption (double free, SIGABRT). Fix: `threading.Lock()` around the callback body + `FlowControl(max_messages=1)` to limit concurrent deliveries.
+
+**Import path**: `FlowControl` lives in `google.cloud.pubsub_v1.types`, not `google.pubsub_v1.types`.
+
+### Files Modified
+- `email_parser/email_parser.py` — threading lock, FlowControl import, serialized callback
+
+---
+
 ## Session: May 13, 2026 — Scraper Fixes, TechLink Parser Upgrade & DB Cleanup
 
 ### Summary

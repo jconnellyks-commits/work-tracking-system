@@ -18,7 +18,7 @@ import time
 
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from google.cloud import pubsub_v1
-from google.pubsub_v1.types import FlowControl
+from google.cloud.pubsub_v1.types import FlowControl
 
 import config
 from api_client import WorkTrackingClient

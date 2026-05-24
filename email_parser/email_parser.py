@@ -13,10 +13,12 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from google.cloud import pubsub_v1
+from google.pubsub_v1.types import FlowControl
 
 import config
 from api_client import WorkTrackingClient
@@ -256,30 +258,35 @@ def run():
         config.GCP_PROJECT, config.PUBSUB_SUBSCRIPTION
     )
 
+    lock = threading.Lock()
+
     def on_pubsub_message(pubsub_msg):
         nonlocal last_history_id
-        try:
-            # The Pub/Sub Python client already base64-decodes the data for us
-            data = json.loads(pubsub_msg.data.decode('utf-8'))
-            history_id = str(data.get('historyId', last_history_id))
-            logger.debug(f"Pub/Sub notification: historyId={history_id}")
+        with lock:
+            try:
+                data = json.loads(pubsub_msg.data.decode('utf-8'))
+                history_id = str(data.get('historyId', last_history_id))
+                logger.debug(f"Pub/Sub notification: historyId={history_id}")
 
-            new_msg_ids, latest_id = gmail_client.get_new_messages(last_history_id)
-            if new_msg_ids:
-                logger.info(f"Found {len(new_msg_ids)} new message(s)")
-            for msg_id in new_msg_ids:
-                process_message(gmail_client, api_client, msg_id)
+                new_msg_ids, latest_id = gmail_client.get_new_messages(last_history_id)
+                if new_msg_ids:
+                    logger.info(f"Found {len(new_msg_ids)} new message(s)")
+                for msg_id in new_msg_ids:
+                    process_message(gmail_client, api_client, msg_id)
 
-            last_history_id = latest_id
-            save_state(last_history_id)
+                last_history_id = latest_id
+                save_state(last_history_id)
 
-        except Exception as e:
-            logger.exception(f"Error processing Pub/Sub message: {e}")
-        finally:
-            pubsub_msg.ack()
+            except Exception as e:
+                logger.exception(f"Error processing Pub/Sub message: {e}")
+            finally:
+                pubsub_msg.ack()
 
     logger.info(f"Listening on {subscription_path}")
-    streaming_pull = subscriber.subscribe(subscription_path, callback=on_pubsub_message)
+    flow_control = FlowControl(max_messages=1)
+    streaming_pull = subscriber.subscribe(
+        subscription_path, callback=on_pubsub_message, flow_control=flow_control
+    )
 
     try:
         streaming_pull.result()  # Blocks forever

@@ -4992,6 +4992,49 @@ const Pages = {
                 document.getElementById('user-account-fields').style.display = e.target.checked ? 'block' : 'none';
             });
         }
+
+        // Load pay rate history for existing technicians
+        if (techId) {
+            Pages.loadPayRateHistory(techId);
+        }
+    },
+
+    async loadPayRateHistory(techId) {
+        try {
+            const data = await API.technicians.getPayRateHistory(techId);
+            const history = data.history || [];
+            if (history.length === 0) return;
+
+            const form = document.getElementById('tech-form');
+            const historyHtml = `
+                <div style="margin-top: 1.5rem; border-top: 1px solid var(--border-color, #ddd); padding-top: 1rem;">
+                    <h4 style="margin: 0 0 0.5rem; font-size: 0.95rem; color: #666;">Pay Rate History</h4>
+                    <table class="table table-sm" style="font-size: 0.85rem;">
+                        <thead>
+                            <tr>
+                                <th>Rate</th>
+                                <th>Effective</th>
+                                <th>End</th>
+                                <th>Notes</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${history.map(h => `
+                                <tr${!h.end_date ? ' style="font-weight:600;"' : ''}>
+                                    <td>$${h.rate.toFixed(2)}</td>
+                                    <td>${h.effective_date || '-'}</td>
+                                    <td>${h.end_date || 'Current'}</td>
+                                    <td style="color:#888;">${h.notes || '-'}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            form.insertAdjacentHTML('afterend', historyHtml);
+        } catch (e) {
+            // Silently skip if history unavailable
+        }
     },
 
     // Save technician

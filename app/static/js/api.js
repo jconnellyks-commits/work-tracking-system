@@ -462,6 +462,10 @@ const API = {
             });
         },
 
+        async getPayRateHistory(techId) {
+            return API.request(`/technicians/${techId}/pay-rate-history`);
+        },
+
         async createUserAccount(techId, password, email = null) {
             return API.request(`/technicians/${techId}/create-user`, {
                 method: 'POST',

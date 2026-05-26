@@ -304,6 +304,16 @@ def delete_technician(tech_id):
     return jsonify({'message': 'Technician deactivated successfully'}), 200
 
 
+@technicians_bp.route('/<int:tech_id>/pay-rate-history', methods=['GET'])
+@admin_required
+def get_pay_rate_history(tech_id):
+    """Get pay rate change history for a technician."""
+    Technician.query.get_or_404(tech_id)
+    records = TechPayRateHistory.query.filter_by(tech_id=tech_id)\
+        .order_by(TechPayRateHistory.effective_date.desc()).all()
+    return jsonify({'history': [r.to_dict() for r in records]}), 200
+
+
 @technicians_bp.route('/<int:tech_id>/create-user', methods=['POST'])
 @admin_required
 def create_user_for_technician(tech_id):

@@ -1,5 +1,40 @@
 # Work Tracking System - Session History
 
+## Session: May 25, 2026 — TechLink Email Recovery & Parser Log Timezone Fix
+
+### Summary
+Processed 36 missed TechLink emails from the May 17-24 parser downtime using a one-time recovery script. Fixed email parser log timezone display (same pattern as earlier SMS log fix).
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Recover missed TechLink emails (May 17-24) | Done | 36 processed, 5 already done, 0 errors |
+| Fix email parser log timezone | Done | `5b56268` — append `Z` to UTC timestamps, frontend converts to local time |
+
+### Jobs Updated (from missed TechLink emails)
+
+| WO | Type | Details |
+|----|------|---------|
+| #409561 | Assigned + Reminder | Taco Bell, scheduled May 26 at 1:30 PM |
+| #350473 | 2 Reminders | Dunkin Donuts ODMB, May 22 at 10:00 AM |
+| #350472 | Reminder | Dunkin Donuts NSR Verification, May 19 at 10:00 AM |
+| #408506 | Reminder | Taco Bell, May 19 at 10:30 AM |
+
+### Technical Notes
+
+**Recovery approach**: Wrote `recover_missed.py` — searches Gmail for `from:techlinksvc.net` in the date range, skips already-labeled emails, runs each through existing `process_message()`. Script cleaned up after use.
+
+**Unrecognized email types flagged for review (31)**: Note Added, Updated, Available for Tech, Payment Confirmation, Ready for Invoice, Reminder to Invoice, Re: Missing Approval, Adding Techs, PC notices. These are labeled `work-orders/review` in Gmail.
+
+**Parser log timezone fix**: Same pattern as SMS log fix — `datetime.isoformat() + 'Z'` in `to_dict()`, `new Date().toLocaleString()` in frontend.
+
+### Files Modified
+- `app/models.py` — EmailParserLog.to_dict() timestamp format
+- `app/static/js/app.js` — email parser log table timestamp rendering
+
+---
+
 ## Session: May 24, 2026 — Email Parser Recovery & Thread Safety Fix
 
 ### Summary

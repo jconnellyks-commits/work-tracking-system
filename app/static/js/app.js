@@ -6239,7 +6239,7 @@ const Pages = {
 
                 return `
                     <tr>
-                        <td style="white-space:nowrap;">${log.timestamp || '-'}</td>
+                        <td style="white-space:nowrap;">${log.timestamp ? new Date(log.timestamp).toLocaleString() : '-'}</td>
                         <td>${log.platform}</td>
                         <td>${typeLabel(log.email_type)}</td>
                         <td>${log.ticket_number || '-'}</td>

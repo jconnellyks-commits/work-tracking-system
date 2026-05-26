@@ -913,7 +913,7 @@ class EmailParserLog(db.Model):
     def to_dict(self):
         return {
             'id': self.id,
-            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'timestamp': (self.timestamp.isoformat() + 'Z') if self.timestamp else None,
             'platform': self.platform,
             'email_type': self.email_type,
             'ticket_number': self.ticket_number,

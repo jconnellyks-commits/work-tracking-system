@@ -1,9 +1,9 @@
 # Work Tracking System - Session History
 
-## Session: May 25, 2026 — TechLink Email Recovery & Parser Log Timezone Fix
+## Session: May 25, 2026 — TechLink Recovery, Parser Log Timezone, Pay Rate Audit Trail
 
 ### Summary
-Processed 36 missed TechLink emails from the May 17-24 parser downtime using a one-time recovery script. Fixed email parser log timezone display (same pattern as earlier SMS log fix).
+Processed 36 missed TechLink emails from the May 17-24 parser downtime. Fixed email parser log timezone display. Built tech pay rate history system with audit trail, date-accurate pay calculations, and frontend history view in the technician edit modal.
 
 ### Completed Tasks
 
@@ -11,6 +11,9 @@ Processed 36 missed TechLink emails from the May 17-24 parser downtime using a o
 |------|--------|-------|
 | Recover missed TechLink emails (May 17-24) | Done | 36 processed, 5 already done, 0 errors |
 | Fix email parser log timezone | Done | `5b56268` — append `Z` to UTC timestamps, frontend converts to local time |
+| Tech pay rate history (audit trail) | Done | `0eea4ae` — new table, auto-logging on rate change, date-aware pay calc |
+| Pay rate history in technician modal | Done | `79f81eb` — API endpoint + frontend table showing rate changes |
+| Backdate Geoffery's rate change | Done | Effective date set to May 21, 2026 (was today's date) |
 
 ### Jobs Updated (from missed TechLink emails)
 
@@ -21,6 +24,20 @@ Processed 36 missed TechLink emails from the May 17-24 parser downtime using a o
 | #350472 | Reminder | Dunkin Donuts NSR Verification, May 19 at 10:00 AM |
 | #408506 | Reminder | Taco Bell, May 19 at 10:30 AM |
 
+### Tech Pay Rate History System
+
+**What it does**:
+- `tech_pay_rate_history` table tracks every rate change with effective_date, end_date, changed_by, notes
+- When a tech's hourly_rate is updated, the old record gets end_date set and a new record is created
+- Pay calculator now uses `TechPayRateHistory.get_rate_for_date(tech_id, date)` instead of `tech.hourly_rate`
+- Rate lookup uses earliest entry date per tech-job combo
+- Falls back to current `tech.hourly_rate` if no history record found
+- Migration 019 seeds existing rates from technician hire dates
+
+**Frontend**: Technician edit modal shows "Pay Rate History" table below the form — current rate in bold, with effective dates and change notes.
+
+**Geoffery Baugher rate change**: $25.00 → $28.00, effective May 21, 2026 (backdated from May 25).
+
 ### Technical Notes
 
 **Recovery approach**: Wrote `recover_missed.py` — searches Gmail for `from:techlinksvc.net` in the date range, skips already-labeled emails, runs each through existing `process_message()`. Script cleaned up after use.
@@ -30,8 +47,12 @@ Processed 36 missed TechLink emails from the May 17-24 parser downtime using a o
 **Parser log timezone fix**: Same pattern as SMS log fix — `datetime.isoformat() + 'Z'` in `to_dict()`, `new Date().toLocaleString()` in frontend.
 
 ### Files Modified
-- `app/models.py` — EmailParserLog.to_dict() timestamp format
-- `app/static/js/app.js` — email parser log table timestamp rendering
+- `app/models.py` — TechPayRateHistory model, EmailParserLog timestamp format
+- `app/utils/pay_calculator.py` — date-aware rate lookup in all pay calculation paths
+- `app/routes/technicians.py` — auto-log rate changes on update, GET pay-rate-history endpoint
+- `app/static/js/api.js` — getPayRateHistory method
+- `app/static/js/app.js` — parser log timezone, pay rate history table in tech edit modal
+- `database/migrations/019_tech_pay_rate_history.sql` — new table + seed data
 
 ---
 

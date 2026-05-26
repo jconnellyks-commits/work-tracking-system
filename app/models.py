@@ -466,6 +466,53 @@ class SystemSettings(db.Model):
             return default
 
 
+class TechPayRateHistory(db.Model):
+    """Historical minimum pay rates per technician for accurate pay calculation."""
+    __tablename__ = 'tech_pay_rate_history'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id', ondelete='CASCADE'), nullable=False)
+    rate = db.Column(db.Numeric(10, 2), nullable=False)
+    effective_date = db.Column(db.Date, nullable=False)
+    end_date = db.Column(db.Date)
+    changed_by = db.Column(db.Integer, db.ForeignKey('users.user_id', ondelete='SET NULL'))
+    notes = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    technician = db.relationship('Technician', backref=db.backref('pay_rate_history', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tech_id': self.tech_id,
+            'rate': float(self.rate),
+            'effective_date': self.effective_date.isoformat() if self.effective_date else None,
+            'end_date': self.end_date.isoformat() if self.end_date else None,
+            'changed_by': self.changed_by,
+            'notes': self.notes,
+            'created_at': (self.created_at.isoformat() + 'Z') if self.created_at else None,
+        }
+
+    @staticmethod
+    def get_rate_for_date(tech_id, date):
+        """Get the minimum pay rate effective for a technician on a specific date."""
+        from sqlalchemy import and_
+        record = TechPayRateHistory.query.filter(
+            and_(
+                TechPayRateHistory.tech_id == tech_id,
+                TechPayRateHistory.effective_date <= date,
+                db.or_(
+                    TechPayRateHistory.end_date.is_(None),
+                    TechPayRateHistory.end_date >= date
+                )
+            )
+        ).order_by(TechPayRateHistory.effective_date.desc()).first()
+        if record:
+            return float(record.rate)
+        tech = Technician.query.get(tech_id)
+        return float(tech.hourly_rate or 0) if tech else 0
+
+
 class MileageRateHistory(db.Model):
     """Historical mileage rates for accurate pay calculation on past entries."""
     __tablename__ = 'mileage_rate_history'

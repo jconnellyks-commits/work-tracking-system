@@ -21,9 +21,10 @@ Four Payouts per Tech per Job:
 3. Per Diem
 4. Personal Expenses
 """
+from datetime import date as date_type
 from decimal import Decimal, ROUND_HALF_UP
 from sqlalchemy import func
-from app.models import Job, JobBundle, TimeEntry, Technician, MileageRateHistory, PayPeriod, JobReimbursable
+from app.models import Job, JobBundle, TimeEntry, Technician, MileageRateHistory, TechPayRateHistory, PayPeriod, JobReimbursable
 
 
 def calculate_job_pay(job_id):
@@ -94,10 +95,11 @@ def calculate_job_pay(job_id):
         tech_id = entry.tech_id
         if tech_id not in tech_data:
             tech = Technician.query.get(tech_id)
+            min_pay = Decimal(str(TechPayRateHistory.get_rate_for_date(tech_id, entry.date_worked))) if tech else Decimal('0')
             tech_data[tech_id] = {
                 'tech_id': tech_id,
                 'tech_name': tech.name if tech else f'Tech #{tech_id}',
-                'min_pay': Decimal(str(tech.hourly_rate or 0)) if tech else Decimal('0'),
+                'min_pay': min_pay,
                 'hours': Decimal('0'),
                 'mileage': Decimal('0'),
                 'per_diem': Decimal('0'),
@@ -315,10 +317,11 @@ def calculate_bundle_pay(bundle_id):
         tech_id_val = entry.tech_id
         if tech_id_val not in tech_data:
             tech = Technician.query.get(tech_id_val)
+            min_pay = Decimal(str(TechPayRateHistory.get_rate_for_date(tech_id_val, entry.date_worked))) if tech else Decimal('0')
             tech_data[tech_id_val] = {
                 'tech_id': tech_id_val,
                 'tech_name': tech.name if tech else f'Tech #{tech_id_val}',
-                'min_pay': Decimal(str(tech.hourly_rate or 0)) if tech else Decimal('0'),
+                'min_pay': min_pay,
                 'hours': Decimal('0'),
                 'mileage': Decimal('0'),
                 'per_diem': Decimal('0'),
@@ -803,6 +806,10 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
             pooled_deductions += t_deductions
             job_period_hours += t_hours
 
+            earliest_date = min(t_entry_dates) if t_entry_dates else None
+            rate_date = date_type.fromisoformat(earliest_date) if earliest_date else None
+            min_pay_rate = Decimal(str(TechPayRateHistory.get_rate_for_date(tid, rate_date))) if rate_date else Decimal(str(tech.hourly_rate or 0))
+
             job_techs[tid] = {
                 'tech': tech,
                 'hours': t_hours,
@@ -813,6 +820,7 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
                 'deductions': t_deductions,
                 'entry_dates': t_entry_dates,
                 'raw_entries': tent_entries,
+                'min_pay_rate': min_pay_rate,
             }
 
         if not job_techs:
@@ -844,7 +852,7 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
             # Single tech on this unit in this period
             tid = next(iter(job_techs))
             td = job_techs[tid]
-            min_pay_rate = Decimal(str(td['tech'].hourly_rate or 0))
+            min_pay_rate = td['min_pay_rate']
 
             if td['hours'] > 0:
                 calculated_rate = tech_pool / td['hours']
@@ -873,11 +881,10 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
             # Multiple techs — weight by min_pay * hours
             weighted_sum = Decimal('0')
             for tid, td in job_techs.items():
-                min_pay = Decimal(str(td['tech'].hourly_rate or 0))
-                weighted_sum += min_pay * td['hours']
+                weighted_sum += td['min_pay_rate'] * td['hours']
 
             for tid, td in job_techs.items():
-                min_pay_rate = Decimal(str(td['tech'].hourly_rate or 0))
+                min_pay_rate = td['min_pay_rate']
 
                 if weighted_sum > 0:
                     weight = (min_pay_rate * td['hours']) / weighted_sum

@@ -2,10 +2,10 @@
 Technician management routes.
 Every technician can have a linked user account.
 """
-from datetime import datetime
+from datetime import datetime, date
 from flask import Blueprint, request, jsonify, g
 from app import db, bcrypt
-from app.models import Technician, User
+from app.models import Technician, User, TechPayRateHistory
 from app.utils.logging import get_logger, audit_logger
 from app.utils.auth import jwt_required_with_user, admin_required, validate_password_strength
 
@@ -226,7 +226,24 @@ def update_technician(tech_id):
         tech.phone = data['phone'].strip() or None
 
     if 'hourly_rate' in data:
-        tech.hourly_rate = data['hourly_rate'] or None
+        new_rate = data['hourly_rate'] or 0
+        old_rate = float(tech.hourly_rate or 0)
+        if float(new_rate) != old_rate:
+            today = date.today()
+            current_record = TechPayRateHistory.query.filter(
+                TechPayRateHistory.tech_id == tech_id,
+                TechPayRateHistory.end_date.is_(None)
+            ).first()
+            if current_record:
+                current_record.end_date = today
+            db.session.add(TechPayRateHistory(
+                tech_id=tech_id,
+                rate=new_rate,
+                effective_date=today,
+                changed_by=g.user_id,
+                notes=f'Changed from ${old_rate:.2f} to ${float(new_rate):.2f}',
+            ))
+        tech.hourly_rate = new_rate or None
 
     if 'status' in data:
         if data['status'] not in ('active', 'inactive'):

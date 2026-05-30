@@ -1,5 +1,38 @@
 # Work Tracking System - Session History
 
+## Session: May 30, 2026 — Fix WorkMarket Scraper Duplicate Time Entries
+
+### Summary
+Diagnosed and fixed a bug causing duplicate time entries on WorkMarket re-imports. Root cause: the timezone-stripping regex in `normalize_time_str()` was treating AM/PM as timezone codes and stripping them, causing the same time to hash differently depending on whether it had a space before AM/PM. Cleaned up 7 existing duplicates from the database.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Diagnose duplicate time entries | Done | Root cause: `\s+[A-Z]{2,4}$` regex matched AM/PM as timezone |
+| Fix normalize_time_str() | Done | `b10f1a7` — negative lookahead excludes AM/PM, regex-based parsing replaces strptime |
+| Add time-based fallback dedup | Done | New check: job_id + date + time_in + time_out catches rounding diffs |
+| Clean up WM duplicates | Done | 6 true duplicates + 1 zero-hour artifact deleted |
+| Check FN duplicates | Done | None found — all matching-time entries are legitimate multi-tech |
+
+### Root Cause Details
+
+The `normalize_time_str()` function stripped timezone suffixes with `re.sub(r'\s+[A-Z]{2,4}\s*$', '', t)`. This matched `" PM"` and `" AM"` (2-letter uppercase strings), so:
+- Text scraper: `"6:21pm"` (no space) → regex didn't match → correctly normalized to `"06:21 PM"`
+- JSON scraper: `"06:21 PM"` (space) → regex stripped `" PM"` → became `"06:21"` → wrongly normalized to `"06:21 AM"`
+
+Different normalized values → different hashes → dedup missed → duplicate created on re-import.
+
+### Fix Applied
+1. **Timezone regex**: `\s+(?!AM$|PM$)[A-Z]{2,4}\s*$` — negative lookahead preserves AM/PM
+2. **Replaced strptime**: Deterministic regex-based 12h/24h parsing (also avoids a Windows Python strptime bug)
+3. **Fallback dedup**: Added `job_id + date_worked + time_in + time_out` check in both FN and WM import paths
+
+### Files Modified
+- `app/routes/imports.py` — normalize_time_str rewrite + time-based fallback dedup (both FN and WM paths)
+
+---
+
 ## Session: May 25, 2026 — TechLink Recovery, Parser Log Timezone, Pay Rate Audit Trail
 
 ### Summary

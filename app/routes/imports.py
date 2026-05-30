@@ -15,20 +15,33 @@ imports_bp = Blueprint('imports', __name__)
 def normalize_time_str(t):
     """Normalize a time string for consistent hashing.
     Converts various formats to 'HH:MM AM/PM' (e.g., '01:35 PM').
+    Uses regex instead of strptime to avoid Windows Python bug where
+    strptime('%I:%M %p') mishandles PM (parses 6:21 PM as 6:21 AM).
     """
     if not t:
         return ''
     t = t.strip().upper()
-    # Remove timezone suffixes like (CST), (EST)
     t = re.sub(r'\s*\([A-Z]{2,4}\)\s*$', '', t)
-    t = re.sub(r'\s+[A-Z]{2,4}\s*$', '', t)
-    # Try parsing to get consistent format
-    for fmt in ['%I:%M %p', '%I:%M%p', '%H:%M', '%I:%M:%S %p']:
-        try:
-            parsed = datetime.strptime(t, fmt)
-            return parsed.strftime('%I:%M %p')
-        except ValueError:
-            continue
+    t = re.sub(r'\s+(?!AM$|PM$)[A-Z]{2,4}\s*$', '', t)
+
+    # Match 12-hour format: "6:21PM", "6:21 PM", "06:21 PM", "1:35:00 PM"
+    m = re.match(r'^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)$', t)
+    if m:
+        hour, minute, ampm = int(m.group(1)), m.group(2), m.group(3)
+        if hour == 12:
+            hour = 0 if ampm == 'AM' else 12
+        elif ampm == 'PM':
+            hour += 12
+        return f"{hour % 12 or 12:02d}:{minute} {ampm}"
+
+    # Match 24-hour format: "14:30", "08:15"
+    m = re.match(r'^(\d{1,2}):(\d{2})$', t)
+    if m:
+        hour, minute = int(m.group(1)), m.group(2)
+        ampm = 'AM' if hour < 12 else 'PM'
+        display_hour = hour % 12 or 12
+        return f"{display_hour:02d}:{minute} {ampm}"
+
     return t
 
 
@@ -282,11 +295,24 @@ def import_fieldnation():
                         hours_worked=hours
                     ).first()
                     if existing_by_fields:
-                        # Update hash on the existing entry if it was missing
                         if not existing_by_fields.source_hash:
                             existing_by_fields.source_hash = source_hash
                         results['skipped_entries'] += 1
                         continue
+
+                    # Fallback: check by job + date + parsed times (catches rounding differences)
+                    if time_in and time_out:
+                        existing_by_times = TimeEntry.query.filter_by(
+                            job_id=job.job_id,
+                            date_worked=entry_date,
+                            time_in=time_in,
+                            time_out=time_out
+                        ).first()
+                        if existing_by_times:
+                            if not existing_by_times.source_hash:
+                                existing_by_times.source_hash = source_hash
+                            results['skipped_entries'] += 1
+                            continue
 
                     entry = TimeEntry(
                         job_id=job.job_id,
@@ -631,11 +657,24 @@ def import_workmarket():
                         hours_worked=hours
                     ).first()
                     if existing_by_fields:
-                        # Update hash on the existing entry if it was missing
                         if not existing_by_fields.source_hash:
                             existing_by_fields.source_hash = source_hash
                         results['skipped_entries'] += 1
                         continue
+
+                    # Fallback: check by job + date + parsed times (catches rounding differences)
+                    if time_in and time_out:
+                        existing_by_times = TimeEntry.query.filter_by(
+                            job_id=job.job_id,
+                            date_worked=entry_date,
+                            time_in=time_in,
+                            time_out=time_out
+                        ).first()
+                        if existing_by_times:
+                            if not existing_by_times.source_hash:
+                                existing_by_times.source_hash = source_hash
+                            results['skipped_entries'] += 1
+                            continue
 
                     entry = TimeEntry(
                         job_id=job.job_id,

@@ -272,6 +272,10 @@ def import_fieldnation():
 
                     hours = te.get('hours', 0) or 0
 
+                    # Skip zero-duration entries (e.g., identical check-in/check-out)
+                    if hours <= 0 and time_in and time_out and time_in == time_out:
+                        continue
+
                     # Generate source hash for duplicate detection
                     source_hash = generate_source_hash(
                         'FN',
@@ -633,6 +637,10 @@ def import_workmarket():
                         time_out = parse_time(te['time_out'])
 
                     hours = te.get('hours', 0) or 0
+
+                    # Skip zero-duration entries (e.g., identical check-in/check-out)
+                    if hours <= 0 and time_in and time_out and time_in == time_out:
+                        continue
 
                     # Generate source hash for duplicate detection
                     source_hash = generate_source_hash(

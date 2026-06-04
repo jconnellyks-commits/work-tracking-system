@@ -1,5 +1,32 @@
 # Work Tracking System - Session History
 
+## Session: June 3, 2026 — Email Parser Recovery + Jobs Schedule Dates
+
+### Summary
+Fixed crashed email parser (down ~14.5 hours due to token.json permission issue). Added schedule dates display to jobs list and fixed date filtering to include jobs with matching schedule entries in single-day mode.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix email parser crash loop | Done | `token.json` owned by `www-data`, service runs as `claude-code` — fixed with `chown` |
+| Show schedule dates in jobs list | Done | `b45988e` — Job `to_dict()` returns `schedule_dates` array, frontend shows `+ date` below primary |
+| Fix single-day filter for scheduled dates | Done | `3f94113` — Date filters now include jobs with matching `JobSchedule` entries via subquery |
+
+### Email Parser Downtime
+- **Down**: June 3, 6:35 AM — 9:03 PM CDT (~14.5 hours)
+- **Cause**: `PermissionError` writing `token.json` — file owned by `www-data:www-data` (644), service runs as `claude-code`
+- **Trigger**: 6 AM cron job (`renew_watch.py`) restarted the service, which tried to refresh the OAuth token
+- **Restart counter**: 4,658 attempts before fix
+- **Recovery**: All missed emails were caught up automatically on restart
+
+### Files Modified
+- `app/models.py` — Added `schedule_dates` to Job `to_dict()`
+- `app/static/js/app.js` — Jobs list date column shows additional scheduled dates
+- `app/routes/jobs.py` — Date filter queries `job_schedule` table via subquery with `or_`
+
+---
+
 ## Session: May 30, 2026 — Fix WorkMarket Scraper Duplicate Time Entries
 
 ### Summary

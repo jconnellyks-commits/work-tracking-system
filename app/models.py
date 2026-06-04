@@ -145,6 +145,7 @@ class Job(db.Model):
             'completed_date': self.completed_date.isoformat() if self.completed_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'has_schedule': self.schedule_entries.count() > 0 if self.schedule_entries else False,
+            'schedule_dates': [e.scheduled_date.isoformat() for e in self.schedule_entries.order_by(JobSchedule.scheduled_date)] if self.schedule_entries else [],
         }
 
     def recalculate_hourly_billing(self):

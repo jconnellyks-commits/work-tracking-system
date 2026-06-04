@@ -5,7 +5,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import or_
 from app import db
-from app.models import Job, Platform, TimeEntry, JobReimbursable
+from app.models import Job, Platform, TimeEntry, JobReimbursable, JobSchedule
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import jwt_required_with_user, manager_required
 
@@ -59,11 +59,31 @@ def list_jobs():
             )
         )
 
-    if from_date:
-        query = query.filter(Job.job_date >= from_date)
-
-    if to_date:
-        query = query.filter(Job.job_date <= to_date)
+    if from_date and to_date:
+        schedule_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.scheduled_date >= from_date,
+            JobSchedule.scheduled_date <= to_date
+        )
+        query = query.filter(or_(
+            Job.job_date.between(from_date, to_date),
+            Job.job_id.in_(schedule_job_ids)
+        ))
+    elif from_date:
+        schedule_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.scheduled_date >= from_date
+        )
+        query = query.filter(or_(
+            Job.job_date >= from_date,
+            Job.job_id.in_(schedule_job_ids)
+        ))
+    elif to_date:
+        schedule_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.scheduled_date <= to_date
+        )
+        query = query.filter(or_(
+            Job.job_date <= to_date,
+            Job.job_id.in_(schedule_job_ids)
+        ))
 
     # Sorting
     sort_columns = {

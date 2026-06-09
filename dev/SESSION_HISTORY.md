@@ -1,5 +1,47 @@
 # Work Tracking System - Session History
 
+## Session: June 9, 2026 — Payroll Corrections + Advance Recording
+
+### Summary
+Audited payroll for periods 15 (04/30-05/13) and 16 (05/14-05/27) against actual checks written. Found overpayments for Michael ($820.84), Rowland ($214.34), and Geoffrey ($129.00) — partly caused by email parser putting total estimated pay as hourly rate. Recorded overpayments as advances with $200/period max deduction. Also recorded Geoffrey's two cash advances ($500, $450) that were deducted from checks but never entered in the system.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Audit period 15+16 payroll vs checks | Done | Ran pay calculator, compared against ezCheckPrinting CSV |
+| Record overpayment advances | Done | Michael $820.84 (#4), Rowland $214.34 (#5), Geoffrey $129.00 (#6) — all $200/period max |
+| Record Geoffrey cash advances | Done | $500 (#7) and $450 (#8) — marked repaid, for audit trail |
+
+### Checks Audited (from ezCheckPrinting CSV)
+
+| Check # | Payee | Period | Type | Amount |
+|---------|-------|--------|------|--------|
+| 22004 | Rowland | 04/30-05/16 | Contractor | $681.00 |
+| 22005 | Rowland | 04/30-05/16 | Mileage | $73.70 |
+| 22006 | Geoffrey | 04/30-05/13 | Mileage | $418.75 |
+| 22007 | Geoffrey | 04/30-05/13 | Contractor (-$500 adv) | $614.76 |
+| 22008 | Michael | 04/30-05/13 | Contractor | $1,398.77 |
+| 22009 | Michael | 04/30-05/13 | Mileage | $274.70 |
+| 22010 | Geoffrey | 05/14-05/27 | Contractor (-$450 adv) | $1,198.98 |
+| 22011 | Geoffrey | 05/14-05/27 | Mileage | $415.40 |
+| 22012 | Rowland | 05/14-05/27 | Contractor | $638.57 |
+| 22013 | Rowland | 05/14-05/27 | Mileage | $70.35 |
+
+### Key Findings
+- Periods 15 and 16 were never locked/closed in the system — checks were printed after manual review
+- Michael period 15 was most wrong: paid $1,673.47 total vs system's $852.63
+- Rowland period 15 check memo said "04/30-05/16" (3 days past period end)
+- Some billing amounts wrong because email parser set total estimated pay as hourly rate
+
+### TODOs Created (for future sessions)
+- Fix email parser putting total estimated pay as hourly rate
+- Add date field when recording an advance
+- Lock individual contractors instead of all at once
+- Generate printable check PDFs from within the app (replace ezCheckPrinting)
+
+---
+
 ## Session: June 3, 2026 — Email Parser Recovery + Jobs Schedule Dates
 
 ### Summary

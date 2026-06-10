@@ -4638,7 +4638,7 @@ const Pages = {
                             <th>Remaining</th>
                             <th>Max/Period</th>
                             <th>Status</th>
-                            <th>Created</th>
+                            <th>Date</th>
                             <th>Actions</th>
                         </tr></thead>
                         <tbody>
@@ -4652,7 +4652,7 @@ const Pages = {
                                     <td><strong>$${a.remaining_balance.toFixed(2)}</strong></td>
                                     <td>${a.max_per_period ? '$' + a.max_per_period.toFixed(2) : 'No limit'}</td>
                                     <td><span style="color: ${statusColor}; font-weight: bold;">${a.status.charAt(0).toUpperCase() + a.status.slice(1)}</span></td>
-                                    <td>${new Date(a.created_at).toLocaleDateString()}</td>
+                                    <td>${App.formatDate(a.date_given || a.created_at)}</td>
                                     <td>${a.status === 'active' ? `<button class="btn btn-sm btn-danger" onclick="Pages.cancelAdvance(${a.advance_id})">Cancel</button>` : ''}</td>
                                 </tr>`;
                             }).join('')}
@@ -4679,7 +4679,7 @@ const Pages = {
                             <td><strong>$${a.remaining_balance.toFixed(2)}</strong></td>
                             <td>${a.max_per_period ? '$' + a.max_per_period.toFixed(2) : 'No limit'}</td>
                             <td><span style="color: ${statusColor}; font-weight: bold;">${a.status.charAt(0).toUpperCase() + a.status.slice(1)}</span></td>
-                            <td>${new Date(a.created_at).toLocaleDateString()}</td>
+                            <td>${App.formatDate(a.date_given || a.created_at)}</td>
                             <td>${a.status === 'active' ? `<button class="btn btn-sm btn-danger" onclick="Pages.cancelAdvance(${a.advance_id})">Cancel</button>` : ''}</td>
                         </tr>`;
                     }).join('');
@@ -4713,6 +4713,10 @@ const Pages = {
                 <input type="text" id="adv-description" class="form-control" placeholder="e.g. Tool purchase advance">
             </div>
             <div class="form-group">
+                <label>Date Given</label>
+                <input type="date" id="adv-date-given" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+            </div>
+            <div class="form-group">
                 <label>Max Repayment Per Period ($) <small style="color: var(--gray-500);">Leave blank for no limit</small></label>
                 <input type="number" id="adv-max-period" class="form-control" step="0.01" min="0" placeholder="No limit">
             </div>
@@ -4726,6 +4730,7 @@ const Pages = {
             const amount = parseFloat(document.getElementById('adv-amount').value);
             const description = document.getElementById('adv-description').value.trim();
             const maxPerPeriod = document.getElementById('adv-max-period').value;
+            const dateGiven = document.getElementById('adv-date-given').value;
 
             if (!techId || !amount || amount <= 0) {
                 App.showAlert('Technician and positive amount required', 'error');
@@ -4736,6 +4741,9 @@ const Pages = {
                 const payload = { tech_id: parseInt(techId), original_amount: amount, description };
                 if (maxPerPeriod && parseFloat(maxPerPeriod) > 0) {
                     payload.max_per_period = parseFloat(maxPerPeriod);
+                }
+                if (dateGiven) {
+                    payload.date_given = dateGiven;
                 }
                 await API.advances.create(payload);
                 App.hideModal();

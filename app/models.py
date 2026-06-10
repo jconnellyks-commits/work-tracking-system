@@ -855,6 +855,7 @@ class Advance(db.Model):
     original_amount = db.Column(db.Numeric(10, 2), nullable=False)
     remaining_balance = db.Column(db.Numeric(10, 2), nullable=False)
     max_per_period = db.Column(db.Numeric(10, 2))
+    date_given = db.Column(db.Date, nullable=True)
     status = db.Column(db.Enum('active', 'repaid', 'cancelled'), nullable=False, default='active')
     created_by = db.Column(db.Integer, db.ForeignKey('users.user_id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -872,6 +873,7 @@ class Advance(db.Model):
             'original_amount': float(self.original_amount or 0),
             'remaining_balance': float(self.remaining_balance or 0),
             'max_per_period': float(self.max_per_period) if self.max_per_period else None,
+            'date_given': self.date_given.isoformat() if self.date_given else None,
             'status': self.status,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,

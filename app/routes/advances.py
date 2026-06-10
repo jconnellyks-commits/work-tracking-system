@@ -1,5 +1,5 @@
 """Advance management routes."""
-from datetime import datetime
+from datetime import datetime, date
 from flask import Blueprint, request, jsonify, g
 from app import db
 from app.models import Advance
@@ -33,12 +33,17 @@ def create_advance():
     if not tech_id or amount <= 0:
         return jsonify({'error': 'tech_id and positive original_amount required'}), 400
 
+    date_given = None
+    if data.get('date_given'):
+        date_given = date.fromisoformat(data['date_given'])
+
     advance = Advance(
         tech_id=tech_id,
         description=data.get('description', ''),
         original_amount=amount,
         remaining_balance=amount,
         max_per_period=data.get('max_per_period'),
+        date_given=date_given,
         created_by=g.user_id,
     )
     db.session.add(advance)
@@ -59,6 +64,8 @@ def update_advance(advance_id):
         advance.max_per_period = data['max_per_period']
     if 'description' in data:
         advance.description = data['description']
+    if 'date_given' in data:
+        advance.date_given = date.fromisoformat(data['date_given']) if data['date_given'] else None
 
     db.session.commit()
     return jsonify({'message': 'Advance updated', 'advance': advance.to_dict()})

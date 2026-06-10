@@ -130,9 +130,18 @@ def lock_payouts():
 
         # Create job detail snapshots
         for job_data in tech_data['jobs']:
+            raw_job_id = job_data['job_id']
+            job_id = None
+            bundle_id = None
+            if isinstance(raw_job_id, str) and raw_job_id.startswith('bundle:'):
+                bundle_id = int(raw_job_id.split(':')[1])
+            else:
+                job_id = raw_job_id
+
             detail = PayoutJobDetail(
                 payout_id=payout.payout_id,
-                job_id=job_data['job_id'],
+                job_id=job_id,
+                bundle_id=bundle_id,
                 date_worked=job_data.get('date_worked'),
                 hours=job_data['hours'],
                 base_pay=job_data['base_pay'],

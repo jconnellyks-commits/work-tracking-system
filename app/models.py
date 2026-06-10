@@ -788,7 +788,8 @@ class PayoutJobDetail(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
-    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=False)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'), nullable=True)
+    bundle_id = db.Column(db.Integer, db.ForeignKey('job_bundles.bundle_id'), nullable=True)
     date_worked = db.Column(db.Date, nullable=True)
     hours = db.Column(db.Numeric(10, 2), nullable=False, default=0)
     base_pay = db.Column(db.Numeric(10, 2), nullable=False, default=0)
@@ -799,18 +800,33 @@ class PayoutJobDetail(db.Model):
     profit_share = db.Column(db.Numeric(10, 2), nullable=False, default=0)
 
     job = db.relationship('Job', backref=db.backref('payout_details', lazy='dynamic'))
+    bundle = db.relationship('JobBundle', backref=db.backref('payout_details', lazy='dynamic'))
 
     def to_dict(self):
+        if self.bundle_id and self.bundle:
+            ticket = self.bundle.display_name
+            description = self.bundle.display_name
+            client = None
+            ext_url = None
+        elif self.job:
+            ticket = self.job.ticket_number
+            description = self.job.description
+            client = self.job.client_name
+            ext_url = self.job.external_url
+        else:
+            ticket = description = client = ext_url = None
+
         return {
             'id': self.id,
             'payout_id': self.payout_id,
             'job_id': self.job_id,
+            'bundle_id': self.bundle_id,
             'date_worked': self.date_worked.isoformat() if self.date_worked else None,
             'date_display': self.date_worked.isoformat() if self.date_worked else None,
-            'job_ticket': self.job.ticket_number if self.job else None,
-            'job_description': self.job.description if self.job else None,
-            'job_client': self.job.client_name if self.job else None,
-            'external_url': self.job.external_url if self.job else None,
+            'job_ticket': ticket,
+            'job_description': description,
+            'job_client': client,
+            'external_url': ext_url,
             'hours': float(self.hours or 0),
             'base_pay': float(self.base_pay or 0),
             'mileage_pay': float(self.mileage_pay or 0),

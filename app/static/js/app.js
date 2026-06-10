@@ -266,8 +266,9 @@ const App = {
     // Format date (handles YYYY-MM-DD without timezone shift)
     formatDate(dateStr) {
         if (!dateStr) return '-';
-        // Parse YYYY-MM-DD as local date, not UTC
-        const [year, month, day] = dateStr.split('-');
+        // Strip time portion from ISO datetimes (e.g. "2026-06-09T23:48:21")
+        const datePart = dateStr.split('T')[0];
+        const [year, month, day] = datePart.split('-');
         if (year && month && day) {
             return new Date(year, month - 1, day).toLocaleDateString();
         }

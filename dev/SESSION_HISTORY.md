@@ -1,5 +1,42 @@
 # Work Tracking System - Session History
 
+## Session: June 9, 2026 (continued) — Individual Payout Locking + Advance Fixes
+
+### Summary
+Fixed payout lock crash on bundled jobs, added date field to advances, implemented per-tech payout locking (lock individual contractors instead of all at once), and corrected advance deduction timing so overpayment corrections only apply starting period 17.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix payout lock crash (bundled jobs) | Done | `bundle:1` string inserted into integer `job_id` column — added nullable `bundle_id` to `payout_job_details` |
+| Add date field to advances | Done | `date_given DATE` column, defaults to today in UI, fallback to `created_at` in display |
+| Lock individual contractors | Done | Per-tech Lock button on open preview, "Lock All Remaining" for bulk, period stays open until all locked |
+| Fix advance deduction timing | Done | Reversed P15 repayments, temporarily cancelled advances during P16 lock, reactivated for P17+ |
+| Fix `formatDate` Invalid Date | Done | `App.formatDate()` now strips `T` time portion from ISO datetimes before parsing |
+
+### Key Changes
+- **Migration 020**: `ALTER TABLE advances ADD COLUMN date_given DATE`
+- **Migration 021**: `payout_job_details.job_id` nullable + `bundle_id` column added
+- **`_create_payout_for_tech()`**: Extracted per-tech payout logic into reusable helper
+- **`POST /payouts/lock-tech`**: New endpoint — locks single tech, period stays open
+- **`POST /payouts/lock`**: Now skips already-locked techs instead of failing
+
+### Advance Correction Timeline
+1. Advances #4/#5/#6 created earlier this session for period 15+16 overpayments
+2. Period 15 was locked → advances incorrectly deducted from P15 payouts
+3. Reversed P15 repayments, restored balances, temporarily cancelled advances
+4. User locked all P16 techs individually (no advance deductions)
+5. Reactivated advances — will start deducting from period 17 onward
+
+### Git Commits
+- `7fc43af` — feat: add date_given field to advances
+- `2309d18` — fix: payout lock crash on bundled jobs
+- `30b7acc` — feat: lock individual contractor payouts
+- `6f64cad` — fix: formatDate handles ISO datetime strings
+
+---
+
 ## Session: June 9, 2026 — Payroll Corrections + Advance Recording
 
 ### Summary

@@ -701,6 +701,9 @@ const API = {
         async lock(data) {
             return API.request('/payouts/lock', { method: 'POST', body: JSON.stringify(data) });
         },
+        async lockTech(data) {
+            return API.request('/payouts/lock-tech', { method: 'POST', body: JSON.stringify(data) });
+        },
         async pay(id) {
             return API.request(`/payouts/${id}/pay`, { method: 'POST' });
         },

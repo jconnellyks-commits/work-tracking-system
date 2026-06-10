@@ -43,25 +43,107 @@ def get_payout(payout_id):
     return jsonify(data)
 
 
+def _create_payout_for_tech(period_id, tech_data, now):
+    """Create a locked payout record for a single technician. Returns the Payout."""
+    tech_id = tech_data['tech_id']
+
+    payout = Payout(
+        period_id=period_id,
+        tech_id=tech_id,
+        status='locked',
+        total_hours=tech_data['total_hours'],
+        total_base_pay=tech_data['total_base_pay'],
+        total_mileage_pay=tech_data['total_mileage_pay'],
+        total_per_diem=tech_data['total_per_diem'],
+        total_personal_expenses=tech_data['total_personal_expenses'],
+        total_bonuses=0,
+        total_deductions=0,
+        total_advance_repayment=0,
+        locked_at=now,
+    )
+    db.session.add(payout)
+    db.session.flush()
+
+    net_before_advances = (
+        float(payout.total_base_pay) + float(payout.total_mileage_pay)
+        + float(payout.total_per_diem) + float(payout.total_personal_expenses)
+    )
+
+    total_advance_repayment = 0
+    active_advances = Advance.query.filter_by(
+        tech_id=tech_id, status='active'
+    ).order_by(Advance.created_at.asc()).all()
+
+    available = net_before_advances
+    for advance in active_advances:
+        if available <= 0:
+            break
+        cap = float(advance.max_per_period or advance.remaining_balance)
+        repay = min(cap, float(advance.remaining_balance), available)
+        if repay > 0:
+            repayment = AdvanceRepayment(
+                advance_id=advance.advance_id,
+                payout_id=payout.payout_id,
+                amount=repay,
+            )
+            db.session.add(repayment)
+            advance.remaining_balance = float(advance.remaining_balance) - repay
+            if advance.remaining_balance <= 0:
+                advance.remaining_balance = 0
+                advance.status = 'repaid'
+                advance.repaid_at = now
+            total_advance_repayment += repay
+            available -= repay
+
+    payout.total_advance_repayment = total_advance_repayment
+    db.session.flush()
+    payout.recalculate_net()
+    db.session.flush()
+
+    for job_data in tech_data['jobs']:
+        raw_job_id = job_data['job_id']
+        job_id = None
+        bundle_id = None
+        if isinstance(raw_job_id, str) and raw_job_id.startswith('bundle:'):
+            bundle_id = int(raw_job_id.split(':')[1])
+        else:
+            job_id = raw_job_id
+
+        detail = PayoutJobDetail(
+            payout_id=payout.payout_id,
+            job_id=job_id,
+            bundle_id=bundle_id,
+            date_worked=job_data.get('date_worked'),
+            hours=job_data['hours'],
+            base_pay=job_data['base_pay'],
+            mileage_pay=job_data['mileage_pay'],
+            per_diem=job_data['per_diem'],
+            personal_expenses=job_data['personal_expenses'],
+            effective_rate=job_data['effective_rate'],
+            profit_share=job_data.get('profit_share', 0),
+        )
+        db.session.add(detail)
+
+    return payout
+
+
 @payouts_bp.route('/lock', methods=['POST'])
 @manager_required
 def lock_payouts():
-    """Lock all payouts for a period — creates snapshot records."""
+    """Lock all remaining payouts for a period — skips already-locked techs."""
     data = request.get_json()
     period_id = data.get('period_id')
     if not period_id:
         return jsonify({'error': 'period_id required'}), 400
 
     period = PayPeriod.query.get_or_404(period_id)
-    if period.status != 'open':
+    if period.status not in ('open',):
         return jsonify({'error': f'Period is {period.status}, must be open to lock'}), 400
 
-    # Check no existing payouts
-    existing = Payout.query.filter_by(period_id=period_id).first()
-    if existing:
-        return jsonify({'error': 'Payouts already exist for this period'}), 400
+    already_locked_tech_ids = {
+        p.tech_id for p in Payout.query.filter_by(period_id=period_id).all()
+    }
 
-    # Calculate period pay
     pay_data = calculate_period_pay(period_id=period_id)
     if not pay_data or not pay_data['technicians']:
         return jsonify({'error': 'No technician pay data found for this period'}), 400
@@ -70,98 +152,53 @@ def lock_payouts():
     payouts_created = []
 
     for tech_data in pay_data['technicians']:
-        tech_id = tech_data['tech_id']
-
-        # Create payout record
-        payout = Payout(
-            period_id=period_id,
-            tech_id=tech_id,
-            status='locked',
-            total_hours=tech_data['total_hours'],
-            total_base_pay=tech_data['total_base_pay'],
-            total_mileage_pay=tech_data['total_mileage_pay'],
-            total_per_diem=tech_data['total_per_diem'],
-            total_personal_expenses=tech_data['total_personal_expenses'],
-            total_bonuses=0,
-            total_deductions=0,
-            total_advance_repayment=0,
-            locked_at=now,
-        )
-        db.session.add(payout)
-        db.session.flush()  # Get payout_id for FKs
-
-        # Calculate net before advances
-        net_before_advances = (
-            float(payout.total_base_pay) + float(payout.total_mileage_pay)
-            + float(payout.total_per_diem) + float(payout.total_personal_expenses)
-        )
-
-        # Process advance repayments (oldest first)
-        total_advance_repayment = 0
-        active_advances = Advance.query.filter_by(
-            tech_id=tech_id, status='active'
-        ).order_by(Advance.created_at.asc()).all()
-
-        available = net_before_advances
-        for advance in active_advances:
-            if available <= 0:
-                break
-            cap = float(advance.max_per_period or advance.remaining_balance)
-            repay = min(cap, float(advance.remaining_balance), available)
-            if repay > 0:
-                repayment = AdvanceRepayment(
-                    advance_id=advance.advance_id,
-                    payout_id=payout.payout_id,
-                    amount=repay,
-                )
-                db.session.add(repayment)
-                advance.remaining_balance = float(advance.remaining_balance) - repay
-                if advance.remaining_balance <= 0:
-                    advance.remaining_balance = 0
-                    advance.status = 'repaid'
-                    advance.repaid_at = now
-                total_advance_repayment += repay
-                available -= repay
-
-        payout.total_advance_repayment = total_advance_repayment
-        db.session.flush()
-        payout.recalculate_net()
-        db.session.flush()
-
-        # Create job detail snapshots
-        for job_data in tech_data['jobs']:
-            raw_job_id = job_data['job_id']
-            job_id = None
-            bundle_id = None
-            if isinstance(raw_job_id, str) and raw_job_id.startswith('bundle:'):
-                bundle_id = int(raw_job_id.split(':')[1])
-            else:
-                job_id = raw_job_id
-
-            detail = PayoutJobDetail(
-                payout_id=payout.payout_id,
-                job_id=job_id,
-                bundle_id=bundle_id,
-                date_worked=job_data.get('date_worked'),
-                hours=job_data['hours'],
-                base_pay=job_data['base_pay'],
-                mileage_pay=job_data['mileage_pay'],
-                per_diem=job_data['per_diem'],
-                personal_expenses=job_data['personal_expenses'],
-                effective_rate=job_data['effective_rate'],
-                profit_share=job_data.get('profit_share', 0),
-            )
-            db.session.add(detail)
-
+        if tech_data['tech_id'] in already_locked_tech_ids:
+            continue
+        payout = _create_payout_for_tech(period_id, tech_data, now)
         payouts_created.append(payout)
 
-    # Lock the period
     period.status = 'locked'
     db.session.commit()
 
     return jsonify({
         'message': f'Locked {len(payouts_created)} payouts',
         'payouts': [p.to_dict() for p in payouts_created]
+    })
+
+
+@payouts_bp.route('/lock-tech', methods=['POST'])
+@manager_required
+def lock_single_tech():
+    """Lock payout for a single technician — period stays open."""
+    data = request.get_json()
+    period_id = data.get('period_id')
+    tech_id = data.get('tech_id')
+    if not period_id or not tech_id:
+        return jsonify({'error': 'period_id and tech_id required'}), 400
+
+    period = PayPeriod.query.get_or_404(period_id)
+    if period.status not in ('open',):
+        return jsonify({'error': f'Period is {period.status}, must be open to lock individual techs'}), 400
+
+    existing = Payout.query.filter_by(period_id=period_id, tech_id=tech_id).first()
+    if existing:
+        return jsonify({'error': 'Payout already exists for this technician'}), 400
+
+    pay_data = calculate_period_pay(period_id=period_id)
+    if not pay_data or not pay_data['technicians']:
+        return jsonify({'error': 'No pay data found'}), 400
+
+    tech_data = next((t for t in pay_data['technicians'] if t['tech_id'] == tech_id), None)
+    if not tech_data:
+        return jsonify({'error': 'Technician has no entries in this period'}), 400
+
+    now = datetime.utcnow()
+    payout = _create_payout_for_tech(period_id, tech_data, now)
+    db.session.commit()
+
+    return jsonify({
+        'message': f'Locked payout for {tech_data["tech_name"]}',
+        'payout': payout.to_dict()
     })
 
 

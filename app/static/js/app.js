@@ -4257,7 +4257,8 @@ const Pages = {
                     };
                     if (techFilters.length > 0) params.tech_id = techFilters.join(',');
                     const data = await API.reports.payrollDetail(params);
-                    Pages.renderOpenPayout(payoutContent, data, selectedPeriod, loadPayout);
+                    const existingPayouts = await API.payouts.list({ period_id: periodId });
+                    Pages.renderOpenPayout(payoutContent, data, selectedPeriod, loadPayout, existingPayouts.payouts || []);
                 } else {
                     const params = { period_id: periodId };
                     if (techFilters.length > 0) params.tech_id = techFilters.join(',');
@@ -4290,31 +4291,79 @@ const Pages = {
         if (defaultPeriod) loadPayout();
     },
 
-    renderOpenPayout(container, data, period, refreshFn) {
-        if (!data.technicians || data.technicians.length === 0) {
+    renderOpenPayout(container, data, period, refreshFn, existingPayouts = []) {
+        Pages._payoutRefreshFn = refreshFn;
+        if ((!data.technicians || data.technicians.length === 0) && !existingPayouts.length) {
             container.innerHTML = '<div class="alert alert-info">No verified entries found for this period.</div>';
             return;
         }
 
+        const lockedTechIds = new Set(existingPayouts.map(p => p.tech_id));
+        const unlockedTechs = (data.technicians || []).filter(t => !lockedTechIds.has(t.tech_id));
+
         let html = `
             <div class="stats-grid" style="margin-bottom: 1rem;">
-                <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" style="color: var(--success);">Open — Preview</div></div>
-                <div class="stat-card"><div class="stat-label">Technicians</div><div class="stat-value">${data.technicians.length}</div></div>
-                <div class="stat-card"><div class="stat-label">Total Hours</div><div class="stat-value">${data.grand_totals.total_hours.toFixed(2)}</div></div>
-                <div class="stat-card"><div class="stat-label">Total Pay</div><div class="stat-value">$${data.grand_totals.total_pay.toFixed(2)}</div></div>
+                <div class="stat-card"><div class="stat-label">Status</div><div class="stat-value" style="color: var(--success);">Open${existingPayouts.length > 0 ? ` (${existingPayouts.length} locked)` : ''}</div></div>
+                <div class="stat-card"><div class="stat-label">Technicians</div><div class="stat-value">${(data.technicians || []).length}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Hours</div><div class="stat-value">${data.grand_totals ? data.grand_totals.total_hours.toFixed(2) : '0.00'}</div></div>
+                <div class="stat-card"><div class="stat-label">Total Pay</div><div class="stat-value">$${data.grand_totals ? data.grand_totals.total_pay.toFixed(2) : '0.00'}</div></div>
             </div>
             <div style="margin-bottom: 1rem;">
-                <button class="btn btn-primary" id="lock-payouts-btn"><i class="fas fa-lock"></i> Lock Payouts</button>
-                <small style="margin-left: 0.5rem; color: var(--gray-500);">Freezes current calculations as snapshot records for payment</small>
+                ${unlockedTechs.length > 0 ? `
+                    <button class="btn btn-primary" id="lock-payouts-btn"><i class="fas fa-lock"></i> Lock All${existingPayouts.length > 0 ? ' Remaining' : ''}</button>
+                    <small style="margin-left: 0.5rem; color: var(--gray-500);">Freezes ${existingPayouts.length > 0 ? 'remaining' : 'all'} calculations and closes the period</small>
+                ` : '<span style="color: var(--gray-500);">All technicians locked — use "Lock All Remaining" or mark as paid below</span>'}
             </div>
         `;
 
-        data.technicians.forEach(tech => {
+        // Render already-locked techs first
+        existingPayouts.forEach(p => {
+            const statusBadge = p.status === 'paid'
+                ? '<span class="badge" style="background: var(--success); color: white;">Paid</span>'
+                : '<span class="badge" style="background: var(--warning); color: white;">Locked</span>';
+
+            html += `
+                <div class="card" style="margin-bottom: 1rem;">
+                    <div class="card-header">
+                        <h3 class="card-title">${p.tech_name} ${p.worker_type ? `<span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${p.worker_type}</span>` : ''} ${statusBadge}</h3>
+                        <span style="font-size: 1.2rem; font-weight: bold;">$${p.net_payout.toFixed(2)}</span>
+                    </div>
+                    <div class="card-body">
+                        <table class="data-table" style="margin-bottom: 0.5rem;">
+                            <tr><td>Base Pay</td><td style="text-align:right">$${p.total_base_pay.toFixed(2)}</td></tr>
+                            <tr><td>Mileage</td><td style="text-align:right">$${p.total_mileage_pay.toFixed(2)}</td></tr>
+                            <tr><td>Per Diem</td><td style="text-align:right">$${p.total_per_diem.toFixed(2)}</td></tr>
+                            <tr><td>Personal Expenses</td><td style="text-align:right">$${p.total_personal_expenses.toFixed(2)}</td></tr>
+                            ${p.total_bonuses > 0 ? `<tr><td style="color: var(--success);">Bonuses</td><td style="text-align:right; color: var(--success);">+$${p.total_bonuses.toFixed(2)}</td></tr>` : ''}
+                            ${p.total_deductions > 0 ? `<tr><td style="color: var(--danger);">Deductions</td><td style="text-align:right; color: var(--danger);">-$${p.total_deductions.toFixed(2)}</td></tr>` : ''}
+                            ${p.total_advance_repayment > 0 ? `<tr><td style="color: var(--danger);">Advance Repayment</td><td style="text-align:right; color: var(--danger);">-$${p.total_advance_repayment.toFixed(2)}</td></tr>` : ''}
+                            <tr style="font-weight: bold; border-top: 2px solid var(--border);"><td>Net Payout</td><td style="text-align:right">$${p.net_payout.toFixed(2)}</td></tr>
+                        </table>
+                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap;">
+                            <button class="btn btn-sm btn-secondary" onclick="Pages.viewPayoutStub(${p.payout_id})"><i class="fas fa-file-alt"></i> View Stub</button>
+                            ${p.status === 'locked' ? `
+                                <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
+                                <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'bonus')"><i class="fas fa-plus"></i> Bonus</button>
+                                <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'deduction')"><i class="fas fa-minus"></i> Deduction</button>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Render unlocked tech previews
+        unlockedTechs.forEach(tech => {
             html += `
                 <div class="card" style="margin-bottom: 1rem;">
                     <div class="card-header" style="background: #f8f9fa;">
-                        <h3 class="card-title">${tech.tech_name} <small style="font-weight: normal;">(Min Pay: $${tech.min_pay.toFixed(2)}/hr)</small> ${tech.worker_type ? `<span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${tech.worker_type}</span>` : ''}</h3>
-                        <span style="font-size: 1.25rem; font-weight: bold; color: var(--success);">$${tech.totals.total_pay.toFixed(2)}</span>
+                        <h3 class="card-title">${tech.tech_name} <small style="font-weight: normal;">(Min Pay: $${tech.min_pay.toFixed(2)}/hr)</small> ${tech.worker_type ? `<span class="badge" style="font-size: 0.7rem; padding: 2px 6px;">${tech.worker_type}</span>` : ''}
+                            <span class="badge" style="background: var(--gray-400); color: white;">Preview</span>
+                        </h3>
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 1.25rem; font-weight: bold; color: var(--success);">$${tech.totals.total_pay.toFixed(2)}</span>
+                            <button class="btn btn-sm btn-primary lock-tech-btn" data-tech-id="${tech.tech_id}" data-tech-name="${tech.tech_name}"><i class="fas fa-lock"></i> Lock</button>
+                        </div>
                     </div>
                     <div class="table-container">
                         <table style="font-size: 0.85rem;">
@@ -4379,11 +4428,31 @@ const Pages = {
 
         container.innerHTML = html;
 
-        document.getElementById('lock-payouts-btn').addEventListener('click', async () => {
-            if (!confirm('Lock payouts for this period? This will:\n• Freeze all pay calculations as snapshot records\n• Enable bonus/deduction adjustments\n• Allow marking individual techs as paid\n\nContinue?')) return;
+        // Per-tech lock buttons
+        container.querySelectorAll('.lock-tech-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const techId = parseInt(e.currentTarget.dataset.techId);
+                const techName = e.currentTarget.dataset.techName;
+                if (!confirm(`Lock payout for ${techName}? This will freeze their pay calculation and apply any advance deductions.`)) return;
+                try {
+                    await API.payouts.lockTech({ period_id: period.period_id, tech_id: techId });
+                    App.showAlert(`Payout locked for ${techName}`, 'success');
+                    refreshFn();
+                } catch (e) {
+                    App.showAlert('Failed to lock: ' + e.message, 'error');
+                }
+            });
+        });
+
+        // Lock All button
+        document.getElementById('lock-payouts-btn')?.addEventListener('click', async () => {
+            const msg = existingPayouts.length > 0
+                ? `Lock remaining ${unlockedTechs.length} technician(s) and close the period?`
+                : 'Lock all payouts for this period? This will freeze all pay calculations and close the period.';
+            if (!confirm(msg)) return;
             try {
                 await API.payouts.lock({ period_id: period.period_id });
-                App.showAlert('Payouts locked successfully. You can now add bonuses/deductions and mark as paid.', 'success');
+                App.showAlert('Payouts locked successfully.', 'success');
                 refreshFn();
             } catch (e) {
                 App.showAlert('Failed to lock: ' + e.message, 'error');

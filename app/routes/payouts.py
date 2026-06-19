@@ -1,7 +1,7 @@
 """Payout management routes."""
 from datetime import datetime
 from decimal import Decimal
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from app import db
 from app.models import (
     Payout, PayoutJobDetail, PayoutLineItem, PayPeriod,
@@ -112,6 +112,7 @@ def _create_payout_for_tech(period_id, tech_data, now):
             type=li_type,
             description=f'Carry-forward: {adj.description}',
             amount=abs(adj.amount_diff),
+            created_by=g.user_id,
         )
         db.session.add(li)
         adj.resolution = 'carried_forward'

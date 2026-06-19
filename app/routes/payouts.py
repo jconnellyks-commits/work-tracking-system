@@ -215,12 +215,25 @@ def pay_payout(payout_id):
     payout.paid_at = datetime.utcnow()
     payout.paid_by = g.user_id
 
-    # Check if all payouts for this period are now paid
+    # Auto-close period only if ALL techs with entries have payouts AND all are paid
     period = PayPeriod.query.get(payout.period_id)
     unpaid = Payout.query.filter_by(period_id=payout.period_id).filter(Payout.status != 'paid').count()
-    if unpaid <= 1:  # This one is about to be paid
-        period.status = 'closed'
-        period.closed_at = datetime.utcnow()
+    if unpaid <= 1:
+        from app.models import TimeEntry
+        techs_with_entries = {
+            t[0] for t in db.session.query(TimeEntry.tech_id).filter(
+                TimeEntry.date_worked >= period.start_date,
+                TimeEntry.date_worked <= period.end_date,
+                TimeEntry.status.in_(['verified', 'billed', 'paid']),
+                TimeEntry.tech_id.isnot(None)
+            ).distinct().all()
+        }
+        techs_with_payouts = {
+            p.tech_id for p in Payout.query.filter_by(period_id=payout.period_id).all()
+        }
+        if techs_with_entries.issubset(techs_with_payouts):
+            period.status = 'closed'
+            period.closed_at = datetime.utcnow()
 
     db.session.commit()
     return jsonify({'message': 'Payout marked as paid', 'payout': payout.to_dict()})

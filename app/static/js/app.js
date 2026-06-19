@@ -4299,18 +4299,22 @@ const Pages = {
             return;
         }
 
-        // Fetch pending adjustments from prior periods that will auto-apply on lock
+        // Fetch pending adjustments
         let pendingAdjs = [];
         try {
             const adjData = await API.payoutAdjustments.list({ resolution: 'pending' });
             pendingAdjs = adjData.adjustments || [];
         } catch (e) { /* ignore */ }
 
-        // Group pending adjustments by tech_id
+        // Group pending adjustments by tech_id (for unlocked tech carry-forward preview)
         const adjByTech = {};
+        // Group by payout_id (for locked payout adjustment display)
+        const adjByPayout = {};
         pendingAdjs.forEach(a => {
             if (!adjByTech[a.tech_id]) adjByTech[a.tech_id] = [];
             adjByTech[a.tech_id].push(a);
+            if (!adjByPayout[a.payout_id]) adjByPayout[a.payout_id] = [];
+            adjByPayout[a.payout_id].push(a);
         });
 
         const lockedTechIds = new Set(existingPayouts.map(p => p.tech_id));
@@ -4337,6 +4341,25 @@ const Pages = {
                 ? '<span class="badge" style="background: var(--success); color: white;">Paid</span>'
                 : '<span class="badge" style="background: var(--warning); color: white;">Locked</span>';
 
+            const payoutAdjs = adjByPayout[p.payout_id] || [];
+            let adjHtml = '';
+            if (payoutAdjs.length > 0) {
+                adjHtml = `<div style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+                    <strong style="font-size: 0.85rem;"><i class="fas fa-exchange-alt"></i> Adjustments</strong>
+                    ${payoutAdjs.map(a => {
+                        const color = a.amount_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                        const sign = a.amount_diff >= 0 ? '+' : '';
+                        return `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.85rem;">
+                            <span style="color: ${color}; font-weight: bold; min-width: 70px;">${sign}$${Math.abs(a.amount_diff).toFixed(2)}</span>
+                            <span style="flex: 1;">${a.job_ticket ? `<strong>${a.job_ticket}</strong>: ` : ''}${a.description}</span>
+                            <span class="badge" style="background: #ffc107; color: #856404;">Pending</span>
+                            <button class="btn btn-sm btn-primary adj-carry-btn" data-adj-id="${a.id}" style="padding: 1px 6px; font-size: 0.75rem;">Carry Forward</button>
+                            <button class="btn btn-sm btn-secondary adj-dismiss-btn" data-adj-id="${a.id}" style="padding: 1px 6px; font-size: 0.75rem;">Dismiss</button>
+                        </div>`;
+                    }).join('')}
+                </div>`;
+            }
+
             html += `
                 <div class="card" style="margin-bottom: 1rem;">
                     <div class="card-header">
@@ -4354,7 +4377,8 @@ const Pages = {
                             ${p.total_advance_repayment > 0 ? `<tr><td style="color: var(--danger);">Advance Repayment</td><td style="text-align:right; color: var(--danger);">-$${p.total_advance_repayment.toFixed(2)}</td></tr>` : ''}
                             <tr style="font-weight: bold; border-top: 2px solid var(--border);"><td>Net Payout</td><td style="text-align:right">$${p.net_payout.toFixed(2)}</td></tr>
                         </table>
-                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap;">
+                        ${adjHtml}
+                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap; margin-top: 0.5rem;">
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewPayoutStub(${p.payout_id})"><i class="fas fa-file-alt"></i> View Stub</button>
                             ${p.status === 'locked' ? `
                                 <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
@@ -4452,6 +4476,33 @@ const Pages = {
         });
 
         container.innerHTML = html;
+
+        // Adjustment action buttons
+        container.querySelectorAll('.adj-carry-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const adjId = e.currentTarget.dataset.adjId;
+                try {
+                    await API.payoutAdjustments.resolve(adjId, { resolution: 'carried_forward' });
+                    App.showAlert('Adjustment will be carried forward to next period', 'success');
+                    refreshFn();
+                } catch (e) {
+                    App.showAlert('Failed: ' + e.message, 'error');
+                }
+            });
+        });
+        container.querySelectorAll('.adj-dismiss-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const adjId = e.currentTarget.dataset.adjId;
+                if (!confirm('Dismiss this adjustment? The pay difference will not be carried forward.')) return;
+                try {
+                    await API.payoutAdjustments.resolve(adjId, { resolution: 'dismissed' });
+                    App.showAlert('Adjustment dismissed', 'success');
+                    refreshFn();
+                } catch (e) {
+                    App.showAlert('Failed: ' + e.message, 'error');
+                }
+            });
+        });
 
         // Per-tech lock buttons
         container.querySelectorAll('.lock-tech-btn').forEach(btn => {

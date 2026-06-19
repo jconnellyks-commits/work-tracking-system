@@ -12,13 +12,16 @@ payout_adjustments_bp = Blueprint('payout_adjustments', __name__)
 @manager_required
 def list_adjustments():
     """List adjustments, filtered by period and/or resolution status."""
-    query = PayoutAdjustment.query
+    query = PayoutAdjustment.query.join(Payout)
     period_id = request.args.get('period_id', type=int)
+    tech_id = request.args.get('tech_id', type=int)
     resolution = request.args.get('resolution')
     if period_id:
-        query = query.join(Payout).filter(Payout.period_id == period_id)
+        query = query.filter(Payout.period_id == period_id)
+    if tech_id:
+        query = query.filter(Payout.tech_id == tech_id)
     if resolution:
-        query = query.filter_by(resolution=resolution)
+        query = query.filter(PayoutAdjustment.resolution == resolution)
     adjustments = query.order_by(PayoutAdjustment.created_at.desc()).all()
     return jsonify({'adjustments': [a.to_dict() for a in adjustments]})
 

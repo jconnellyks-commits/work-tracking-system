@@ -5,7 +5,7 @@ from flask import Blueprint, request, jsonify
 from app import db
 from app.models import (
     Payout, PayoutJobDetail, PayoutLineItem, PayPeriod,
-    Advance, AdvanceRepayment, Technician
+    Advance, AdvanceRepayment, Technician, PayoutAdjustment
 )
 from app.utils.auth import manager_required
 from app.utils.pay_calculator import calculate_period_pay
@@ -97,6 +97,27 @@ def _create_payout_for_tech(period_id, tech_data, now):
             available -= repay
 
     payout.total_advance_repayment = total_advance_repayment
+    db.session.flush()
+
+    # Auto-apply pending carried-forward adjustments from prior periods
+    pending_adjs = PayoutAdjustment.query.join(Payout).filter(
+        Payout.tech_id == tech_id,
+        PayoutAdjustment.resolution == 'pending',
+    ).all()
+
+    for adj in pending_adjs:
+        li_type = 'bonus' if adj.amount_diff >= 0 else 'deduction'
+        li = PayoutLineItem(
+            payout_id=payout.payout_id,
+            type=li_type,
+            description=f'Carry-forward: {adj.description}',
+            amount=abs(adj.amount_diff),
+        )
+        db.session.add(li)
+        adj.resolution = 'carried_forward'
+        adj.resolved_to_period_id = period_id
+        adj.resolved_at = now
+
     db.session.flush()
     payout.recalculate_net()
     db.session.flush()

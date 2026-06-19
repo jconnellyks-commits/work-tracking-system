@@ -5,7 +5,8 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import or_
 from app import db
-from app.models import Job, Platform, TimeEntry, JobReimbursable, JobSchedule
+from decimal import Decimal
+from app.models import Job, Platform, TimeEntry, JobReimbursable, JobSchedule, PayoutJobDetail, PayoutAdjustment, Payout
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import jwt_required_with_user, manager_required
 
@@ -246,6 +247,67 @@ def create_job():
     }), 201
 
 
+def _detect_payout_adjustments(job, old_values, changed_fields):
+    """Check if a job's financial change affects any locked payouts and create adjustment records."""
+    from app.utils.pay_calculator import calculate_job_pay
+
+    locked_details = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
+        Payout
+    ).filter(Payout.status.in_(['locked', 'paid'])).all()
+
+    if not locked_details:
+        return
+
+    current_pay = calculate_job_pay(job.job_id)
+    if not current_pay or not current_pay['technicians']:
+        return
+
+    current_by_tech = {t['tech_id']: t for t in current_pay['technicians']}
+
+    field_labels = {'billing_amount': 'Billing', 'expenses': 'Expenses', 'commissions': 'Commissions'}
+    changes_desc = ', '.join(
+        f"{field_labels[f]}: ${old_values.get(f) or 0} → ${getattr(job, f) or 0}"
+        for f in changed_fields
+    )
+
+    for detail in locked_details:
+        current_tech = current_by_tech.get(detail.payout.tech_id)
+        if not current_tech:
+            continue
+
+        old_base = Decimal(str(detail.base_pay or 0))
+        new_base = Decimal(str(current_tech['base_pay']))
+        diff = new_base - old_base
+
+        if abs(diff) < Decimal('0.01'):
+            continue
+
+        existing = PayoutAdjustment.query.filter_by(
+            payout_id=detail.payout_id,
+            job_id=job.job_id,
+            resolution='pending'
+        ).first()
+
+        if existing:
+            existing.amount_diff = diff
+            existing.description = f"Job {job.ticket_number} financials changed: {changes_desc}"
+            existing.old_value = str(float(old_base))
+            existing.new_value = str(float(new_base))
+        else:
+            adj = PayoutAdjustment(
+                payout_id=detail.payout_id,
+                type='job_financial_change',
+                job_id=job.job_id,
+                description=f"Job {job.ticket_number} financials changed: {changes_desc}",
+                old_value=str(float(old_base)),
+                new_value=str(float(new_base)),
+                amount_diff=diff,
+            )
+            db.session.add(adj)
+
+    db.session.commit()
+
+
 @jobs_bp.route('/<int:job_id>', methods=['PUT'])
 @manager_required
 @log_action('update', 'job')
@@ -308,6 +370,12 @@ def update_job(job_id):
         job.completed_date = datetime.utcnow().date()
 
     db.session.commit()
+
+    # Detect payout adjustments if financial fields changed
+    financial_fields = {'billing_amount', 'expenses', 'commissions'}
+    changed_financials = {f for f in financial_fields if f in data}
+    if changed_financials:
+        _detect_payout_adjustments(job, old_values, changed_financials)
 
     logger.info(f"Job updated: {job.job_id}")
     audit_logger.log(

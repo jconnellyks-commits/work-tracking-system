@@ -721,6 +721,17 @@ const API = {
         },
     },
 
+    // Payout adjustment endpoints
+    payoutAdjustments: {
+        async list(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.request(`/payout-adjustments/?${query}`);
+        },
+        async resolve(adjId, data) {
+            return API.request(`/payout-adjustments/${adjId}/resolve`, { method: 'POST', body: JSON.stringify(data) });
+        },
+    },
+
     // Advance endpoints
     advances: {
         async list(params = {}) {

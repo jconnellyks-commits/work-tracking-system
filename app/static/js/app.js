@@ -4259,12 +4259,12 @@ const Pages = {
                     if (techFilters.length > 0) params.tech_id = techFilters.join(',');
                     const data = await API.reports.payrollDetail(params);
                     const existingPayouts = await API.payouts.list({ period_id: periodId });
-                    Pages.renderOpenPayout(payoutContent, data, selectedPeriod, loadPayout, existingPayouts.payouts || []);
+                    await Pages.renderOpenPayout(payoutContent, data, selectedPeriod, loadPayout, existingPayouts.payouts || []);
                 } else {
                     const params = { period_id: periodId };
                     if (techFilters.length > 0) params.tech_id = techFilters.join(',');
                     const data = await API.payouts.list(params);
-                    Pages.renderLockedPayout(payoutContent, data.payouts || [], selectedPeriod, loadPayout);
+                    await Pages.renderLockedPayout(payoutContent, data.payouts || [], selectedPeriod, loadPayout);
                 }
             } catch (e) {
                 payoutContent.innerHTML = `<div class="alert alert-error">Error: ${e.message}</div>`;
@@ -4292,12 +4292,26 @@ const Pages = {
         if (defaultPeriod) loadPayout();
     },
 
-    renderOpenPayout(container, data, period, refreshFn, existingPayouts = []) {
+    async renderOpenPayout(container, data, period, refreshFn, existingPayouts = []) {
         Pages._payoutRefreshFn = refreshFn;
         if ((!data.technicians || data.technicians.length === 0) && !existingPayouts.length) {
             container.innerHTML = '<div class="alert alert-info">No verified entries found for this period.</div>';
             return;
         }
+
+        // Fetch pending adjustments from prior periods that will auto-apply on lock
+        let pendingAdjs = [];
+        try {
+            const adjData = await API.payoutAdjustments.list({ resolution: 'pending' });
+            pendingAdjs = adjData.adjustments || [];
+        } catch (e) { /* ignore */ }
+
+        // Group pending adjustments by tech_id
+        const adjByTech = {};
+        pendingAdjs.forEach(a => {
+            if (!adjByTech[a.tech_id]) adjByTech[a.tech_id] = [];
+            adjByTech[a.tech_id].push(a);
+        });
 
         const lockedTechIds = new Set(existingPayouts.map(p => p.tech_id));
         const unlockedTechs = (data.technicians || []).filter(t => !lockedTechIds.has(t.tech_id));
@@ -4423,6 +4437,16 @@ const Pages = {
                             </tfoot>
                         </table>
                     </div>
+                    ${(adjByTech[tech.tech_id] || []).length > 0 ? `
+                        <div style="padding: 0.5rem 1rem; background: #fff3cd; border-top: 1px solid #ffc107; font-size: 0.85rem;">
+                            <strong><i class="fas fa-exchange-alt"></i> Pending carry-forwards (will auto-apply on lock):</strong>
+                            ${adjByTech[tech.tech_id].map(a => {
+                                const sign = a.amount_diff >= 0 ? '+' : '';
+                                const color = a.amount_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                                return `<div style="padding: 0.15rem 0;"><span style="color: ${color}; font-weight: bold;">${sign}$${Math.abs(a.amount_diff).toFixed(2)}</span> ${a.job_ticket ? `<strong>${a.job_ticket}</strong>: ` : ''}${a.description}</div>`;
+                            }).join('')}
+                        </div>
+                    ` : ''}
                 </div>
             `;
         });
@@ -4461,16 +4485,31 @@ const Pages = {
         });
     },
 
-    renderLockedPayout(container, payouts, period, refreshFn) {
+    async renderLockedPayout(container, payouts, period, refreshFn) {
         Pages._payoutRefreshFn = refreshFn;
         if (!payouts.length) {
             container.innerHTML = '<div class="alert alert-info">No payouts found for this period.</div>';
             return;
         }
 
+        // Fetch adjustments for this period
+        let adjustments = [];
+        try {
+            const adjData = await API.payoutAdjustments.list({ period_id: period.period_id });
+            adjustments = adjData.adjustments || [];
+        } catch (e) { /* ignore */ }
+
+        // Group adjustments by payout_id
+        const adjByPayout = {};
+        adjustments.forEach(a => {
+            if (!adjByPayout[a.payout_id]) adjByPayout[a.payout_id] = [];
+            adjByPayout[a.payout_id].push(a);
+        });
+
         const totalPay = payouts.reduce((s, p) => s + p.net_payout, 0);
         const totalHours = payouts.reduce((s, p) => s + p.total_hours, 0);
         const allPaid = payouts.every(p => p.status === 'paid');
+        const pendingAdjCount = adjustments.filter(a => a.resolution === 'pending').length;
 
         let html = `
             <div class="stats-grid" style="margin-bottom: 1rem;">
@@ -4480,6 +4519,12 @@ const Pages = {
                 <div class="stat-card"><div class="stat-label">Total Net</div><div class="stat-value">$${totalPay.toFixed(2)}</div></div>
             </div>
         `;
+
+        if (pendingAdjCount > 0) {
+            html += `<div class="alert" style="background: #fff3cd; border: 1px solid #ffc107; color: #856404; margin-bottom: 1rem;">
+                <i class="fas fa-exclamation-triangle"></i> ${pendingAdjCount} pending adjustment(s) — job financials changed after lock. Review and carry forward or dismiss below.
+            </div>`;
+        }
 
         if (period.status === 'locked') {
             html += `<div style="margin-bottom: 1rem;">
@@ -4491,6 +4536,34 @@ const Pages = {
             const statusBadge = p.status === 'paid'
                 ? '<span class="badge" style="background: var(--success); color: white;">Paid</span>'
                 : '<span class="badge" style="background: var(--warning); color: white;">Locked</span>';
+
+            const payoutAdjs = adjByPayout[p.payout_id] || [];
+
+            let adjHtml = '';
+            if (payoutAdjs.length > 0) {
+                adjHtml = `<div style="margin-top: 0.75rem; border-top: 1px solid var(--border); padding-top: 0.5rem;">
+                    <strong style="font-size: 0.85rem;"><i class="fas fa-exchange-alt"></i> Adjustments</strong>
+                    ${payoutAdjs.map(a => {
+                        const color = a.amount_diff >= 0 ? 'var(--success)' : 'var(--danger)';
+                        const sign = a.amount_diff >= 0 ? '+' : '';
+                        const statusLabel = a.resolution === 'pending'
+                            ? '<span class="badge" style="background: #ffc107; color: #856404;">Pending</span>'
+                            : a.resolution === 'carried_forward'
+                            ? '<span class="badge" style="background: var(--info); color: white;">Carried Forward</span>'
+                            : '<span class="badge" style="background: var(--gray-400); color: white;">Dismissed</span>';
+                        const actions = a.resolution === 'pending' ? `
+                            <button class="btn btn-sm btn-primary adj-carry-btn" data-adj-id="${a.id}" style="padding: 1px 6px; font-size: 0.75rem;">Carry Forward</button>
+                            <button class="btn btn-sm btn-secondary adj-dismiss-btn" data-adj-id="${a.id}" style="padding: 1px 6px; font-size: 0.75rem;">Dismiss</button>
+                        ` : '';
+                        return `<div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.25rem 0; font-size: 0.85rem;">
+                            <span style="color: ${color}; font-weight: bold; min-width: 70px;">${sign}$${Math.abs(a.amount_diff).toFixed(2)}</span>
+                            <span style="flex: 1;">${a.job_ticket ? `<strong>${a.job_ticket}</strong>: ` : ''}${a.description}</span>
+                            ${statusLabel}
+                            ${actions}
+                        </div>`;
+                    }).join('')}
+                </div>`;
+            }
 
             html += `
                 <div class="card" style="margin-bottom: 1rem;">
@@ -4509,7 +4582,8 @@ const Pages = {
                             ${p.total_advance_repayment > 0 ? `<tr><td style="color: var(--danger);">Advance Repayment</td><td style="text-align:right; color: var(--danger);">-$${p.total_advance_repayment.toFixed(2)}</td></tr>` : ''}
                             <tr style="font-weight: bold; border-top: 2px solid var(--border);"><td>Net Payout</td><td style="text-align:right">$${p.net_payout.toFixed(2)}</td></tr>
                         </table>
-                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap;">
+                        ${adjHtml}
+                        <div class="btn-group" style="gap: 0.25rem; flex-wrap: wrap; margin-top: 0.5rem;">
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewPayoutStub(${p.payout_id})"><i class="fas fa-file-alt"></i> View Stub</button>
                             ${p.status === 'locked' ? `
                                 <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
@@ -4523,6 +4597,33 @@ const Pages = {
         });
 
         container.innerHTML = html;
+
+        // Adjustment action buttons
+        container.querySelectorAll('.adj-carry-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const adjId = e.currentTarget.dataset.adjId;
+                try {
+                    await API.payoutAdjustments.resolve(adjId, { resolution: 'carried_forward' });
+                    App.showAlert('Adjustment will be carried forward to next period', 'success');
+                    refreshFn();
+                } catch (e) {
+                    App.showAlert('Failed: ' + e.message, 'error');
+                }
+            });
+        });
+        container.querySelectorAll('.adj-dismiss-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const adjId = e.currentTarget.dataset.adjId;
+                if (!confirm('Dismiss this adjustment? The pay difference will not be carried forward.')) return;
+                try {
+                    await API.payoutAdjustments.resolve(adjId, { resolution: 'dismissed' });
+                    App.showAlert('Adjustment dismissed', 'success');
+                    refreshFn();
+                } catch (e) {
+                    App.showAlert('Failed: ' + e.message, 'error');
+                }
+            });
+        });
 
         if (period.status === 'locked') {
             document.getElementById('pay-all-btn')?.addEventListener('click', async () => {

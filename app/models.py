@@ -944,6 +944,8 @@ class PayoutAdjustment(db.Model):
         return {
             'id': self.id,
             'payout_id': self.payout_id,
+            'tech_id': self.payout.tech_id if self.payout else None,
+            'tech_name': self.payout.technician.name if self.payout and self.payout.technician else None,
             'type': self.type,
             'job_id': self.job_id,
             'job_ticket': self.job.ticket_number if self.job else None,

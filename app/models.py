@@ -749,14 +749,15 @@ class Payout(db.Model):
     def recalculate_net(self):
         """Recalculate net_payout from component fields. Call after line item changes."""
         from decimal import Decimal
+        d = lambda v: Decimal(str(v or 0))
         bonus_sum = sum((li.amount for li in self.line_items.filter_by(type='bonus').all()), Decimal('0'))
         deduction_sum = sum((li.amount for li in self.line_items.filter_by(type='deduction').all()), Decimal('0'))
         self.total_bonuses = bonus_sum
         self.total_deductions = deduction_sum
         self.net_payout = (
-            self.total_base_pay + self.total_mileage_pay + self.total_per_diem
-            + self.total_personal_expenses + self.total_bonuses
-            - self.total_deductions - self.total_advance_repayment
+            d(self.total_base_pay) + d(self.total_mileage_pay) + d(self.total_per_diem)
+            + d(self.total_personal_expenses) + d(self.total_bonuses)
+            - d(self.total_deductions) - d(self.total_advance_repayment)
         )
 
     def to_dict(self):

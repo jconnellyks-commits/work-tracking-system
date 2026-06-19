@@ -1,5 +1,6 @@
 """Payout management routes."""
 from datetime import datetime
+from decimal import Decimal
 from flask import Blueprint, request, jsonify
 from app import db
 from app.models import (
@@ -65,11 +66,11 @@ def _create_payout_for_tech(period_id, tech_data, now):
     db.session.flush()
 
     net_before_advances = (
-        float(payout.total_base_pay) + float(payout.total_mileage_pay)
-        + float(payout.total_per_diem) + float(payout.total_personal_expenses)
+        Decimal(str(payout.total_base_pay or 0)) + Decimal(str(payout.total_mileage_pay or 0))
+        + Decimal(str(payout.total_per_diem or 0)) + Decimal(str(payout.total_personal_expenses or 0))
     )
 
-    total_advance_repayment = 0
+    total_advance_repayment = Decimal('0')
     active_advances = Advance.query.filter_by(
         tech_id=tech_id, status='active'
     ).order_by(Advance.created_at.asc()).all()
@@ -78,8 +79,8 @@ def _create_payout_for_tech(period_id, tech_data, now):
     for advance in active_advances:
         if available <= 0:
             break
-        cap = float(advance.max_per_period or advance.remaining_balance)
-        repay = min(cap, float(advance.remaining_balance), available)
+        cap = Decimal(str(advance.max_per_period or advance.remaining_balance))
+        repay = min(cap, Decimal(str(advance.remaining_balance)), available)
         if repay > 0:
             repayment = AdvanceRepayment(
                 advance_id=advance.advance_id,
@@ -87,9 +88,9 @@ def _create_payout_for_tech(period_id, tech_data, now):
                 amount=repay,
             )
             db.session.add(repayment)
-            advance.remaining_balance = float(advance.remaining_balance) - repay
+            advance.remaining_balance = Decimal(str(advance.remaining_balance)) - repay
             if advance.remaining_balance <= 0:
-                advance.remaining_balance = 0
+                advance.remaining_balance = Decimal('0')
                 advance.status = 'repaid'
                 advance.repaid_at = now
             total_advance_repayment += repay

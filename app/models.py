@@ -748,8 +748,9 @@ class Payout(db.Model):
 
     def recalculate_net(self):
         """Recalculate net_payout from component fields. Call after line item changes."""
-        bonus_sum = sum(li.amount for li in self.line_items.filter_by(type='bonus').all())
-        deduction_sum = sum(li.amount for li in self.line_items.filter_by(type='deduction').all())
+        from decimal import Decimal
+        bonus_sum = sum((li.amount for li in self.line_items.filter_by(type='bonus').all()), Decimal('0'))
+        deduction_sum = sum((li.amount for li in self.line_items.filter_by(type='deduction').all()), Decimal('0'))
         self.total_bonuses = bonus_sum
         self.total_deductions = deduction_sum
         self.net_payout = (

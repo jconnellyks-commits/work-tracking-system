@@ -59,12 +59,12 @@ def resolve_adjustment(adj_id):
         ).first()
 
         if next_payout and next_payout.status == 'locked':
-            li_type = 'bonus' if float(adj.amount_diff) >= 0 else 'deduction'
+            li_type = 'bonus' if adj.amount_diff >= 0 else 'deduction'
             li = PayoutLineItem(
                 payout_id=next_payout.payout_id,
                 type=li_type,
                 description=f'Carried forward: {adj.description}',
-                amount=abs(float(adj.amount_diff)),
+                amount=abs(adj.amount_diff),
                 created_by=g.user_id,
             )
             db.session.add(li)

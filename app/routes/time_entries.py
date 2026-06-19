@@ -7,7 +7,7 @@ from decimal import Decimal
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
 from app import db
-from app.models import TimeEntry, Job, Technician, PayPeriod
+from app.models import TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import (
     jwt_required_with_user,
@@ -19,6 +19,17 @@ from app.utils.auth import (
 
 time_entries_bp = Blueprint('time_entries', __name__)
 logger = get_logger(__name__)
+
+
+def _check_time_entry_adjustments(job):
+    """Check if a job has locked payouts and detect pay differences after time entry changes."""
+    has_locked = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
+        Payout
+    ).filter(Payout.status.in_(['locked', 'paid'])).first()
+    if not has_locked:
+        return
+    from app.routes.jobs import _detect_payout_adjustments
+    _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries changed")
 
 
 def calculate_hours(time_in, time_out):
@@ -284,6 +295,10 @@ def create_time_entry():
         user_id=user.user_id
     )
 
+    # Detect payout adjustments if this job has locked payouts
+    if job:
+        _check_time_entry_adjustments(job)
+
     return jsonify({
         'message': 'Time entry created successfully',
         'time_entry': entry.to_dict()
@@ -380,6 +395,14 @@ def update_time_entry(entry_id):
         user_id=user.user_id
     )
 
+    # Detect payout adjustments for affected jobs
+    if current_job:
+        _check_time_entry_adjustments(current_job)
+    if old_job_id and old_job_id != entry.job_id:
+        old_job_obj = Job.query.get(old_job_id)
+        if old_job_obj:
+            _check_time_entry_adjustments(old_job_obj)
+
     return jsonify({
         'message': 'Time entry updated successfully',
         'time_entry': entry.to_dict()
@@ -421,6 +444,10 @@ def delete_time_entry(entry_id):
         old_values=old_values,
         user_id=user.user_id
     )
+
+    # Detect payout adjustments for the affected job
+    if job:
+        _check_time_entry_adjustments(job)
 
     return jsonify({'message': 'Time entry deleted successfully'}), 200
 

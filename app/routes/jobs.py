@@ -247,9 +247,9 @@ def create_job():
     }), 201
 
 
-def _detect_payout_adjustments(job, old_values, changed_fields):
-    """Check if a job's financial change affects any locked payouts and create adjustment records."""
-    from app.utils.pay_calculator import calculate_job_pay
+def _detect_payout_adjustments(job, description=None):
+    """Check if a job's current pay differs from locked payout snapshots and create/update adjustment records."""
+    from app.utils.pay_calculator import calculate_period_pay
 
     locked_details = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
         Payout
@@ -258,52 +258,71 @@ def _detect_payout_adjustments(job, old_values, changed_fields):
     if not locked_details:
         return
 
-    current_pay = calculate_job_pay(job.job_id)
-    if not current_pay or not current_pay['technicians']:
-        return
+    desc = description or f"Job {job.ticket_number} pay changed"
 
-    current_by_tech = {t['tech_id']: t for t in current_pay['technicians']}
-
-    field_labels = {'billing_amount': 'Billing', 'expenses': 'Expenses', 'commissions': 'Commissions'}
-    changes_desc = ', '.join(
-        f"{field_labels[f]}: ${old_values.get(f) or 0} → ${getattr(job, f) or 0}"
-        for f in changed_fields
-    )
-
+    # Group locked details by period so we recalculate per-period
+    details_by_period = {}
     for detail in locked_details:
-        current_tech = current_by_tech.get(detail.payout.tech_id)
-        if not current_tech:
+        pid = detail.payout.period_id
+        if pid not in details_by_period:
+            details_by_period[pid] = []
+        details_by_period[pid].append(detail)
+
+    for period_id, details in details_by_period.items():
+        period_pay = calculate_period_pay(period_id=period_id)
+        if not period_pay or not period_pay['technicians']:
             continue
 
-        old_base = Decimal(str(detail.base_pay or 0))
-        new_base = Decimal(str(current_tech['base_pay']))
-        diff = new_base - old_base
+        # Build lookup: tech_id -> {job_id -> job_data}
+        tech_jobs = {}
+        for tech in period_pay['technicians']:
+            jobs_by_id = {}
+            for j in tech['jobs']:
+                jid = j['job_id']
+                if jid not in jobs_by_id:
+                    jobs_by_id[jid] = j
+                else:
+                    # Multiple entries for same job — sum base_pay
+                    jobs_by_id[jid]['base_pay'] += j['base_pay']
+            tech_jobs[tech['tech_id']] = jobs_by_id
 
-        if abs(diff) < Decimal('0.01'):
-            continue
+        for detail in details:
+            tech_id = detail.payout.tech_id
+            current_jobs = tech_jobs.get(tech_id, {})
+            current_job = current_jobs.get(job.job_id)
 
-        existing = PayoutAdjustment.query.filter_by(
-            payout_id=detail.payout_id,
-            job_id=job.job_id,
-            resolution='pending'
-        ).first()
+            old_base = Decimal(str(detail.base_pay or 0))
+            new_base = Decimal(str(current_job['base_pay'])) if current_job else Decimal('0')
+            diff = new_base - old_base
 
-        if existing:
-            existing.amount_diff = diff
-            existing.description = f"Job {job.ticket_number} financials changed: {changes_desc}"
-            existing.old_value = str(float(old_base))
-            existing.new_value = str(float(new_base))
-        else:
-            adj = PayoutAdjustment(
+            existing = PayoutAdjustment.query.filter_by(
                 payout_id=detail.payout_id,
-                type='job_financial_change',
                 job_id=job.job_id,
-                description=f"Job {job.ticket_number} financials changed: {changes_desc}",
-                old_value=str(float(old_base)),
-                new_value=str(float(new_base)),
-                amount_diff=diff,
-            )
-            db.session.add(adj)
+                resolution='pending'
+            ).first()
+
+            if abs(diff) < Decimal('0.01'):
+                # No meaningful difference — remove any stale pending adjustment
+                if existing:
+                    db.session.delete(existing)
+                continue
+
+            if existing:
+                existing.amount_diff = diff
+                existing.description = desc
+                existing.old_value = str(float(old_base))
+                existing.new_value = str(float(new_base))
+            else:
+                adj = PayoutAdjustment(
+                    payout_id=detail.payout_id,
+                    type='pay_change',
+                    job_id=job.job_id,
+                    description=desc,
+                    old_value=str(float(old_base)),
+                    new_value=str(float(new_base)),
+                    amount_diff=diff,
+                )
+                db.session.add(adj)
 
     db.session.commit()
 
@@ -375,7 +394,12 @@ def update_job(job_id):
     financial_fields = {'billing_amount', 'expenses', 'commissions'}
     changed_financials = {f for f in financial_fields if f in data}
     if changed_financials:
-        _detect_payout_adjustments(job, old_values, changed_financials)
+        field_labels = {'billing_amount': 'Billing', 'expenses': 'Expenses', 'commissions': 'Commissions'}
+        changes_desc = ', '.join(
+            f"{field_labels[f]}: ${old_values.get(f) or 0} → ${getattr(job, f) or 0}"
+            for f in changed_financials
+        )
+        _detect_payout_adjustments(job, f"Job {job.ticket_number} financials changed: {changes_desc}")
 
     logger.info(f"Job updated: {job.job_id}")
     audit_logger.log(

@@ -1,5 +1,77 @@
 # Work Tracking System - Session History
 
+## Session: June 19, 2026 — Decimal/Float Fix, Carry-Over Adjustments, Period 16 Retroactive Audit
+
+### Summary
+Fixed a bug where locking one tech's payout closed the period and hid other open techs. Audited and fixed all Decimal/float mismatches in financial code to prevent TypeErrors. Built a complete carry-over adjustment system that detects when job financials or time entries change after payouts are locked, displays pending adjustments in the UI, and auto-applies them as bonus/deduction line items when locking future periods. Retroactively audited period 16 and found a -$74.64 adjustment for Michael Hollimon.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Fix premature period close | Done | `pay_payout` was closing period when all existing payouts were paid, without checking if other techs still needed payouts |
+| Decimal/float audit & fix | Done | Replaced all `float()` calls with `Decimal(str(...))` in payouts.py; `recalculate_net()` normalizes all fields to Decimal |
+| Carry-over adjustment system | Done | Full detection → UI → auto-apply pipeline for post-lock pay changes |
+| Time entry adjustment detection | Done | Create/update/delete of time entries now triggers adjustment checks on related jobs |
+| Show adjustments on locked cards (open period) | Done | Locked payout cards in open period view now show pending adjustments |
+| Period 16 retroactive audit | Done | Found Michael Hollimon overpaid $74.64 on IP Camera Upgrade Bundle; created pending adjustment |
+| Record Michael's $200 advance repayment (P16) | Done | Updated payout 47 total_advance_repayment to $200, recalculated net |
+| Delete test time entries | Done | Removed test entry for Geoffery on WM-8182883320 + cleaned up test adjustments |
+| Lock Rowland's period 17 payout | Done | User locked via UI after verifying adjustments |
+
+### Key Changes
+
+**Premature period close fix** (`39b82b1`):
+- `pay_payout` now checks `techs_with_entries.issubset(techs_with_payouts)` before auto-closing a period
+
+**Decimal/float fix** (`e333a87`, `3953440`):
+- All `float()` calls in `_create_payout_for_tech()` replaced with `Decimal(str(...))`
+- `Payout.recalculate_net()` normalizes every field with `d = lambda v: Decimal(str(v or 0))` before arithmetic
+- Prevents `TypeError: unsupported operand type(s) for +: 'Decimal' and 'float'`
+
+**Carry-over adjustment system** (`2cdc8d0`):
+- New model: `PayoutAdjustment` — tracks pay diffs with resolution workflow (pending → carried_forward/dismissed)
+- New blueprint: `app/routes/payout_adjustments.py` — list and resolve endpoints
+- `_detect_payout_adjustments()` in `jobs.py` — compares locked snapshots vs current `calculate_period_pay(period_id=...)`
+- Auto-creates/updates/deletes adjustments when job billing/expenses/commissions change
+- On lock: pending adjustments auto-apply as bonus/deduction line items, marked `carried_forward`
+- Frontend: adjustments shown on locked payout cards with Carry Forward / Dismiss buttons
+- API client: `api.payoutAdjustments.list()` and `api.payoutAdjustments.resolve()`
+- Migration 022: `payout_adjustments` table
+
+**Time entry adjustment detection** (`bbb8044`):
+- `_check_time_entry_adjustments()` helper in `time_entries.py`
+- Called after create, update, and delete of time entries
+- Triggers `_detect_payout_adjustments()` for the affected job
+
+**Open period adjustment display** (`9b08d50`):
+- Locked payout cards in `renderOpenPayout` now fetch and display pending adjustments
+- Pending carry-forwards from prior periods also shown on unlocked tech cards
+
+### Period 16 Retroactive Audit Results
+Ran `calculate_period_pay(period_id=16)` and compared against all locked `PayoutJobDetail` snapshots:
+- **Jeremiah**: No differences
+- **Geoffery Baugher**: No differences  
+- **York Hinds**: No differences
+- **Rowland Williams**: No differences
+- **Michael Hollimon**: IP Camera Upgrade Bundle locked at $381.39, current calc is $306.75 → **-$74.64 adjustment created** (adjustment id=2, payout 47)
+
+### Pending Items for Next Session
+- Michael Hollimon has -$74.64 pending adjustment from P16 + active advance ($620.84 remaining, $200/period max) — both auto-apply when his P17 payout is locked
+- Remaining P17 techs to lock: Jeremiah, Geoffery, Michael
+- York Hinds already locked in P17
+
+### Git Commits (June 19, 2026)
+- `39b82b1` — fix: prevent premature period close when paying individual payouts
+- `e333a87` — fix: use Decimal instead of float for all financial arithmetic
+- `3953440` — fix: recalculate_net converts all fields to Decimal before arithmetic
+- `2cdc8d0` — feat: carry-over adjustment system for payout management
+- `35ae759` — chore: bump static asset cache buster to 20260619a
+- `bbb8044` — feat: detect payout adjustments on time entry changes
+- `9b08d50` — fix: show adjustments on locked payout cards in open period view
+
+---
+
 ## Session: June 9, 2026 (continued) — Individual Payout Locking + Advance Fixes
 
 ### Summary

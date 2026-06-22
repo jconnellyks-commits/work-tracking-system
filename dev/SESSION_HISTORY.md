@@ -1,5 +1,35 @@
 # Work Tracking System - Session History
 
+## Session: June 22, 2026 — Email Parser Fix & Calendar Assignment Bug
+
+### Summary
+Fixed two issues: (1) the email parser had been silently down for ~5 days because the Gmail Pub/Sub watch renewal cron job was missing environment variables, and (2) the calendar was showing jobs as "unassigned" even when a tech was assigned via JobAssignment, because schedule entries only checked `JobSchedule.tech_id`.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Diagnose email parser outage | Done | Watch expired ~June 17; cron for `renew_watch.py` failed daily due to missing `.env` sourcing |
+| Renew Gmail watch | Done | Manually ran with env vars; parser caught up on ~250 missed emails via Gmail history |
+| Fix cron job | Done | Updated crontab to `cd /opt/email-parser && set -a && . .env && set +a` before running script |
+| Fix calendar unassigned display | Done | Schedule entries now fall back to `JobAssignment` records when `JobSchedule.tech_id` is NULL |
+| Deploy & verify | Done | Both fixes deployed and confirmed working |
+
+### Key Changes
+
+**Server** (crontab):
+- Watch renewal cron now sources `.env` before running `renew_watch.py`
+- Added log output to `/tmp/renew_watch.log`
+
+**Schedule API** (`schedule.py`):
+- `get_schedule_range()` now includes `assigned_techs` from `JobAssignment` when `JobSchedule.tech_id` is NULL
+
+**Calendar** (`app.js`):
+- Tech name display falls back to `assigned_techs` when `tech_name` is null
+- Unassigned detection uses unified logic across schedule and fallback entries
+
+---
+
 ## Session: June 21, 2026 — Flexible Arrival Window Support
 
 ### Summary

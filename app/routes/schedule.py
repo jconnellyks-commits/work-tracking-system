@@ -234,6 +234,12 @@ def get_schedule_range():
     result_entries = []
     for sched, job in entries:
         scheduled_job_ids.add(job.job_id)
+        tech_name = sched.technician.name if sched.technician else None
+        assigned_techs = []
+        if not tech_name:
+            assigned_techs = [a.technician.name for a in job.assignments.filter(
+                JobAssignment.status.in_(['accepted', 'invited'])
+            ).all() if a.technician]
         result_entries.append({
             'id': sched.id,
             'job_id': job.job_id,
@@ -243,7 +249,8 @@ def get_schedule_range():
             'job_status': job.job_status,
             'scheduled_date': sched.scheduled_date.isoformat(),
             'tech_id': sched.tech_id,
-            'tech_name': sched.technician.name if sched.technician else None,
+            'tech_name': tech_name,
+            'assigned_techs': assigned_techs,
             'notes': sched.notes,
             'start_time': sched.start_time.strftime('%H:%M') if sched.start_time else None,
             'latest_start_time': sched.latest_start_time.strftime('%H:%M') if sched.latest_start_time else None,

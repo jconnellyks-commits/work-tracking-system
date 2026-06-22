@@ -1012,6 +1012,7 @@ const Pages = {
                     start_time: entry.start_time,
                     latest_start_time: entry.latest_start_time,
                     tech_name: entry.tech_name,
+                    assigned_techs: entry.assigned_techs || [],
                     _from_schedule: true
                 });
             }
@@ -1022,6 +1023,9 @@ const Pages = {
                 if (entry.tech_name) {
                     if (!jobTechsMap[entry.job_id]) jobTechsMap[entry.job_id] = new Set();
                     jobTechsMap[entry.job_id].add(entry.tech_name);
+                } else if (entry.assigned_techs && entry.assigned_techs.length) {
+                    if (!jobTechsMap[entry.job_id]) jobTechsMap[entry.job_id] = new Set();
+                    entry.assigned_techs.forEach(t => jobTechsMap[entry.job_id].add(t));
                 }
             }
 
@@ -1057,10 +1061,11 @@ const Pages = {
                     const timeLabel = effectiveStart
                         ? ` <span style="opacity:0.75;">(${App.format12Hour(effectiveStart)}${effectiveEnd ? ' - ' + App.format12Hour(effectiveEnd) : ''})</span>`
                         : '';
-                    const techLabel = job.tech_name ? ` <span style="opacity:0.7; font-size:0.85em;">(${job.tech_name})</span>` : '';
+                    const effectiveTechName = job.tech_name || (job.assigned_techs && job.assigned_techs.length ? job.assigned_techs.join(', ') : null);
+                    const techLabel = effectiveTechName ? ` <span style="opacity:0.7; font-size:0.85em;">(${effectiveTechName})</span>` : '';
                     const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
                     const statusLabel = job.job_status ? ` <span style="opacity:0.65; font-size:0.8em; text-transform:capitalize;">[${job.job_status.replace('_', ' ')}]</span>` : '';
-                    const hasNoTech = job._from_schedule ? !job.tech_name : (!job.assigned_techs || !job.assigned_techs.length);
+                    const hasNoTech = !effectiveTechName;
                     const unassignedStyle = hasNoTech && job.job_status !== 'completed' && job.job_status !== 'cancelled'
                         ? 'border: 2px solid #ef4444;' : `border: 1px solid ${colors.border};`;
                     const unassignedClass = hasNoTech && job.job_status !== 'completed' && job.job_status !== 'cancelled'
@@ -1125,8 +1130,8 @@ const Pages = {
                 const dayLabel = dateKey === todayKey ? 'Today' : 'Tomorrow';
                 for (const job of (jobsByDate[dateKey] || [])) {
                     if (job.job_status === 'completed' || job.job_status === 'cancelled') continue;
-                    const hasNoTech = job._from_schedule ? !job.tech_name : (!job.assigned_techs || !job.assigned_techs.length);
-                    if (hasNoTech) unassigned.push({ ...job, dayLabel });
+                    const noTech = !job.tech_name && (!job.assigned_techs || !job.assigned_techs.length);
+                    if (noTech) unassigned.push({ ...job, dayLabel });
                 }
             }
             const alertHTML = unassigned.length ? `

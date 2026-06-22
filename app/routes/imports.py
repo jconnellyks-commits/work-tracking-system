@@ -3,7 +3,7 @@ Import routes for external data sources like Field Nation.
 """
 
 from flask import Blueprint, request, jsonify, g
-from app.models import db, Job, TimeEntry, Technician, Platform
+from app.models import db, Job, TimeEntry, Technician, Platform, JobSchedule
 from app.utils.auth import jwt_required_with_user, admin_required
 from datetime import datetime
 import re
@@ -196,6 +196,16 @@ def import_fieldnation():
                 except (ValueError, AttributeError):
                     pass
 
+            # Parse scheduled_latest_start_time if provided
+            scheduled_latest_start_time = None
+            if wo.get('scheduled_latest_start_time'):
+                try:
+                    scheduled_latest_start_time = datetime.strptime(
+                        str(wo['scheduled_latest_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
             if existing_job:
                 job = existing_job
                 # Update existing job with latest status, billing, and date
@@ -239,6 +249,25 @@ def import_fieldnation():
                 db.session.add(job)
                 db.session.flush()  # Get the job_id
                 results['imported_jobs'] += 1
+
+            # Create/update JobSchedule entry with arrival window times
+            if scheduled_date and (scheduled_start_time or scheduled_latest_start_time):
+                existing_sched = JobSchedule.query.filter_by(
+                    job_id=job.job_id, scheduled_date=scheduled_date
+                ).first()
+                if existing_sched:
+                    if scheduled_start_time:
+                        existing_sched.start_time = scheduled_start_time
+                    if scheduled_latest_start_time:
+                        existing_sched.latest_start_time = scheduled_latest_start_time
+                else:
+                    sched_entry = JobSchedule(
+                        job_id=job.job_id,
+                        scheduled_date=scheduled_date,
+                        start_time=scheduled_start_time,
+                        latest_start_time=scheduled_latest_start_time
+                    )
+                    db.session.add(sched_entry)
 
             # Skip time entries for cancelled jobs
             if mapped_status == 'cancelled':
@@ -562,6 +591,16 @@ def import_workmarket():
                 except (ValueError, AttributeError):
                     pass
 
+            # Parse scheduled_latest_start_time if provided
+            scheduled_latest_start_time = None
+            if assignment.get('scheduled_latest_start_time'):
+                try:
+                    scheduled_latest_start_time = datetime.strptime(
+                        str(assignment['scheduled_latest_start_time']).strip(), '%H:%M'
+                    ).time()
+                except (ValueError, AttributeError):
+                    pass
+
             if existing_job:
                 job = existing_job
                 # Update existing job with latest status, billing, and date
@@ -605,6 +644,25 @@ def import_workmarket():
                 db.session.add(job)
                 db.session.flush()  # Get the job_id
                 results['imported_jobs'] += 1
+
+            # Create/update JobSchedule entry with arrival window times
+            if scheduled_date and (scheduled_start_time or scheduled_latest_start_time):
+                existing_sched = JobSchedule.query.filter_by(
+                    job_id=job.job_id, scheduled_date=scheduled_date
+                ).first()
+                if existing_sched:
+                    if scheduled_start_time:
+                        existing_sched.start_time = scheduled_start_time
+                    if scheduled_latest_start_time:
+                        existing_sched.latest_start_time = scheduled_latest_start_time
+                else:
+                    sched_entry = JobSchedule(
+                        job_id=job.job_id,
+                        scheduled_date=scheduled_date,
+                        start_time=scheduled_start_time,
+                        latest_start_time=scheduled_latest_start_time
+                    )
+                    db.session.add(sched_entry)
 
             # Skip time entries for cancelled jobs
             if mapped_status == 'cancelled':

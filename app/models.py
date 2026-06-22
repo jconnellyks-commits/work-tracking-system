@@ -195,6 +195,8 @@ class JobSchedule(db.Model):
     scheduled_date = db.Column(db.Date, nullable=False)
     tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id', ondelete='SET NULL'), nullable=True)
     notes = db.Column(db.String(255), nullable=True)
+    start_time = db.Column(db.Time, nullable=True)
+    latest_start_time = db.Column(db.Time, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relationships
@@ -209,6 +211,8 @@ class JobSchedule(db.Model):
             'tech_id': self.tech_id,
             'tech_name': self.technician.name if self.technician else None,
             'notes': self.notes,
+            'start_time': self.start_time.strftime('%H:%M') if self.start_time else None,
+            'latest_start_time': self.latest_start_time.strftime('%H:%M') if self.latest_start_time else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 

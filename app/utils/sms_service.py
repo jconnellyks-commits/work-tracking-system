@@ -450,9 +450,14 @@ class SMSService:
         if len(client) > 20:
             client = client[:17] + '...'
 
-        if job.scheduled_start_time:
-            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
-            date_str = f"{date_str} at {start_str}"
+        effective_start = schedule_entry.start_time or job.scheduled_start_time
+        if effective_start:
+            start_str = effective_start.strftime('%I:%M %p').lstrip('0')
+            if schedule_entry.latest_start_time:
+                end_str = schedule_entry.latest_start_time.strftime('%I:%M %p').lstrip('0')
+                date_str = f"{date_str} {start_str} - {end_str}"
+            else:
+                date_str = f"{date_str} at {start_str}"
 
         if job.external_url:
             message = f"Scheduled: {ticket}\nDate: {date_str}\nClient: {client}\n{job.external_url}"

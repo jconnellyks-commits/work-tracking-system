@@ -77,11 +77,27 @@ def add_schedule_entry(job_id):
         if existing:
             continue  # Skip duplicates silently
 
+        # Parse optional time fields
+        entry_start_time = None
+        entry_latest_start_time = None
+        if entry.get('start_time'):
+            try:
+                entry_start_time = datetime.strptime(str(entry['start_time']).strip(), '%H:%M').time()
+            except (ValueError, AttributeError):
+                pass
+        if entry.get('latest_start_time'):
+            try:
+                entry_latest_start_time = datetime.strptime(str(entry['latest_start_time']).strip(), '%H:%M').time()
+            except (ValueError, AttributeError):
+                pass
+
         schedule_entry = JobSchedule(
             job_id=job_id,
             scheduled_date=date_obj,
             tech_id=tech_id,
-            notes=(entry.get('notes') or '').strip() or None
+            notes=(entry.get('notes') or '').strip() or None,
+            start_time=entry_start_time,
+            latest_start_time=entry_latest_start_time
         )
         db.session.add(schedule_entry)
         created.append(schedule_entry)
@@ -144,6 +160,24 @@ def update_schedule_entry(job_id, entry_id):
 
     if 'notes' in data:
         entry.notes = (data.get('notes') or '').strip() or None
+
+    if 'start_time' in data:
+        if data['start_time']:
+            try:
+                entry.start_time = datetime.strptime(str(data['start_time']).strip(), '%H:%M').time()
+            except (ValueError, AttributeError):
+                pass
+        else:
+            entry.start_time = None
+
+    if 'latest_start_time' in data:
+        if data['latest_start_time']:
+            try:
+                entry.latest_start_time = datetime.strptime(str(data['latest_start_time']).strip(), '%H:%M').time()
+            except (ValueError, AttributeError):
+                pass
+        else:
+            entry.latest_start_time = None
 
     db.session.commit()
 
@@ -211,6 +245,8 @@ def get_schedule_range():
             'tech_id': sched.tech_id,
             'tech_name': sched.technician.name if sched.technician else None,
             'notes': sched.notes,
+            'start_time': sched.start_time.strftime('%H:%M') if sched.start_time else None,
+            'latest_start_time': sched.latest_start_time.strftime('%H:%M') if sched.latest_start_time else None,
             'scheduled_start_time': job.scheduled_start_time.strftime('%H:%M') if job.scheduled_start_time else None,
         })
 

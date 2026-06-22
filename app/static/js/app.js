@@ -1009,6 +1009,8 @@ const Pages = {
                     description: entry.description,
                     job_status: entry.job_status,
                     scheduled_start_time: entry.scheduled_start_time,
+                    start_time: entry.start_time,
+                    latest_start_time: entry.latest_start_time,
                     tech_name: entry.tech_name,
                     _from_schedule: true
                 });
@@ -1034,6 +1036,8 @@ const Pages = {
                     description: job.description,
                     job_status: job.job_status,
                     scheduled_start_time: job.scheduled_start_time,
+                    start_time: null,
+                    latest_start_time: null,
                     tech_name: null,
                     assigned_techs: job.assigned_techs || [],
                     _from_schedule: false
@@ -1047,8 +1051,11 @@ const Pages = {
                 return dayJobs.map(job => {
                     const isMine = state.myJobIds.has(job.job_id);
                     const colors = chipColors[job.job_status] || chipColors.cancelled;
-                    const timeLabel = job.scheduled_start_time
-                        ? ` <span style="opacity:0.75;">(${App.format12Hour(job.scheduled_start_time)})</span>`
+                    // Prefer start_time from JobSchedule, fall back to scheduled_start_time from Job
+                    const effectiveStart = job.start_time || job.scheduled_start_time;
+                    const effectiveEnd = job.latest_start_time;
+                    const timeLabel = effectiveStart
+                        ? ` <span style="opacity:0.75;">(${App.format12Hour(effectiveStart)}${effectiveEnd ? ' - ' + App.format12Hour(effectiveEnd) : ''})</span>`
                         : '';
                     const techLabel = job.tech_name ? ` <span style="opacity:0.7; font-size:0.85em;">(${job.tech_name})</span>` : '';
                     const mineStyle = isMine ? `border-left: 3px solid #f59e0b; font-weight: 600;` : '';
@@ -1286,14 +1293,22 @@ const Pages = {
                     let schedRows = '';
                     if (schedEntries.length > 0) {
                         schedRows = `<table class="table table-sm" style="margin-top: 0.5rem;">
-                            <thead><tr><th>Date</th><th>Technician</th><th>Notes</th>${isManager ? '<th></th>' : ''}</tr></thead>
+                            <thead><tr><th>Date</th><th>Time</th><th>Technician</th><th>Notes</th>${isManager ? '<th></th>' : ''}</tr></thead>
                             <tbody>
-                                ${schedEntries.map(entry => `<tr>
+                                ${schedEntries.map(entry => {
+                                    const entryStart = entry.start_time;
+                                    const entryEnd = entry.latest_start_time;
+                                    const timeDisplay = entryStart
+                                        ? (entryEnd ? `${App.format12Hour(entryStart)} - ${App.format12Hour(entryEnd)}` : App.format12Hour(entryStart))
+                                        : '';
+                                    return `<tr>
                                     <td>${App.formatDate(entry.scheduled_date)}</td>
-                                    <td>${isManager ? `<a href="#" onclick="event.preventDefault(); Pages.editScheduleDay(${jobId}, ${entry.id}, '${entry.scheduled_date}')" style="text-decoration: underline; cursor: pointer;">${entry.tech_name || '<em>Any</em>'}</a>` : (entry.tech_name || '<em>Any</em>')}</td>
+                                    <td>${timeDisplay}</td>
+                                    <td>${isManager ? `<a href="#" onclick="event.preventDefault(); Pages.editScheduleDay(${jobId}, ${entry.id}, '${entry.scheduled_date}', '${entry.start_time || ''}', '${entry.latest_start_time || ''}')" style="text-decoration: underline; cursor: pointer;">${entry.tech_name || '<em>Any</em>'}</a>` : (entry.tech_name || '<em>Any</em>')}</td>
                                     <td>${entry.notes || ''}</td>
                                     ${isManager ? `<td><button class="btn btn-sm btn-outline-danger" onclick="Pages.deleteScheduleDay(${jobId}, ${entry.id})"><i class="fas fa-trash"></i></button></td>` : ''}
-                                </tr>`).join('')}
+                                </tr>`;
+                                }).join('')}
                             </tbody>
                         </table>`;
                     } else {
@@ -1672,6 +1687,16 @@ const Pages = {
                     <label>Notes</label>
                     <input type="text" class="form-control" name="notes" placeholder="e.g., morning only, finish wiring">
                 </div>
+                <div class="form-row" style="display:flex;gap:1rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Start time</label>
+                        <input type="time" class="form-control" name="start_time">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Latest arrival</label>
+                        <input type="time" class="form-control" name="latest_start_time">
+                    </div>
+                </div>
                 <div class="form-group">
                     <label>
                         <input type="checkbox" name="send_sms" checked style="margin-right: 0.5rem;">
@@ -1692,6 +1717,8 @@ const Pages = {
         const date = form.querySelector('[name="scheduled_date"]').value;
         const techId = form.querySelector('[name="tech_id"]').value || null;
         const notes = form.querySelector('[name="notes"]').value;
+        const startTime = form.querySelector('[name="start_time"]').value || null;
+        const latestStartTime = form.querySelector('[name="latest_start_time"]').value || null;
         const sendSms = form.querySelector('[name="send_sms"]').checked;
 
         if (!date) {
@@ -1702,7 +1729,7 @@ const Pages = {
         try {
             // Check if this is the first schedule entry — offer to include original date
             const existing = await API.schedule.getJobSchedule(jobId);
-            const entries = [{ scheduled_date: date, tech_id: techId, notes }];
+            const entries = [{ scheduled_date: date, tech_id: techId, notes, start_time: startTime, latest_start_time: latestStartTime }];
 
             if ((existing.schedule || []).length === 0) {
                 const jobData = await API.jobs.get(jobId);
@@ -1733,7 +1760,7 @@ const Pages = {
         }
     },
 
-    async editScheduleDay(jobId, entryId, scheduledDate) {
+    async editScheduleDay(jobId, entryId, scheduledDate, startTime, latestStartTime) {
         // Show all active technicians (auto-assigns to job on save)
         const techs = (App.technicians || []).filter(t => t.status === 'active');
 
@@ -1752,6 +1779,16 @@ const Pages = {
                 <div class="form-group">
                     <label>Notes</label>
                     <input type="text" class="form-control" name="notes" placeholder="e.g., morning only">
+                </div>
+                <div class="form-row" style="display:flex;gap:1rem;">
+                    <div class="form-group" style="flex:1;">
+                        <label>Start time</label>
+                        <input type="time" class="form-control" name="start_time" value="${startTime || ''}">
+                    </div>
+                    <div class="form-group" style="flex:1;">
+                        <label>Latest arrival</label>
+                        <input type="time" class="form-control" name="latest_start_time" value="${latestStartTime || ''}">
+                    </div>
                 </div>
                 <div class="form-group">
                     <label>
@@ -1772,10 +1809,12 @@ const Pages = {
         const form = document.getElementById('edit-schedule-form');
         const techId = form.querySelector('[name="tech_id"]').value || null;
         const notes = form.querySelector('[name="notes"]').value;
+        const startTime = form.querySelector('[name="start_time"]').value || null;
+        const latestStartTime = form.querySelector('[name="latest_start_time"]').value || null;
         const sendSms = form.querySelector('[name="send_sms"]').checked;
 
         try {
-            await API.schedule.updateEntry(jobId, entryId, { tech_id: techId, notes, send_sms: sendSms });
+            await API.schedule.updateEntry(jobId, entryId, { tech_id: techId, notes, start_time: startTime, latest_start_time: latestStartTime, send_sms: sendSms });
             App.showAlert('Schedule day updated', 'success');
             await Pages.jobModal(jobId, 'view');
         } catch (error) {

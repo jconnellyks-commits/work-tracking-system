@@ -1,5 +1,66 @@
 # Work Tracking System - Session History
 
+## Session: June 21, 2026 — Flexible Arrival Window Support
+
+### Summary
+Added support for Field Nation jobs with flexible start times (e.g., "Arrive between 9:00 AM - 5:00 PM"). The scraper now extracts the full arrival window, stores it on `JobSchedule` entries, and the calendar displays the time range on job chips. SMS notifications for all three notification types (schedule, assignment, invitation) also show the full window.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Design & spec | Done | Brainstormed approaches, chose adding `start_time` / `latest_start_time` to `JobSchedule` model |
+| Migration + Model | Done | Added two nullable TIME columns to `job_schedule` table (migration 022) |
+| Schedule API | Done | GET/POST/PUT endpoints accept and return `start_time`, `latest_start_time` |
+| Calendar frontend | Done | Chips show `(9:00 AM - 5:00 PM)` for windowed jobs; schedule forms have time inputs |
+| Scraper extraction | Done | `extract_scheduled_time()` returns `(start, latest)` tuple; 5 regex patterns |
+| Import route | Done | FN and WM imports create `JobSchedule` entries with arrival window times |
+| Deploy & verify | Done | Migration run, Playwright baseline + post-deploy verification passed |
+| SMS notifications | Done | All 3 SMS methods (schedule, assignment, invitation) show arrival window |
+
+### Key Changes
+
+**Database** (`022_add_schedule_times.sql`):
+- `job_schedule.start_time` (TIME, nullable) — earliest arrival
+- `job_schedule.latest_start_time` (TIME, nullable) — latest arrival
+
+**Scraper** (`fieldnation_scraper.py`):
+- `extract_scheduled_time()` now returns tuple `(start_time, latest_start_time)`
+- Pattern A: "Arrive between 9:00 AM - 5:00 PM (CDT)" from Schedule section
+- Pattern B: "6/22/2026, 9:00 AM → 5:00 PM(CDT)" from page top
+- Patterns C-E: fixed-time fallbacks (unchanged behavior)
+
+**Schedule API** (`schedule.py`):
+- GET returns `start_time`, `latest_start_time` per entry (plus `scheduled_start_time` fallback from Job)
+- POST/PUT accept optional `start_time` and `latest_start_time`
+
+**Calendar** (`app.js`):
+- Chips prefer `start_time` over `scheduled_start_time`, show window when `latest_start_time` exists
+- Schedule table in job modal has Time column
+- Add/Edit schedule forms have "Start time" and "Latest arrival" inputs
+
+**Import** (`imports.py`):
+- FN and WM imports create/update `JobSchedule` entries with time fields
+
+**SMS** (`sms_service.py`):
+- All three notification methods use `schedule_entry.start_time` (or query `JobSchedule`) with fallback to `job.scheduled_start_time`
+- Window jobs: `"06/22 9:00 AM - 5:00 PM"` instead of `"06/22 at 9:00 AM"`
+
+### Verified End-to-End
+- Scraped FN-19080059 → extracted `09:00 - 17:00` → imported → calendar shows `(9:00 AM - 5:00 PM)`
+- Playwright baseline before + verification after deployment confirmed no regressions
+
+### Git Commits (June 21, 2026)
+- `d791468` — feat: add start_time and latest_start_time to JobSchedule model
+- `d68709f` — feat: accept and return arrival window times in schedule API
+- `36bc17c` — feat: display arrival window on calendar chips and schedule forms
+- `4e410e3` — feat: create JobSchedule entries with arrival window times during FN import
+- `402f0b8` — chore: bump static asset cache buster to 20260621a
+- `b1520cb` — fix: show arrival window in schedule SMS notifications
+- `c79d353` — fix: show arrival window in job assignment and invitation SMS
+
+---
+
 ## Session: June 19, 2026 — Decimal/Float Fix, Carry-Over Adjustments, Period 16 Retroactive Audit
 
 ### Summary

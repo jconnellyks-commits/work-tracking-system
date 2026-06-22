@@ -395,17 +395,23 @@ class SMSService:
         ticket = job.ticket_number or f'Job #{job.job_id}'
         date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
 
-        # Append start time if available
-        if job.scheduled_start_time:
-            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
-            date_str = f"{date_str} at {start_str}"
+        # Check for arrival window on the first schedule entry
+        from app.models import JobSchedule
+        sched = JobSchedule.query.filter_by(job_id=job.job_id).first()
+        effective_start = (sched.start_time if sched else None) or job.scheduled_start_time
+        if effective_start:
+            start_str = effective_start.strftime('%I:%M %p').lstrip('0')
+            if sched and sched.latest_start_time:
+                end_str = sched.latest_start_time.strftime('%I:%M %p').lstrip('0')
+                date_str = f"{date_str} {start_str} - {end_str}"
+            else:
+                date_str = f"{date_str} at {start_str}"
 
         client = job.client_name or 'Unknown'
         if len(client) > 20:
             client = client[:17] + '...'
 
         if job.external_url:
-            # Include platform link; omit location to stay under 160 chars
             message = f"New job assigned: {ticket}\nDate: {date_str}\nClient: {client}\n{job.external_url}"
         else:
             location = job.location or 'TBD'
@@ -501,9 +507,16 @@ class SMSService:
         ticket = job.ticket_number or f'Job #{job.job_id}'
         date_str = job.job_date.strftime('%m/%d') if job.job_date else 'TBD'
 
-        if job.scheduled_start_time:
-            start_str = job.scheduled_start_time.strftime('%I:%M %p').lstrip('0')
-            date_str = f"{date_str} at {start_str}"
+        from app.models import JobSchedule
+        sched = JobSchedule.query.filter_by(job_id=job.job_id).first()
+        effective_start = (sched.start_time if sched else None) or job.scheduled_start_time
+        if effective_start:
+            start_str = effective_start.strftime('%I:%M %p').lstrip('0')
+            if sched and sched.latest_start_time:
+                end_str = sched.latest_start_time.strftime('%I:%M %p').lstrip('0')
+                date_str = f"{date_str} {start_str} - {end_str}"
+            else:
+                date_str = f"{date_str} at {start_str}"
 
         url_line = f"\n{job.external_url}" if job.external_url else ''
         message = (

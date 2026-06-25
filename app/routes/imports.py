@@ -163,8 +163,9 @@ def import_fieldnation():
             if url:
                 existing_job = Job.query.filter_by(external_url=url).first()
             if not existing_job and wo_id:
-                # Try matching by ticket number containing the work order ID
-                existing_job = Job.query.filter(Job.ticket_number.like(f'%{wo_id}%')).first()
+                existing_job = Job.query.filter(Job.ticket_number == f"FN-{wo_id}").first()
+                if not existing_job:
+                    existing_job = Job.query.filter(Job.ticket_number == wo_id).first()
 
             # Map Field Nation status to internal status
             mapped_status = map_fieldnation_status(wo.get('status', ''))
@@ -429,7 +430,9 @@ def preview_fieldnation_import():
         if url:
             existing_job = Job.query.filter_by(external_url=url).first()
         if not existing_job and wo_id:
-            existing_job = Job.query.filter(Job.ticket_number.like(f'%{wo_id}%')).first()
+            existing_job = Job.query.filter(Job.ticket_number == f"FN-{wo_id}").first()
+            if not existing_job:
+                existing_job = Job.query.filter(Job.ticket_number == wo_id).first()
 
         entry_count = len(wo.get('time_entries', []))
         preview['total_entries'] += entry_count
@@ -931,9 +934,9 @@ def import_tst():
 
             full_ticket = f"TST-{ticket_number}"
 
-            # Duplicate check
+            # Duplicate check — exact match on full ticket to avoid cross-platform collisions
             existing_job = Job.query.filter(
-                Job.ticket_number.like(f'%{ticket_number}%')
+                Job.ticket_number == full_ticket
             ).first()
 
             billing_rate = float(job_data.get('billing_rate') or 0)
@@ -1069,9 +1072,9 @@ def import_techlink():
 
             full_ticket = f"TL-{ticket_number}"
 
-            # Duplicate check
+            # Duplicate check — exact match on full ticket to avoid cross-platform collisions
             existing_job = Job.query.filter(
-                Job.ticket_number.like(f'%{ticket_number}%')
+                Job.ticket_number == full_ticket
             ).first()
 
             # Build description: collapse available fields

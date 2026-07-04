@@ -4912,6 +4912,7 @@ const Pages = {
 
             <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 8px;">
                 <table style="width: 100%;">
+                    <tr><td>Avg Hourly Rate</td><td style="text-align:right">${data.total_hours > 0 ? '$' + (data.total_base_pay / data.total_hours).toFixed(2) + '/hr' : '-'}</td></tr>
                     <tr><td>Base Pay</td><td style="text-align:right">$${data.total_base_pay.toFixed(2)}</td></tr>
                     <tr><td>Mileage</td><td style="text-align:right">$${data.total_mileage_pay.toFixed(2)}</td></tr>
                     <tr><td>Per Diem</td><td style="text-align:right">$${data.total_per_diem.toFixed(2)}</td></tr>

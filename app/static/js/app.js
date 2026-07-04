@@ -4474,6 +4474,7 @@ const Pages = {
                                 <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
                                 <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'bonus')"><i class="fas fa-plus"></i> Bonus</button>
                                 <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'deduction')"><i class="fas fa-minus"></i> Deduction</button>
+                                <button class="btn btn-sm btn-warning" onclick="Pages.unlockPayout(${p.payout_id})"><i class="fas fa-unlock"></i> Unlock</button>
                             ` : ''}
                         </div>
                     </div>
@@ -4730,6 +4731,7 @@ const Pages = {
                                 <button class="btn btn-sm btn-success" onclick="Pages.markPaid(${p.payout_id})"><i class="fas fa-check"></i> Mark Paid</button>
                                 <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'bonus')"><i class="fas fa-plus"></i> Bonus</button>
                                 <button class="btn btn-sm btn-secondary" onclick="Pages.addPayoutLineItem(${p.payout_id}, 'deduction')"><i class="fas fa-minus"></i> Deduction</button>
+                                <button class="btn btn-sm btn-warning" onclick="Pages.unlockPayout(${p.payout_id})"><i class="fas fa-unlock"></i> Unlock</button>
                             ` : ''}
                         </div>
                     </div>
@@ -4782,6 +4784,18 @@ const Pages = {
 
     // Stored refresh function for payout page actions
     _payoutRefreshFn: null,
+
+    async unlockPayout(payoutId) {
+        if (!confirm('Unlock this payout? This will reverse any advance deductions and delete the locked payout so it can be re-locked.')) return;
+        try {
+            await API.payouts.unlock(payoutId);
+            App.showAlert('Payout unlocked', 'success');
+            if (Pages._payoutRefreshFn) Pages._payoutRefreshFn();
+            else App.navigate('payout');
+        } catch (e) {
+            App.showAlert('Failed: ' + e.message, 'error');
+        }
+    },
 
     async markPaid(payoutId) {
         if (!confirm('Mark this payout as paid?')) return;

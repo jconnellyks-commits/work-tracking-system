@@ -225,6 +225,49 @@ def lock_single_tech():
     })
 
 
+@payouts_bp.route('/<int:payout_id>/unlock', methods=['POST'])
+@manager_required
+def unlock_payout(payout_id):
+    """Unlock a single payout — reverses advance repayments, deletes payout, reopens period."""
+    payout = Payout.query.get_or_404(payout_id)
+    if payout.status not in ('locked',):
+        return jsonify({'error': f'Payout is {payout.status}, can only unlock locked payouts'}), 400
+
+    tech_name = payout.technician.name if payout.technician else 'Unknown'
+    period_id = payout.period_id
+
+    for repayment in payout.advance_repayments.all():
+        advance = Advance.query.get(repayment.advance_id)
+        if advance:
+            advance.remaining_balance = Decimal(str(advance.remaining_balance)) + Decimal(str(repayment.amount))
+            if advance.status == 'repaid':
+                advance.status = 'active'
+                advance.repaid_at = None
+
+    # Un-resolve any adjustments that were carried forward into this payout
+    for adj in payout.adjustments.all():
+        if adj.resolution == 'carried_forward' and adj.resolved_to_period_id == period_id:
+            adj.resolution = 'pending'
+            adj.resolved_to_period_id = None
+            adj.resolved_by = None
+            adj.resolved_at = None
+
+    db.session.delete(payout)
+
+    period = PayPeriod.query.get(period_id)
+    if period and period.status in ('locked', 'closed'):
+        remaining = Payout.query.filter(
+            Payout.period_id == period_id,
+            Payout.payout_id != payout_id
+        ).count()
+        if remaining == 0 or period.status == 'locked':
+            period.status = 'open'
+            period.closed_at = None
+
+    db.session.commit()
+    return jsonify({'message': f'Payout unlocked for {tech_name}'})
+
+
 @payouts_bp.route('/<int:payout_id>/pay', methods=['POST'])
 @manager_required
 def pay_payout(payout_id):

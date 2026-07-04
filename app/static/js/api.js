@@ -355,7 +355,13 @@ const API = {
         async groupedByJob(params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/time-entries/grouped-by-job${query ? '?' + query : ''}`);
-        }
+        },
+
+        async claim(entryId) {
+            return API.request(`/time-entries/${entryId}/claim`, {
+                method: 'PUT'
+            });
+        },
     },
 
     // Reports endpoints

@@ -2154,6 +2154,11 @@ const Pages = {
                         </div>
                     </div>
                     ` : ''}
+                    ${!isManager ? `
+                    <label style="display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; font-size: 0.9rem; cursor: pointer;">
+                        <input type="checkbox" id="my-assigned-jobs-filter"> My Assigned Jobs
+                    </label>
+                    ` : ''}
                     ${App.dateNavHtml('entry')}
                     <input type="date" class="form-control" id="entry-from-date">
                     <input type="date" class="form-control" id="entry-to-date">
@@ -2204,6 +2209,7 @@ const Pages = {
             const params = { page, per_page: 20, sort_by: currentSort.by, sort_order: currentSort.order };
             const statuses = App.getMultiSelectValues('entry-status-filter');
             const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
+            const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
             const jobSearch = document.getElementById('entry-job-search').value;
@@ -2219,6 +2225,7 @@ const Pages = {
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
             if (jobSearch) params.job_search = jobSearch;
+            if (myAssignedJobs) params.my_assigned_jobs = 'true';
 
             const data = await API.timeEntries.list(params);
             updateSortIcons();
@@ -2252,6 +2259,9 @@ const Pages = {
                             ${entry.status === 'draft' && isUnassigned && isManager ? `
                                 <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
                                 <button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entry.entry_id})">Assign</button>
+                            ` : ''}
+                            ${entry.status === 'draft' && isUnassigned && !isManager ? `
+                                <button class="btn btn-sm btn-warning" onclick="Pages.claimEntry(${entry.entry_id})">Assign to Me</button>
                             ` : ''}
                             ${entry.status !== 'draft' && entry.status !== 'paid' && isManager ? `
                                 <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
@@ -2288,6 +2298,7 @@ const Pages = {
             const params = {};
             const statuses = App.getMultiSelectValues('entry-status-filter');
             const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
+            const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
             const fromDate = document.getElementById('entry-from-date').value;
             const toDate = document.getElementById('entry-to-date').value;
             const jobSearch = document.getElementById('entry-job-search').value;
@@ -2303,6 +2314,7 @@ const Pages = {
             if (fromDate) params.from_date = fromDate;
             if (toDate) params.to_date = toDate;
             if (jobSearch) params.job_search = jobSearch;
+            if (myAssignedJobs) params.my_assigned_jobs = 'true';
 
             const data = await API.timeEntries.groupedByJob(params);
             const groupedView = document.getElementById('entries-grouped-view');
@@ -2365,6 +2377,9 @@ const Pages = {
                                                 ${entry.status === 'draft' && isUnassigned && isManager ? `
                                                     <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
                                                     <button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entry.entry_id})">Assign</button>
+                                                ` : ''}
+                                                ${entry.status === 'draft' && isUnassigned && !isManager ? `
+                                                    <button class="btn btn-sm btn-warning" onclick="Pages.claimEntry(${entry.entry_id})">Assign to Me</button>
                                                 ` : ''}
                                                 ${entry.status !== 'draft' && entry.status !== 'paid' && isManager ? `
                                                     <button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entry.entry_id})">Edit</button>
@@ -2795,6 +2810,9 @@ const Pages = {
                 buttons += `<button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entryId})">Edit</button>`;
                 buttons += `<button class="btn btn-sm btn-warning" onclick="Pages.assignTechnician(${entryId})">Assign</button>`;
             }
+            if (entry.status === 'draft' && isUnassigned && !isManager) {
+                buttons += `<button class="btn btn-sm btn-warning" onclick="Pages.claimEntry(${entryId})">Assign to Me</button>`;
+            }
             if (entry.status !== 'draft' && entry.status !== 'paid' && isManager) {
                 buttons += `<button class="btn btn-sm btn-primary" onclick="Pages.editEntry(${entryId})">Edit</button>`;
             }
@@ -2946,6 +2964,11 @@ const Pages = {
         document.getElementById('entry-to-date').addEventListener('change', reloadEntries);
         document.getElementById('entry-job-search').addEventListener('input', debounce(reloadEntries, 300));
         App.initDateNav('entry', 'entry-from-date', 'entry-to-date', reloadEntries);
+        // My Assigned Jobs filter (technician only)
+        const myJobsFilter = document.getElementById('my-assigned-jobs-filter');
+        if (myJobsFilter) {
+            myJobsFilter.addEventListener('change', () => Pages.reloadEntries());
+        }
 
         // Sortable columns
         document.querySelectorAll('#entries-list-view .sortable').forEach(th => {
@@ -3254,6 +3277,25 @@ const Pages = {
             }
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    // Claim an unassigned time entry as the current technician
+    async claimEntry(entryId) {
+        if (!confirm('Assign this time entry to yourself?')) return;
+        try {
+            await API.timeEntries.claim(entryId);
+            App.showAlert('Time entry assigned to you', 'success');
+            if (Pages.reloadEntries) {
+                Pages.reloadEntries();
+            } else {
+                Pages.entriesPage(1);
+            }
+        } catch (error) {
+            App.showAlert(error.message);
+            if (Pages.reloadEntries) {
+                Pages.reloadEntries();
+            }
         }
     },
 

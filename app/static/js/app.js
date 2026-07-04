@@ -4927,7 +4927,7 @@ const Pages = {
         App.showModal(`Pay Stub — ${data.tech_name}`, html, `
             <button class="btn btn-secondary" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
             <button class="btn btn-secondary" onclick="App.hideModal()">Close</button>
-        `);
+        `, { wide: true });
     },
 
     // ===================== ADVANCES MANAGEMENT =====================

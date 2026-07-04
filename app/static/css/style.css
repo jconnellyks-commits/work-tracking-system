@@ -403,7 +403,7 @@ tr:hover {
 }
 
 .modal.modal-wide {
-    max-width: 800px;
+    max-width: 900px;
 }
 
 .modal-overlay.active .modal {
@@ -902,6 +902,36 @@ tr:hover {
     /* Show full URLs for links */
     a[href^="http"]:after {
         content: none;
+    }
+
+    /* Print modal content (pay stubs) */
+    .modal-overlay.active {
+        position: static;
+        background: none;
+        opacity: 1;
+        visibility: visible;
+    }
+
+    .modal-overlay.active .modal {
+        max-width: 100%;
+        max-height: none;
+        overflow: visible;
+        box-shadow: none;
+        border-radius: 0;
+        transform: none;
+    }
+
+    .modal-body {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+
+    .modal-footer {
+        display: none !important;
+    }
+
+    .modal-overlay:not(.active) {
+        display: none !important;
     }
 }
 

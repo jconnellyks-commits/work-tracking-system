@@ -4297,6 +4297,7 @@ const Pages = {
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">Payout Management</h3>
+                    <span style="background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; letter-spacing: 0.03em;">BETA — payouts not yet audited</span>
                     <div class="btn-group">
                         <button class="btn btn-sm btn-primary" id="tab-payouts">Payouts</button>
                         <button class="btn btn-sm btn-secondary" id="tab-advances">Advances</button>

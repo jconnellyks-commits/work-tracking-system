@@ -202,6 +202,7 @@ def claim_time_entry(entry_id):
         return jsonify({'error': 'Entry is already assigned to a technician'}), 409
 
     entry.tech_id = user.tech_id
+    entry.updated_by = user.user_id
     db.session.commit()
 
     audit_logger.log(

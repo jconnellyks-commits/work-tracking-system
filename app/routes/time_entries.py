@@ -7,7 +7,7 @@ from decimal import Decimal
 from flask import Blueprint, request, jsonify, g
 from sqlalchemy import and_
 from app import db
-from app.models import TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout
+from app.models import TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout, JobAssignment
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import (
     jwt_required_with_user,
@@ -81,6 +81,7 @@ def list_time_entries():
     unassigned = request.args.get('unassigned', '').lower() == 'true'
     sort_by = request.args.get('sort_by', 'date_worked')
     sort_order = request.args.get('sort_order', 'desc')
+    my_assigned_jobs = request.args.get('my_assigned_jobs', '').lower() == 'true'
 
     # Parse multiple tech_ids (comma-separated)
     tech_ids = []
@@ -94,11 +95,19 @@ def list_time_entries():
 
     query = TimeEntry.query
 
-    # Technicians can only see their own entries
+    # Technicians see their own entries + unassigned entries
     if user.role == 'technician':
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
-        query = query.filter(TimeEntry.tech_id == user.tech_id)
+        query = query.filter(db.or_(
+            TimeEntry.tech_id == user.tech_id,
+            TimeEntry.tech_id.is_(None)
+        ))
+        if my_assigned_jobs:
+            assigned_job_ids = db.session.query(JobAssignment.job_id).filter(
+                JobAssignment.tech_id == user.tech_id
+            ).subquery()
+            query = query.filter(TimeEntry.job_id.in_(assigned_job_ids))
     elif unassigned and tech_ids:
         # Both unassigned and specific techs selected
         query = query.filter(db.or_(
@@ -168,7 +177,7 @@ def get_time_entry(entry_id):
     entry = TimeEntry.query.get_or_404(entry_id)
 
     # Check access
-    if user.role == 'technician' and entry.tech_id != user.tech_id:
+    if user.role == 'technician' and entry.tech_id is not None and entry.tech_id != user.tech_id:
         return jsonify({'error': 'Access denied'}), 403
 
     return jsonify({'time_entry': entry.to_dict()}), 200
@@ -710,6 +719,7 @@ def list_time_entries_grouped():
     to_date = request.args.get('to_date')
     unassigned = request.args.get('unassigned', '').lower() == 'true'
     job_search = request.args.get('job_search', '').strip()
+    my_assigned_jobs = request.args.get('my_assigned_jobs', '').lower() == 'true'
 
     # Parse multiple tech_ids (comma-separated)
     tech_ids = []
@@ -723,13 +733,20 @@ def list_time_entries_grouped():
 
     query = TimeEntry.query
 
-    # Technicians can only see their own entries
+    # Technicians see their own entries + unassigned entries
     if user.role == 'technician':
         if not user.tech_id:
             return jsonify({'error': 'User not linked to technician'}), 400
-        query = query.filter(TimeEntry.tech_id == user.tech_id)
+        query = query.filter(db.or_(
+            TimeEntry.tech_id == user.tech_id,
+            TimeEntry.tech_id.is_(None)
+        ))
+        if my_assigned_jobs:
+            assigned_job_ids = db.session.query(JobAssignment.job_id).filter(
+                JobAssignment.tech_id == user.tech_id
+            ).subquery()
+            query = query.filter(TimeEntry.job_id.in_(assigned_job_ids))
     elif unassigned and tech_ids:
-        # Both unassigned and specific techs selected
         query = query.filter(db.or_(
             TimeEntry.tech_id.is_(None),
             TimeEntry.tech_id.in_(tech_ids)

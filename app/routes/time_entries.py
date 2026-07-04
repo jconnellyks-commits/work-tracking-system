@@ -183,6 +183,42 @@ def get_time_entry(entry_id):
     return jsonify({'time_entry': entry.to_dict()}), 200
 
 
+@time_entries_bp.route('/<int:entry_id>/claim', methods=['PUT'])
+@jwt_required_with_user
+@log_action('claim', 'time_entry')
+def claim_time_entry(entry_id):
+    """
+    Claim an unassigned time entry for the current technician.
+    Sets tech_id to the calling user's linked technician.
+    """
+    user = g.current_user
+
+    if not user.tech_id:
+        return jsonify({'error': 'User not linked to technician'}), 400
+
+    entry = TimeEntry.query.get_or_404(entry_id)
+
+    if entry.tech_id is not None:
+        return jsonify({'error': 'Entry is already assigned to a technician'}), 409
+
+    entry.tech_id = user.tech_id
+    db.session.commit()
+
+    audit_logger.log(
+        action_type='claim',
+        entity_type='time_entry',
+        entity_id=entry.entry_id,
+        new_values={'tech_id': user.tech_id},
+        description=f"Technician {user.tech_id} claimed time entry {entry_id}",
+        user_id=user.user_id
+    )
+
+    return jsonify({
+        'message': 'Time entry claimed successfully',
+        'time_entry': entry.to_dict()
+    }), 200
+
+
 @time_entries_bp.route('', methods=['POST'])
 @jwt_required_with_user
 @log_action('create', 'time_entry')

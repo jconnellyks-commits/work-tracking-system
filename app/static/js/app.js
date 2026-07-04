@@ -5088,6 +5088,9 @@ const Pages = {
             ]);
 
             let html = `
+                <div style="margin-bottom: 1rem;">
+                    <span style="background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; letter-spacing: 0.03em;">BETA — payouts not yet audited</span>
+                </div>
                 <div class="stats-grid" style="margin-bottom: 1.5rem;">
                     <div class="stat-card"><div class="stat-label">YTD Earnings</div><div class="stat-value">$${dashData.ytd_earnings.toFixed(2)}</div></div>
                     <div class="stat-card"><div class="stat-label">Last Payout</div><div class="stat-value">${dashData.last_payout ? '$' + dashData.last_payout.amount.toFixed(2) : '—'}</div></div>

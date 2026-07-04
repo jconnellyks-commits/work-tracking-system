@@ -2722,6 +2722,7 @@ const Pages = {
             const statuses = App.getMultiSelectValues('entry-status-filter');
             const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
             const jobSearch = document.getElementById('entry-job-search').value;
+            const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
 
             if (statuses.length > 0) params.status = statuses.join(',');
             if (techFilters.includes('unassigned')) {
@@ -2732,6 +2733,7 @@ const Pages = {
                 params.tech_id = techFilters.join(',');
             }
             if (jobSearch) params.job_search = jobSearch;
+            if (myAssignedJobs) params.my_assigned_jobs = 'true';
 
             const data = await API.timeEntries.list(params);
             calState.entries = data.time_entries || [];

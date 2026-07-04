@@ -2126,6 +2126,7 @@ const Pages = {
             <div class="card">
                 <div class="card-header">
                     <h3 class="card-title">Time Entries</h3>
+                    <span style="background: #fef3c7; color: #92400e; font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 4px; font-weight: 600; letter-spacing: 0.03em;">BETA — entries not yet audited</span>
                     <button class="btn btn-primary" id="new-entry-btn"><i class="fas fa-plus"></i> New Entry</button>
                 </div>
                 <div class="filters">

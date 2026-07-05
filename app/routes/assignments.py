@@ -5,13 +5,77 @@ Includes assignment creation, removal, and SMS notification functionality.
 from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from app import db
-from app.models import Job, JobAssignment, Technician, User, SMSNotification
+from app.models import Job, JobAssignment, Technician, User, SMSNotification, EmailParserLog, EmailForward
 from app.utils.sms_service import get_sms_service
+from app.utils import gmail_forward
 from app.utils.auth import jwt_required_with_user, admin_required, manager_required
 from app.utils.logging import get_logger, audit_logger
 
 assignments_bp = Blueprint('assignments', __name__, url_prefix='/api/assignments')
 logger = get_logger(__name__)
+
+
+def _forward_tst_email_for_assignment(job, assignment, technician):
+    """Forward the original TST dispatch email to the assigned technician.
+    Returns a result dict or None if not applicable."""
+    if not job.ticket_number or not job.ticket_number.startswith('TST-'):
+        return None
+
+    if not technician.email:
+        return {
+            'tech_id': technician.tech_id,
+            'tech_name': technician.name,
+            'success': False,
+            'error': 'No email on file',
+            'forwarded_to': None,
+        }
+
+    if not gmail_forward.is_available():
+        return {
+            'tech_id': technician.tech_id,
+            'tech_name': technician.name,
+            'success': False,
+            'error': 'Gmail service not configured',
+            'forwarded_to': technician.email,
+        }
+
+    raw_ticket = job.ticket_number.replace('TST-', '', 1)
+    log_entry = EmailParserLog.query.filter_by(
+        platform='TST',
+        email_type='service_order',
+        ticket_number=raw_ticket,
+        status='success',
+    ).order_by(EmailParserLog.timestamp.desc()).first()
+
+    if not log_entry or not log_entry.gmail_message_id:
+        return {
+            'tech_id': technician.tech_id,
+            'tech_name': technician.name,
+            'success': False,
+            'error': 'No source email found',
+            'forwarded_to': technician.email,
+        }
+
+    result = gmail_forward.forward_email(log_entry.gmail_message_id, technician.email)
+
+    forward_record = EmailForward(
+        job_id=job.job_id,
+        tech_id=technician.tech_id,
+        assignment_id=assignment.assignment_id,
+        gmail_message_id=log_entry.gmail_message_id,
+        forwarded_to=technician.email,
+        status='sent' if result['success'] else 'failed',
+        error_message=result.get('error'),
+    )
+    db.session.add(forward_record)
+
+    return {
+        'tech_id': technician.tech_id,
+        'tech_name': technician.name,
+        'success': result['success'],
+        'error': result.get('error'),
+        'forwarded_to': technician.email,
+    }
 
 
 @assignments_bp.route('/job/<int:job_id>', methods=['GET'])
@@ -162,6 +226,7 @@ def assign_technicians_to_job(job_id):
     created_assignments = []
     errors = []
     sms_results = []
+    email_forward_results = []
 
     for tech_id in tech_ids:
         # Validate technician exists
@@ -232,6 +297,11 @@ def assign_technicians_to_job(job_id):
                 'error': sms_result.get('error')
             })
 
+        # Auto-forward TST dispatch email
+        fwd_result = _forward_tst_email_for_assignment(job, assignment, technician)
+        if fwd_result:
+            email_forward_results.append(fwd_result)
+
     # Update job status to assigned if it was pending
     if created_assignments and job.job_status == 'pending':
         job.job_status = 'assigned'
@@ -258,6 +328,7 @@ def assign_technicians_to_job(job_id):
         'assignments': [a.to_dict() for a in created_assignments],
         'errors': errors,
         'sms_results': sms_results if send_sms else None,
+        'email_forward_results': email_forward_results if email_forward_results else None,
         'job': job.to_dict()
     }), 201 if created_assignments else 400
 
@@ -339,6 +410,51 @@ def resend_sms_notification(assignment_id):
             'error': result.get('error', 'Failed to send SMS'),
             'assignment': assignment.to_dict()
         }), 500
+
+
+@assignments_bp.route('/<int:assignment_id>/resend-email', methods=['POST'])
+@manager_required
+def resend_email_forward(assignment_id):
+    """Resend TST dispatch email for an assignment. Manager+ only."""
+    user = g.current_user
+    assignment = JobAssignment.query.get_or_404(assignment_id)
+    job = assignment.job
+    technician = assignment.technician
+
+    if not job or not technician:
+        return jsonify({'error': 'Invalid assignment'}), 400
+
+    result = _forward_tst_email_for_assignment(job, assignment, technician)
+    if not result:
+        return jsonify({'error': 'Not a TST job'}), 400
+
+    db.session.commit()
+
+    if result['success']:
+        audit_logger.log(
+            action_type='email_resent',
+            entity_type='job_assignment',
+            entity_id=assignment_id,
+            new_values={'forwarded_to': result['forwarded_to']},
+            description=f"Resent TST email for assignment {assignment_id}",
+            user_id=user.user_id,
+        )
+        return jsonify({'message': 'Email forwarded successfully', 'forward': result}), 200
+    else:
+        return jsonify({'error': result.get('error', 'Failed to forward email'), 'forward': result}), 500
+
+
+@assignments_bp.route('/job/<int:job_id>/email-forwards', methods=['GET'])
+@manager_required
+def get_job_email_forwards(job_id):
+    """Get all email forward records for a job. Manager+ only."""
+    Job.query.get_or_404(job_id)
+    forwards = EmailForward.query.filter_by(job_id=job_id)\
+        .order_by(EmailForward.forwarded_at.desc()).all()
+    return jsonify({
+        'forwards': [f.to_dict() for f in forwards],
+        'total': len(forwards),
+    }), 200
 
 
 @assignments_bp.route('/sms-status', methods=['GET'])

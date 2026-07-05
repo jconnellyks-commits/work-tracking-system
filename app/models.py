@@ -998,3 +998,35 @@ class EmailParserLog(db.Model):
             'error_message': self.error_message,
             'gmail_message_id': self.gmail_message_id,
         }
+
+
+class EmailForward(db.Model):
+    __tablename__ = 'email_forwards'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id', ondelete='CASCADE'), nullable=False)
+    tech_id = db.Column(db.Integer, db.ForeignKey('technicians.tech_id', ondelete='CASCADE'), nullable=False)
+    assignment_id = db.Column(db.Integer, db.ForeignKey('job_assignments.assignment_id', ondelete='SET NULL'))
+    gmail_message_id = db.Column(db.String(100), nullable=False)
+    forwarded_to = db.Column(db.String(100), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='sent')
+    error_message = db.Column(db.Text)
+    forwarded_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    job = db.relationship('Job', backref=db.backref('email_forwards', lazy='dynamic'))
+    technician = db.relationship('Technician')
+    assignment = db.relationship('JobAssignment')
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'job_id': self.job_id,
+            'tech_id': self.tech_id,
+            'tech_name': self.technician.name if self.technician else None,
+            'assignment_id': self.assignment_id,
+            'gmail_message_id': self.gmail_message_id,
+            'forwarded_to': self.forwarded_to,
+            'status': self.status,
+            'error_message': self.error_message,
+            'forwarded_at': self.forwarded_at.isoformat() if self.forwarded_at else None,
+        }

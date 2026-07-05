@@ -639,6 +639,16 @@ const API = {
             });
         },
 
+        async resendJobEmail(assignmentId) {
+            return API.request(`/assignments/${assignmentId}/resend-email`, {
+                method: 'POST'
+            });
+        },
+
+        async getJobEmailForwards(jobId) {
+            return API.request(`/assignments/job/${jobId}/email-forwards`);
+        },
+
         async getSmsStatus() {
             return API.request('/assignments/sms-status');
         },

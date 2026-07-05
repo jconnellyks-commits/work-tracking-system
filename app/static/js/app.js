@@ -1230,6 +1230,15 @@ const Pages = {
                 try {
                     const assignmentsData = await API.assignments.getJobAssignments(jobId);
                     const assignments = assignmentsData.assignments || [];
+                    let emailForwards = [];
+                    if ((job.ticket_number || '').startsWith('TST-')) {
+                        try {
+                            const fwdData = await API.assignments.getJobEmailForwards(jobId);
+                            emailForwards = fwdData.forwards || [];
+                        } catch (e) {
+                            console.error('Failed to load email forwards:', e);
+                        }
+                    }
                     if (assignments.length > 0) {
                         assignmentsHtml = `
                             <div class="form-group" style="margin-top: 1rem;">
@@ -1246,6 +1255,7 @@ const Pages = {
                                                 <th>Phone</th>
                                                 <th>Status</th>
                                                 <th>SMS</th>
+                                                <th>Email</th>
                                                 <th>Actions</th>
                                             </tr>
                                         </thead>
@@ -1256,14 +1266,32 @@ const Pages = {
                                                         : a.sms_status === 'failed' ? '<span class="badge badge-danger">Failed</span>'
                                                         : '<span class="badge badge-warning">Sent</span>')
                                                     : '<span class="badge badge-secondary">Not Sent</span>';
+
+                                                const isTst = (job.ticket_number || '').startsWith('TST-');
+                                                const fwd = (emailForwards || []).find(f => f.assignment_id === a.assignment_id);
+                                                let emailBadge = '';
+                                                if (isTst) {
+                                                    if (fwd && fwd.status === 'sent') {
+                                                        emailBadge = `<span class="badge badge-success" title="Forwarded ${fwd.forwarded_at || ''}">Sent</span>`;
+                                                    } else if (fwd && fwd.status === 'failed') {
+                                                        emailBadge = `<span class="badge badge-danger" title="${fwd.error_message || 'Failed'}">Failed</span>`;
+                                                    } else {
+                                                        emailBadge = '<span class="badge badge-secondary">Not Sent</span>';
+                                                    }
+                                                } else {
+                                                    emailBadge = '<span class="text-muted">-</span>';
+                                                }
+
                                                 return `
                                                 <tr>
                                                     <td>${a.tech_name}</td>
                                                     <td>${a.tech_phone || '-'}</td>
                                                     <td>${App.getStatusBadge(a.status)}</td>
                                                     <td>${smsStatusBadge}</td>
+                                                    <td>${emailBadge}</td>
                                                     <td>
                                                         ${a.sms_status === 'failed' || !a.sms_sent_at ? `<button class="btn btn-sm btn-warning" onclick="Pages.resendAssignmentSms(${a.assignment_id}, ${jobId})">Resend SMS</button>` : ''}
+                                                        ${isTst && (!fwd || fwd.status === 'failed') ? `<button class="btn btn-sm btn-info" onclick="Pages.resendJobEmail(${a.assignment_id}, ${jobId})">Send Email</button>` : ''}
                                                         <button class="btn btn-sm btn-danger" onclick="Pages.removeAssignment(${a.assignment_id}, ${jobId})">Remove</button>
                                                     </td>
                                                 </tr>
@@ -1993,7 +2021,14 @@ const Pages = {
 
         try {
             const result = await API.assignments.assignTechnicians(jobId, techIds, sendSms, notes);
-            App.showAlert(`Assigned ${result.assignments.length} technician(s)`, 'success');
+            let alertMsg = `Assigned ${result.assignments.length} technician(s)`;
+            if (result.email_forward_results) {
+                const sent = result.email_forward_results.filter(r => r.success).length;
+                const failed = result.email_forward_results.filter(r => !r.success).length;
+                if (sent > 0) alertMsg += `, ${sent} email(s) forwarded`;
+                if (failed > 0) alertMsg += `, ${failed} email forward(s) failed`;
+            }
+            App.showAlert(alertMsg, 'success');
             App.hideModal();
             // Refresh jobs list if we're on jobs page
             if (typeof Pages.jobsPage === 'function') {
@@ -2115,6 +2150,17 @@ const Pages = {
             await Pages.viewJob(jobId);
         } catch (error) {
             App.showAlert(error.message);
+        }
+    },
+
+    async resendJobEmail(assignmentId, jobId) {
+        try {
+            await API.assignments.resendJobEmail(assignmentId);
+            App.showAlert('Job email forwarded successfully', 'success');
+            App.hideModal();
+            await Pages.viewJob(jobId);
+        } catch (error) {
+            App.showAlert(error.message || 'Failed to forward email');
         }
     },
 

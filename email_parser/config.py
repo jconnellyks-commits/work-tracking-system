@@ -43,4 +43,5 @@ CREDENTIALS_FILE = os.environ.get('CREDENTIALS_FILE', '/opt/email-parser/credent
 # Gmail OAuth scopes
 GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.modify',  # read + label + archive
+    'https://www.googleapis.com/auth/gmail.send',    # send/forward emails
 ]

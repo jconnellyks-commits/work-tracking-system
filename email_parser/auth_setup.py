@@ -11,7 +11,10 @@ import sys
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+SCOPES = [
+    'https://www.googleapis.com/auth/gmail.modify',
+    'https://www.googleapis.com/auth/gmail.send',
+]
 CREDENTIALS_FILE = os.environ.get('CREDENTIALS_FILE', 'credentials.json')
 TOKEN_FILE = os.environ.get('TOKEN_FILE', 'token.json')
 

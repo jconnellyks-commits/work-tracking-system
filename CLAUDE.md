@@ -2,8 +2,14 @@
 
 ## TODO - Next Session
 - [ ] Apply Period 12 payout adjustments (exact deltas need recalculation — see memory)
+- [ ] Fix email parser putting total estimated pay as hourly rate (caused overpayments)
+- [x] Add date field when recording an advance (June 9, 2026)
+- [x] Lock individual contractors instead of all at once (June 9, 2026)
+- [x] Auto-forward TST dispatch emails to techs on assignment (July 5, 2026)
+- [ ] Generate printable check PDFs from within the app (replace ezCheckPrinting)
 - [ ] Time entries interface adjustments
 - [ ] Audit code
+- [x] Record payroll overpayment corrections as advances (June 9, 2026)
 - [x] SMS notifications for technicians (May 2026)
 - [x] TechLink email parser: Install Reminder handling + external URLs (May 13, 2026)
 - [x] FN scraper: fix false time entries on pre-work jobs (May 13, 2026)
@@ -354,6 +360,40 @@ S. Scrape only (no auto-import)
 - `--dry-run`, `--no-import`
 - `--min-date YYYY-MM-DD`, `--no-date-filter`
 
+## TST Email Auto-Forward
+When a technician is assigned to a TST job, the original dispatch email is automatically forwarded to the tech's email address via Gmail API.
+
+**How it works:**
+- On assignment, looks up the `gmail_message_id` from `email_parser_log` for that TST ticket
+- Fetches the original email via Gmail API (`format='raw'`), repackages as a forward, sends to tech
+- Only fires for TST jobs (ticket starts with `TST-`); other platforms have their own apps/portals
+- Logs every attempt to `email_forwards` table with status (sent/failed)
+
+**Gmail Setup:**
+- OAuth token at `/opt/email-parser/token.json` — shared by both email parser and Flask app
+- Scopes: `gmail.modify` + `gmail.send`
+- Flask app reads token path from `GMAIL_TOKEN_FILE` env var in `/opt/work-tracking/.env`
+- Re-auth: run `email_parser/auth_setup.py` locally, SCP new `token.json` to server
+
+**API Endpoints:**
+- `POST /api/assignments/job/<id>` — auto-forwards on assignment, response includes `email_forward_results`
+- `POST /api/assignments/<id>/resend-email` — manual resend (manager+)
+- `GET /api/assignments/job/<id>/email-forwards` — list all forwards for a job (manager+)
+
+**UI:**
+- Job modal assignments table has "Email" column with Sent/Failed/Not Sent badges
+- "Send Email" button for TST jobs where forward hasn't been sent or failed
+- Assignment success alert shows email forward count
+
+**Limitations:**
+- Only works for TST jobs created by the email parser (needs `gmail_message_id` in `email_parser_log`)
+- Manually created TST jobs show "No source email found"
+
+**Key Files:**
+- `app/utils/gmail_forward.py` — Gmail API forwarding utility
+- `app/routes/assignments.py` — `_forward_tst_email_for_assignment()` helper
+- `database/migrations/023_email_forwards.sql` — tracking table
+
 ## TechLink Email Parser
 The email parser handles two TechLink email types automatically:
 
@@ -382,6 +422,7 @@ The email parser handles two TechLink email types automatically:
 - 003: Mileage rate history table
 - 004: External URL field on jobs
 - 005: Make tech_id nullable on time_entries
+- 023: Email forwards tracking table
 
 ## User Roles
 - **admin**: Full access
@@ -470,6 +511,21 @@ The email parser handles two TechLink email types automatically:
 **JobAssignment**: job_id, tech_id, status, is_primary, sms_sent
 
 **User**: email, password_hash, role, tech_id (links to technician)
+
+## Database Column Gotchas
+- Mileage rates table: `mileage_rate_history` (not `mileage_rates`), columns: `rate_per_mile`, `effective_date`
+- Advances table: `original_amount` (not `amount`), `remaining_balance`, `max_per_period`, no `date_given` (uses `created_at`)
+- Payout line items: primary key is `id` (not `line_item_id`)
+- Pay rate history: `tech_pay_rate_history` table, queried via `TechPayRateHistory.get_rate_for_date(tech_id, date)`
+
+## Advance System
+- Active advances auto-deduct (up to `max_per_period`) when payouts are locked
+- Used for overpayment corrections — record overpayment as advance, set max_per_period to limit per-check deduction
+- Statuses: active → repaid | cancelled
+
+## Running Server-Side Scripts
+- Python via venv: `sudo /opt/work-tracking/venv/bin/python /tmp/script.py`
+- **dbrun.sh warning**: runs whatever is in `/tmp/q.sql` — always SCP a fresh file before running, old queries may still be there
 
 ## Common Tasks
 

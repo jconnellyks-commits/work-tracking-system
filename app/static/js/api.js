@@ -603,6 +603,19 @@ const API = {
                 method: 'POST',
                 body: JSON.stringify({ phone_number: phoneNumber })
             });
+        },
+
+        async getPayLogic() {
+            return API.request('/settings/pay-logic');
+        },
+
+        async getPayLogicDiagram() {
+            const token = localStorage.getItem('access_token');
+            const resp = await fetch('/api/settings/pay-logic-diagram', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!resp.ok) throw new Error('Failed to load diagram');
+            return resp.text();
         }
     },
 

@@ -913,3 +913,102 @@ def test_sms():
     except Exception as e:
         logger.error(f"Failed to send test SMS: {str(e)}")
         return jsonify({'error': f'Failed to send SMS: {str(e)}'}), 500
+
+
+# ============ Pay Calculation Logic ============
+
+@settings_bp.route('/pay-logic', methods=['GET'])
+@manager_required
+def get_pay_logic():
+    """Return current pay calculation parameters."""
+    from app.models import Technician, TechPayRateHistory
+    from datetime import date
+
+    today = date.today()
+
+    # Current mileage rate
+    current_mileage = MileageRateHistory.query.filter(
+        MileageRateHistory.effective_date <= today,
+        db.or_(
+            MileageRateHistory.end_date.is_(None),
+            MileageRateHistory.end_date >= today
+        )
+    ).order_by(MileageRateHistory.effective_date.desc()).first()
+
+    # Payout preferences
+    interval_days = int(SystemSettings.get_value('payout_interval_days', '14'))
+    anchor_date = SystemSettings.get_value('payout_anchor_date')
+
+    # Active technician rates
+    tech_rates = []
+    active_techs = Technician.query.filter_by(status='active').order_by(Technician.name).all()
+    for tech in active_techs:
+        rate_record = TechPayRateHistory.query.filter(
+            TechPayRateHistory.tech_id == tech.tech_id,
+            TechPayRateHistory.effective_date <= today,
+            db.or_(
+                TechPayRateHistory.end_date.is_(None),
+                TechPayRateHistory.end_date >= today
+            )
+        ).order_by(TechPayRateHistory.effective_date.desc()).first()
+
+        tech_rates.append({
+            'tech_id': tech.tech_id,
+            'name': tech.name,
+            'current_rate': float(rate_record.rate) if rate_record else float(tech.hourly_rate or 0),
+            'effective_date': rate_record.effective_date.isoformat() if rate_record else None,
+        })
+
+    return jsonify({
+        'parameters': {
+            'pool_split': {
+                'value': 0.5,
+                'label': 'Tech Pool Split',
+                'description': 'Fraction of adjusted job net allocated to technician pool',
+                'source': 'hardcoded',
+            },
+            'mileage_rate': {
+                'value': float(current_mileage.rate_per_mile) if current_mileage else 0.67,
+                'label': 'Mileage Rate',
+                'description': 'Current per-mile reimbursement rate',
+                'effective_date': current_mileage.effective_date.isoformat() if current_mileage else None,
+                'source': 'mileage_rate_history',
+            },
+            'entry_statuses': {
+                'value': ['verified', 'billed', 'paid'],
+                'label': 'Included Entry Statuses',
+                'description': 'Time entry statuses included in pay calculations',
+                'source': 'hardcoded',
+            },
+            'multi_tech_method': {
+                'value': 'weighted',
+                'label': 'Multi-Tech Distribution',
+                'description': 'Weighted by (tech min rate × tech hours) / Σ(all min rate × hours)',
+                'source': 'hardcoded',
+            },
+            'advance_deduction': {
+                'value': 'FIFO',
+                'label': 'Advance Deduction Order',
+                'description': 'Active advances deducted oldest-first, each capped by max_per_period',
+                'source': 'hardcoded',
+            },
+            'pay_period': {
+                'interval_days': interval_days,
+                'anchor_date': anchor_date,
+                'label': 'Pay Period',
+                'source': 'payout_preferences',
+            },
+        },
+        'tech_rates': tech_rates,
+    }), 200
+
+
+@settings_bp.route('/pay-logic-diagram', methods=['GET'])
+@manager_required
+def get_pay_logic_diagram():
+    """Return SVG flowchart of pay calculation order of operations."""
+    from flask import Response
+    from app.utils.pay_logic_diagram import generate_pay_logic_svg
+
+    svg = generate_pay_logic_svg()
+    return Response(svg, mimetype='image/svg+xml')

@@ -6,6 +6,7 @@
 - [x] Add date field when recording an advance (June 9, 2026)
 - [x] Lock individual contractors instead of all at once (June 9, 2026)
 - [x] Auto-forward TST dispatch emails to techs on assignment (July 5, 2026)
+- [x] Pay calculation logic viewer on Settings page (July 5, 2026)
 - [ ] Generate printable check PDFs from within the app (replace ezCheckPrinting)
 - [ ] Time entries interface adjustments
 - [ ] Audit code
@@ -359,6 +360,25 @@ S. Scrape only (no auto-import)
 - `--fn-only`, `--wm-only`
 - `--dry-run`, `--no-import`
 - `--min-date YYYY-MM-DD`, `--no-date-filter`
+
+## Pay Calculation Logic Viewer
+Read-only page under Settings (admin only) showing how technician pay is calculated.
+
+**Components:**
+- **SVG Flowchart** — server-generated diagram showing two sections:
+  1. Main pipeline (blue): Job Billing → Job Net → Tech Pool → Distribution → Min Rate Check → Base Pay → Gross Pay → Advance Deductions → Net Payout
+  2. Post-lock adjustments (amber): Change detected → Recalculate vs snapshot → PayoutAdjustment → Carry forward or dismiss
+- **Parameters Table** — current system values (pool split, mileage rate, entry statuses, multi-tech method, advance deduction order, pay period). Hardcoded values show lock icon, configurable ones show "Config"
+- **Tech Rates Table** — active technicians with current minimum pay rate and effective date
+
+**API Endpoints:**
+- `GET /api/settings/pay-logic` — JSON with parameters and tech rates (manager+)
+- `GET /api/settings/pay-logic-diagram` — SVG flowchart as `image/svg+xml` (manager+)
+
+**Key Files:**
+- `app/utils/pay_logic_diagram.py` — SVG generator (update when formula changes)
+- `app/routes/settings.py` — endpoints (pay-logic, pay-logic-diagram)
+- `app/static/js/app.js` — Settings page card rendering
 
 ## TST Email Auto-Forward
 When a technician is assigned to a TST job, the original dispatch email is automatically forwarded to the tech's email address via Gmail API.

@@ -6094,6 +6094,14 @@ const Pages = {
             console.error('Failed to load payout preferences:', e);
         }
 
+        // Get pay logic parameters
+        let payLogic = null;
+        try {
+            payLogic = await API.settings.getPayLogic();
+        } catch (e) {
+            console.error('Failed to load pay logic:', e);
+        }
+
         const timezones = [
             { value: 'America/New_York',   label: 'Eastern (ET) — New York, Atlanta, Miami' },
             { value: 'America/Chicago',    label: 'Central (CT) — Chicago, Dallas, Kansas City' },
@@ -6209,7 +6217,88 @@ const Pages = {
                     </button>
                 </div>
             </div>
+
+            <div class="card" style="margin-top: 1rem;">
+                <div class="card-header">
+                    <h3 class="card-title"><i class="fas fa-calculator"></i> Pay Calculation Logic</h3>
+                </div>
+                <div style="padding: 1rem;">
+                    <h4 style="margin: 0 0 1rem 0; color: var(--text-secondary);">Order of Operations</h4>
+                    <div id="pay-logic-diagram" style="text-align: center; padding: 1rem 0;">
+                        <span class="text-muted">Loading diagram...</span>
+                    </div>
+                </div>
+                ${payLogic ? `
+                <div style="padding: 0 1rem 1rem;">
+                    <h4 style="margin: 0 0 1rem 0; color: var(--text-secondary);">Current Parameters</h4>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Parameter</th>
+                                    <th>Value</th>
+                                    <th>Source</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.values(payLogic.parameters).map(p => `
+                                    <tr>
+                                        <td><strong>${p.label}</strong><br><small class="text-muted">${p.description || ''}</small></td>
+                                        <td>${Pages.formatPayLogicValue(p)}</td>
+                                        <td>${p.source === 'hardcoded' ? '<i class="fas fa-lock" style="color: var(--text-muted);"></i> System' : 'Config'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div style="padding: 0 1rem 1rem;">
+                    <h4 style="margin: 0 0 1rem 0; color: var(--text-secondary);">Technician Minimum Rates</h4>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Technician</th>
+                                    <th>Rate</th>
+                                    <th>Since</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${payLogic.tech_rates.map(t => `
+                                    <tr>
+                                        <td>${t.name}</td>
+                                        <td>$${t.current_rate.toFixed(2)}/hr</td>
+                                        <td>${t.effective_date || 'Default'}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                ` : '<div style="padding: 1rem;"><span class="text-muted">Failed to load pay logic parameters.</span></div>'}
+            </div>
         `;
+
+        // Load SVG diagram asynchronously
+        try {
+            const svgText = await API.settings.getPayLogicDiagram();
+            const diagramContainer = document.getElementById('pay-logic-diagram');
+            if (diagramContainer) {
+                diagramContainer.innerHTML = svgText;
+                // Make SVG responsive
+                const svg = diagramContainer.querySelector('svg');
+                if (svg) {
+                    svg.style.maxWidth = '100%';
+                    svg.style.height = 'auto';
+                }
+            }
+        } catch (e) {
+            console.error('Failed to load pay logic diagram:', e);
+            const diagramContainer = document.getElementById('pay-logic-diagram');
+            if (diagramContainer) {
+                diagramContainer.innerHTML = '<span class="text-muted">Failed to load diagram.</span>';
+            }
+        }
     },
 
     async savePayoutPrefs() {
@@ -6223,6 +6312,17 @@ const Pages = {
         } catch (e) {
             App.showAlert('Failed to save: ' + e.message, 'error');
         }
+    },
+
+    formatPayLogicValue(param) {
+        if (param.value === 0.5 && param.label === 'Tech Pool Split') return '50%';
+        if (Array.isArray(param.value)) return param.value.join(', ');
+        if (param.interval_days) return `${param.interval_days} days (from ${param.anchor_date || 'not set'})`;
+        if (typeof param.value === 'number') {
+            if (param.label.includes('Mileage')) return `$${param.value.toFixed(2)}/mi`;
+            return param.value.toString();
+        }
+        return String(param.value);
     },
 
     async saveTimezone() {

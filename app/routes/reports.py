@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, date
 from app.utils.timezone import get_local_today
 from decimal import Decimal
 from flask import Blueprint, request, jsonify, g
-from sqlalchemy import func, and_
+from sqlalchemy import func, and_, or_, exists
 from app import db
 from app.models import (
     TimeEntry, Job, Technician, Platform, PayPeriod, AuditLog, User
@@ -227,11 +227,18 @@ def income_expense_report():
     # Get today's date for projected detection (uses configured timezone)
     today = get_local_today()
 
-    # Get jobs in date range with verified time entries
-    jobs_query = Job.query.filter(
+    # Get jobs where work was performed in date range (by time entry date_worked),
+    # OR jobs with no time entries that have job_date in range (fallback)
+    has_entries_in_range = Job.query.join(TimeEntry).filter(
+        TimeEntry.date_worked >= from_date,
+        TimeEntry.date_worked <= to_date
+    )
+    no_entries_fallback = Job.query.filter(
         Job.job_date >= from_date,
-        Job.job_date <= to_date
-    ).all()
+        Job.job_date <= to_date,
+        ~exists().where(TimeEntry.job_id == Job.job_id)
+    )
+    jobs_query = has_entries_in_range.union(no_entries_fallback).all()
 
     jobs_data = []
     totals = {
@@ -248,9 +255,6 @@ def income_expense_report():
     }
 
     for job in jobs_query:
-        # Check if job is in the future (projected)
-        is_projected = job.job_date and job.job_date > today
-
         # Calculate tech pay for this job
         pay_data = calculate_job_pay(job.job_id)
         tech_pay = Decimal('0')
@@ -270,11 +274,21 @@ def income_expense_report():
                 d = entry.date_worked.isoformat()
                 entry_hours_by_date[d] = entry_hours_by_date.get(d, 0) + float(entry.hours_worked)
 
+        # Effective date: earliest date_worked from entries, fallback to job_date
+        if entry_hours_by_date:
+            effective_date = min(entry_hours_by_date.keys())
+        else:
+            effective_date = job.job_date.isoformat() if job.job_date else None
+
+        # Check if job is in the future (projected)
+        is_projected = effective_date and effective_date > today.isoformat()
+
         job_entry = {
             'job_id': job.job_id,
             'ticket_number': job.ticket_number,
             'description': job.description,
             'job_date': job.job_date.isoformat() if job.job_date else None,
+            'effective_date': effective_date,
             'platform': job.platform.name if job.platform else None,
             'billing': float(billing),
             'job_expenses': float(job_expenses),
@@ -301,8 +315,8 @@ def income_expense_report():
             totals['total_expenses'] += total_expenses
             totals['net_profit'] += net_profit
 
-    # Sort by date
-    jobs_data.sort(key=lambda j: j['job_date'] or '')
+    # Sort by effective date (date work was performed)
+    jobs_data.sort(key=lambda j: j['effective_date'] or '')
 
     audit_logger.log(
         action_type='report_generated',

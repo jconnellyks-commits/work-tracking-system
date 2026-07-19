@@ -3928,7 +3928,7 @@ const Pages = {
                 const totalEntryHours = entryDates.reduce((sum, d) => sum + entryHours[d], 0);
 
                 if (job.is_projected) {
-                    const date = job.job_date;
+                    const date = job.effective_date || job.job_date;
                     if (date && dailyData[date]) {
                         dailyData[date].projected += job.billing;
                     }
@@ -3943,8 +3943,8 @@ const Pages = {
                         }
                     });
                 } else {
-                    // Single day or no entries: use job_date
-                    const date = job.job_date;
+                    // Single day or no entries: use effective_date (date_worked), fallback to job_date
+                    const date = job.effective_date || job.job_date;
                     if (date && dailyData[date]) {
                         dailyData[date].income += job.billing;
                         dailyData[date].expenses += job.job_expenses + job.commissions + job.tech_pay;
@@ -4000,7 +4000,7 @@ const Pages = {
                                 const bundleIcon = job.bundle_id ? '<i class="fas fa-layer-group" style="color:#6366f1;margin-right:4px" title="Bundled"></i>' : '';
                                 return `
                                 <tr style="${rowStyle}">
-                                    <td>${job.job_date ? App.formatDate(job.job_date) : '-'}${projectedBadge}</td>
+                                    <td>${(job.effective_date || job.job_date) ? App.formatDate(job.effective_date || job.job_date) : '-'}${projectedBadge}</td>
                                     <td>
                                         <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary);">
                                             ${bundleIcon}${job.ticket_number || 'Job #' + job.job_id}
@@ -4139,7 +4139,7 @@ const Pages = {
 
         for (const job of data.jobs) {
             csv.push([
-                job.job_date || '',
+                job.effective_date || job.job_date || '',
                 job.ticket_number || `Job #${job.job_id}`,
                 `"${job.description.replace(/"/g, '""')}"`,
                 job.platform || '',

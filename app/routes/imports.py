@@ -92,6 +92,7 @@ def map_fieldnation_status(fn_status):
         'in progress': 'in_progress',
         'on my way': 'in_progress',
         'checked in': 'in_progress',
+        'checked out': 'in_progress',
         'work done': 'in_progress',
 
         # Completed
@@ -209,8 +210,14 @@ def import_fieldnation():
 
             if existing_job:
                 job = existing_job
-                # Update existing job with latest status, billing, and date
-                job.job_status = mapped_status
+                # Update existing job with latest status, billing, and date.
+                # Only overwrite status when the scrape actually reported one:
+                # an empty status maps to 'pending' (see map_fieldnation_status)
+                # and would silently downgrade a job already in progress or
+                # completed. Blank scrapes happen when the browser window is
+                # unrendered and page text comes back empty.
+                if wo.get('status'):
+                    job.job_status = mapped_status
                 if mapped_status == 'cancelled':
                     job.billing_amount = 0
                 elif wo.get('total_pay'):
@@ -606,8 +613,14 @@ def import_workmarket():
 
             if existing_job:
                 job = existing_job
-                # Update existing job with latest status, billing, and date
-                job.job_status = mapped_status
+                # Update existing job with latest status, billing, and date.
+                # Only overwrite status when the scrape actually reported one:
+                # an empty status maps to 'pending' (see map_workmarket_status)
+                # and would silently downgrade a job already in progress or
+                # completed. Blank scrapes happen when the browser window is
+                # unrendered and page text comes back empty.
+                if assignment.get('status'):
+                    job.job_status = mapped_status
                 if mapped_status == 'cancelled':
                     job.billing_amount = 0
                 elif assignment.get('total_pay'):

@@ -87,6 +87,7 @@ def map_fieldnation_status(fn_status):
         'assigned': 'assigned',
         'confirmed': 'assigned',
         'scheduled': 'assigned',
+        'start time set': 'assigned',
 
         # Work in progress
         'in progress': 'in_progress',

@@ -1,5 +1,32 @@
 # Work Tracking System - Session History
 
+## Session: August 13, 2026 — Email Parser Outage (Recurrence) & Cron Root Cause
+
+### Summary
+Email parser had been silently down for ~6 days (since Aug 7 20:30) — same failure class as the June 22 incident. The June 22 fix added `. .env` sourcing to the renewal cron job, but cron runs commands under `/bin/sh` (dash), and dash's `.` builtin does not fall back to the current directory for a relative path the way bash does. So `. .env` failed daily with `.: .env: not found`, aborting the `&&` chain before `renew_watch.py` ever ran — silently, with no log output, for the cron job's entire lifetime.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Diagnose outage | Done | Watch expired ~Aug 7; confirmed via `sh -c '...'` reproduction that `. .env` fails under dash |
+| Renew Gmail watch | Done | Manually ran `renew_watch.py` with env sourced via bash |
+| Catch up missed mail | Done | Stopped service, ran one-off script reusing `process_message()` from `email_parser.py` against `get_new_messages(last_history_id)`; caught 666 messages (Aug 7–13), 13 harmless 404s for since-deleted mail, 0 import failures |
+| Restart service | Done | Resumed from correct historyId, confirmed picking up new mail in real time |
+| Fix cron job (for real this time) | Done | Changed `. .env` → `. /opt/email-parser/.env` (absolute path); moved log from `/tmp/renew_watch.log` (never actually got created — same silent-abort issue) to `/opt/email-parser/renew_watch.log`; verified success via direct `sh -c` reproduction of the cron command |
+
+### Key Changes
+
+**Server** (crontab):
+```
+0 6 * * * cd /opt/email-parser && set -a && . /opt/email-parser/.env && set +a && /opt/email-parser/venv/bin/python /opt/email-parser/renew_watch.py >> /opt/email-parser/renew_watch.log 2>&1
+```
+
+### Lesson
+Any cron job on this server that sources a relative-path file (`. .env`, `. somefile`) must use an absolute path — cron's `/bin/sh` (dash) won't fall back to cwd like bash does. Testing a fix by running it manually in an interactive bash shell does not validate it for cron, since bash and dash disagree on this exact behavior. Always verify with `sh -c '<exact crontab command>'`, not just by running it directly.
+
+---
+
 ## Session: June 22, 2026 — Email Parser Fix & Calendar Assignment Bug
 
 ### Summary
@@ -1737,3 +1764,61 @@ Continued from previous session that ran out of context. Completed job dropdown 
 - Unassigned time entries workflow
 - Grouped by job view for time entries
 - Pay calculation system with 50% tech pool formula
+
+---
+
+## 2026-09-15 — Scraper blank-data bug, importer guard, Keith Nimmo account
+
+### Deployed (committed + live)
+- `25ee04a` — importer no longer overwrites `job_status` when a scrape reports no
+  status. Blank status mapped to `'pending'` and was assigned unconditionally,
+  silently downgrading in-progress/completed jobs. Guarded both FN and WM paths.
+  Includes the `'checked out': 'in_progress'` map addition.
+- `9587aaf` — FN status `"Start Time Set"` mapped to `assigned` (was falling
+  through to `'pending'`). Seen on FN-19959130.
+- Server HEAD verified `9587aaf`, service active, site HTTP 200.
+
+### Scraper fix — LOCAL ONLY, NOT IN GIT (`scraper/` is gitignored)
+Root cause of "scraper not pulling data from FN-19924650": Selenium's
+`element.text` returns only *visibly rendered* text. With the Chrome window
+minimized / zero-viewport (`visibilityState: hidden`, `clientHeight: 0`),
+`body.text` returns `''`, so every parsed field is blank while `title` still
+populates (it reads the HTML `<title>`). NOT a timing issue — body text was still
+empty at 30s with `readyState: complete`.
+
+Fix: added `get_page_text()` to BOTH `scraper/fieldnation_scraper.py` and
+`scraper/workmarket_scraper.py` — uses `document.body.innerText` via JS with a
+`.text` fallback, and normalizes `\xa0` (innerText preserves the non-breaking
+spaces that `.text` collapses; the regexes were written against `.text`).
+Replaced all body-text reads, including WM's "text stabilization" poll, which
+measured `len(body.text)` and stalls at 0 forever when unrendered — likely the
+real cause of the old "86% extraction failure" note.
+
+Verified: FN matches known-good baseline (Azuris / Checked Out / $727.11 / 16.89h
+/ 2 entries); WM matches baseline (assignment 5242637779: ASD / 31.74h /
+$1483.71 / 7 entries). Regression test: `scraper/test_hidden_window.py`.
+
+### >>> PENDING — NOT DONE <<<
+Six FN jobs were downgraded to `pending` by blank scrapes and still need
+correcting. SQL is staged on the server at `/tmp/q.sql` (prints before/after,
+only touches rows still at `pending`). Blocked for Claude by the permission
+classifier — run manually:
+
+    ssh ... claude-code@34.27.146.58 'sudo sh /tmp/dbrun.sh'
+
+- FN-19924650, FN-19924651 → `in_progress` (real status: Checked Out)
+- FN-19899226, FN-19904034, FN-19924072, FN-19914640 → `completed` (real status:
+  **Paid**), with `completed_date` backfilled from `job_date`
+
+The four Paid ones are time-sensitive: once they age out of the scraper window a
+re-import can't reach them and the SQL is the only fix. FN-19959130 WILL
+self-correct on next import now that `"Start Time Set"` is mapped.
+
+### Other
+- Keith Nimmo (user_id 7): login email corrected to `1974kemo@gmail.com`; password
+  reset to a temp value and emailed to him (he should change it on first login).
+  Note: the app has NO self-service reset-link flow, only an admin endpoint.
+- Michael Hollimon advances audited — fully reconciled, nothing owed. The P15
+  $820.84 correction carried forward through advances #16/#18 and was fully repaid
+  2026-09-04. `tmp_add_repayment.py` was not needed (I overwrote it by mistake;
+  user confirmed it was non-functional).

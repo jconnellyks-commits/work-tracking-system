@@ -93,6 +93,19 @@ config_by_name = {
 
 
 def get_config():
-    """Get configuration based on FLASK_ENV environment variable."""
+    """
+    Get configuration based on the FLASK_ENV environment variable.
+
+    Raises on an unrecognized value rather than falling back. A typo here
+    used to silently select DevelopmentConfig, which on the production
+    server meant DEBUG=True, SESSION_COOKIE_SECURE=False (so no HSTS
+    header) and DEBUG-level logging. Failing to boot is the safer outcome.
+    """
     env = os.getenv('FLASK_ENV', 'development')
-    return config_by_name.get(env, DevelopmentConfig)
+    if env not in config_by_name:
+        valid = ', '.join(sorted(config_by_name))
+        raise ValueError(
+            f"Unrecognized FLASK_ENV {env!r}. Valid values: {valid}. "
+            f"Check FLASK_ENV in your .env file."
+        )
+    return config_by_name[env]

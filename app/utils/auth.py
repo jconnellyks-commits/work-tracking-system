@@ -9,6 +9,8 @@ from flask_jwt_extended import (
     get_jwt_identity,
     get_jwt,
 )
+from flask_jwt_extended.exceptions import JWTExtendedException
+from jwt.exceptions import PyJWTError
 from app.utils.logging import get_logger, audit_logger
 
 logger = get_logger(__name__)
@@ -38,35 +40,70 @@ def get_current_user():
         return None
 
 
+# Exceptions that genuinely mean "this request is not authenticated".
+# Anything else raised while resolving the user is a bug and must not be
+# reported as an auth failure.
+JWT_EXCEPTIONS = (JWTExtendedException, PyJWTError)
+
+
+def _resolve_jwt_user():
+    """
+    Verify the JWT and load the matching user.
+
+    Returns:
+        (user, error_response) - exactly one is None.
+
+    Only authentication failures are turned into a response here. Any other
+    exception propagates, so a bug in the lookup surfaces as a 500 instead
+    of a misleading 401.
+    """
+    from app.models import User
+
+    try:
+        verify_jwt_in_request()
+    except JWT_EXCEPTIONS as e:
+        logger.error(f"Authentication error: {str(e)}")
+        return None, (jsonify({'error': 'Authentication required'}), 401)
+
+    user_id = get_jwt_identity()
+    try:
+        user_pk = int(user_id)
+    except (TypeError, ValueError):
+        # Malformed identity claim - treat as an unauthenticated request
+        logger.error(f"Authentication error: non-numeric JWT identity {user_id!r}")
+        return None, (jsonify({'error': 'Authentication required'}), 401)
+
+    user = User.query.get(user_pk)
+
+    if not user:
+        logger.warning(f"JWT valid but user {user_id} not found")
+        return None, (jsonify({'error': 'User not found'}), 404)
+
+    if user.status != 'active':
+        logger.warning(f"Inactive user {user_id} attempted access")
+        return None, (jsonify({'error': 'Account is not active'}), 403)
+
+    return user, None
+
+
 def jwt_required_with_user(fn):
     """
     Decorator that verifies JWT and loads user into g.current_user.
     Also sets g.user_id for logging purposes.
+
+    Exceptions raised by the decorated view are NOT caught here - they
+    propagate to Flask so real bugs are not disguised as auth failures.
     """
     @wraps(fn)
     def wrapper(*args, **kwargs):
-        from app.models import User
+        user, error = _resolve_jwt_user()
+        if error:
+            return error
 
-        try:
-            verify_jwt_in_request()
-            user_id = get_jwt_identity()
-            user = User.query.get(int(user_id))
+        g.current_user = user
+        g.user_id = user.user_id
 
-            if not user:
-                logger.warning(f"JWT valid but user {user_id} not found")
-                return jsonify({'error': 'User not found'}), 404
-
-            if user.status != 'active':
-                logger.warning(f"Inactive user {user_id} attempted access")
-                return jsonify({'error': 'Account is not active'}), 403
-
-            g.current_user = user
-            g.user_id = user.user_id
-
-            return fn(*args, **kwargs)
-        except Exception as e:
-            logger.error(f"Authentication error: {str(e)}")
-            return jsonify({'error': 'Authentication required'}), 401
+        return fn(*args, **kwargs)
 
     return wrapper
 
@@ -86,41 +123,29 @@ def role_required(*allowed_roles):
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
-            from app.models import User
+            user, error = _resolve_jwt_user()
+            if error:
+                return error
 
-            try:
-                verify_jwt_in_request()
-                user_id = get_jwt_identity()
-                user = User.query.get(int(user_id))
+            if user.role not in allowed_roles:
+                logger.warning(
+                    f"User {user.user_id} with role {user.role} "
+                    f"attempted to access route requiring {allowed_roles}"
+                )
+                audit_logger.log(
+                    action_type='access_denied',
+                    description=f"User role {user.role} not in {allowed_roles}",
+                    user_id=user.user_id
+                )
+                return jsonify({
+                    'error': 'Insufficient permissions',
+                    'required_roles': list(allowed_roles)
+                }), 403
 
-                if not user:
-                    return jsonify({'error': 'User not found'}), 404
+            g.current_user = user
+            g.user_id = user.user_id
 
-                if user.status != 'active':
-                    return jsonify({'error': 'Account is not active'}), 403
-
-                if user.role not in allowed_roles:
-                    logger.warning(
-                        f"User {user_id} with role {user.role} "
-                        f"attempted to access route requiring {allowed_roles}"
-                    )
-                    audit_logger.log(
-                        action_type='access_denied',
-                        description=f"User role {user.role} not in {allowed_roles}",
-                        user_id=user_id
-                    )
-                    return jsonify({
-                        'error': 'Insufficient permissions',
-                        'required_roles': list(allowed_roles)
-                    }), 403
-
-                g.current_user = user
-                g.user_id = user.user_id
-
-                return fn(*args, **kwargs)
-            except Exception as e:
-                logger.error(f"Authorization error: {str(e)}")
-                return jsonify({'error': 'Authentication required'}), 401
+            return fn(*args, **kwargs)
 
         return wrapper
     return decorator

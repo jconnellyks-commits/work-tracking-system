@@ -114,6 +114,20 @@ def create_app(config_class=None):
     def missing_token_callback(error):
         return {'error': 'Authorization token required', 'code': 'token_required'}, 401
 
+    # Unhandled exceptions from a view. Without this the client gets an HTML
+    # error page that api.js cannot parse, so a server bug looks like a
+    # frontend one. Logged with the traceback; the response stays generic.
+    @app.errorhandler(Exception)
+    def handle_unexpected_error(error):
+        from werkzeug.exceptions import HTTPException
+
+        # Let Flask's own 404/405/413 etc. through untouched
+        if isinstance(error, HTTPException):
+            return error
+
+        logger.exception(f"Unhandled exception: {error}")
+        return {'error': 'Internal server error', 'code': 'internal_error'}, 500
+
     # Security headers
     @app.after_request
     def add_security_headers(response):

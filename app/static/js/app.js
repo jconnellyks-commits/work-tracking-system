@@ -275,6 +275,22 @@ const App = {
         return new Date(dateStr).toLocaleDateString();
     },
 
+    // Serialize rows to CSV text (RFC 4180 quoting)
+    // Callers pass raw values - never pre-quote a field, this handles it.
+    toCsv(rows) {
+        const field = (value) => {
+            if (value === null || value === undefined) return '';
+            const str = String(value);
+            // Quote when the value contains a delimiter, a quote, a newline,
+            // or leading/trailing whitespace that would otherwise be eaten
+            if (/[",\r\n]/.test(str) || str !== str.trim()) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        };
+        return rows.map(row => row.map(field).join(',')).join('\n');
+    },
+
     // Format time (24h HH:MM → HH:MM display)
     formatTime(timeStr) {
         if (!timeStr) return '-';
@@ -3814,7 +3830,7 @@ const Pages = {
                 csv.push([
                     job.date_display || '',
                     job.ticket_number || `Job #${job.job_id}`,
-                    `"${job.description.replace(/"/g, '""')}"`,
+                    job.description,
                     job.hours,
                     job.effective_rate.toFixed(2),
                     job.using_minimum ? 'Yes' : 'No',
@@ -3846,7 +3862,7 @@ const Pages = {
         }
 
         // Convert to CSV string
-        const csvContent = csv.map(row => row.join(',')).join('\n');
+        const csvContent = App.toCsv(csv);
 
         // Download
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -4172,7 +4188,7 @@ const Pages = {
             csv.push([
                 job.effective_date || job.job_date || '',
                 job.ticket_number || `Job #${job.job_id}`,
-                `"${job.description.replace(/"/g, '""')}"`,
+                job.description,
                 job.platform || '',
                 job.billing.toFixed(2),
                 job.job_expenses.toFixed(2),
@@ -4182,7 +4198,7 @@ const Pages = {
             ]);
         }
 
-        const csvContent = csv.map(row => row.join(',')).join('\n');
+        const csvContent = App.toCsv(csv);
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);

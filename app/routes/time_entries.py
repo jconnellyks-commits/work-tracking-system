@@ -291,8 +291,12 @@ def export_time_entries():
         writer.writerow(_export_row(entry))
 
     filename = _export_filename()
-    audit_logger.info(
-        f'User {user.user_id} exported {len(entries)} time entries as {filename}'
+    audit_logger.log(
+        action_type='time_entries_exported',
+        entity_type='time_entry',
+        new_values={'row_count': len(entries), 'filters': dict(request.args)},
+        description=f'Exported {len(entries)} time entries as {filename}',
+        user_id=user.user_id
     )
 
     # Leading BOM so Excel reads the file as UTF-8

@@ -2214,6 +2214,7 @@ const Pages = {
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
                     <button class="btn btn-secondary btn-sm" id="toggle-group-btn"><i class="fas fa-layer-group"></i> Group by Job</button>
                     <button class="btn btn-secondary btn-sm" id="toggle-calendar-btn"><i class="fas fa-calendar-alt"></i> Calendar</button>
+                    <button class="btn btn-secondary btn-sm" id="export-entries-btn"><i class="fas fa-download"></i> Export CSV</button>
                 </div>
                 <div id="entries-list-view" class="table-container">
                     <table>
@@ -2252,8 +2253,9 @@ const Pages = {
             document.getElementById('sort-status-icon').textContent = currentSort.by === 'status' ? (currentSort.order === 'desc' ? '▼' : '▲') : '';
         };
 
-        const loadEntries = async (page = 1) => {
-            const params = { page, per_page: 20, sort_by: currentSort.by, sort_order: currentSort.order };
+        // Filter params shared by the list, grouped, calendar and export loaders
+        const buildEntryParams = () => {
+            const params = {};
             const statuses = App.getMultiSelectValues('entry-status-filter');
             const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
             const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
@@ -2273,6 +2275,17 @@ const Pages = {
             if (toDate) params.to_date = toDate;
             if (jobSearch) params.job_search = jobSearch;
             if (myAssignedJobs) params.my_assigned_jobs = 'true';
+            return params;
+        };
+
+        const loadEntries = async (page = 1) => {
+            const params = {
+                ...buildEntryParams(),
+                page,
+                per_page: 20,
+                sort_by: currentSort.by,
+                sort_order: currentSort.order
+            };
 
             const data = await API.timeEntries.list(params);
             updateSortIcons();
@@ -2342,26 +2355,7 @@ const Pages = {
 
         // Grouped view loader
         const loadGroupedEntries = async () => {
-            const params = {};
-            const statuses = App.getMultiSelectValues('entry-status-filter');
-            const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
-            const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
-            const fromDate = document.getElementById('entry-from-date').value;
-            const toDate = document.getElementById('entry-to-date').value;
-            const jobSearch = document.getElementById('entry-job-search').value;
-
-            if (statuses.length > 0) params.status = statuses.join(',');
-            if (techFilters.includes('unassigned')) {
-                params.unassigned = 'true';
-                const techIds = techFilters.filter(t => t !== 'unassigned');
-                if (techIds.length > 0) params.tech_id = techIds.join(',');
-            } else if (techFilters.length > 0) {
-                params.tech_id = techFilters.join(',');
-            }
-            if (fromDate) params.from_date = fromDate;
-            if (toDate) params.to_date = toDate;
-            if (jobSearch) params.job_search = jobSearch;
-            if (myAssignedJobs) params.my_assigned_jobs = 'true';
+            const params = buildEntryParams();
 
             const data = await API.timeEntries.groupedByJob(params);
             const groupedView = document.getElementById('entries-grouped-view');
@@ -2765,22 +2759,14 @@ const Pages = {
             if (userFrom && userFrom > fromDate) fromDate = userFrom;
             if (userTo && userTo < toDate) toDate = userTo;
 
-            const params = { from_date: fromDate, to_date: toDate, per_page: 500, page: 1 };
-            const statuses = App.getMultiSelectValues('entry-status-filter');
-            const techFilters = isManager ? App.getMultiSelectValues('entry-tech-filter') : [];
-            const jobSearch = document.getElementById('entry-job-search').value;
-            const myAssignedJobs = !isManager && document.getElementById('my-assigned-jobs-filter')?.checked;
-
-            if (statuses.length > 0) params.status = statuses.join(',');
-            if (techFilters.includes('unassigned')) {
-                params.unassigned = 'true';
-                const techIds = techFilters.filter(t => t !== 'unassigned');
-                if (techIds.length > 0) params.tech_id = techIds.join(',');
-            } else if (techFilters.length > 0) {
-                params.tech_id = techFilters.join(',');
-            }
-            if (jobSearch) params.job_search = jobSearch;
-            if (myAssignedJobs) params.my_assigned_jobs = 'true';
+            // Calendar window overrides the from/to inputs (already clamped above)
+            const params = {
+                ...buildEntryParams(),
+                from_date: fromDate,
+                to_date: toDate,
+                per_page: 500,
+                page: 1
+            };
 
             const data = await API.timeEntries.list(params);
             calState.entries = data.time_entries || [];
@@ -3000,6 +2986,51 @@ const Pages = {
                 toggleBtn.classList.remove('btn-primary');
                 toggleBtn.classList.add('btn-secondary');
                 await loadEntries(1);
+            }
+        });
+
+        // Export the current filter selection as CSV
+        const buildExportFilename = (params) => {
+            const parts = ['time_entries'];
+            if (params.from_date && params.to_date) {
+                parts.push(`${params.from_date}_to_${params.to_date}`);
+            } else if (params.from_date) {
+                parts.push(`from_${params.from_date}`);
+            } else if (params.to_date) {
+                parts.push(`through_${params.to_date}`);
+            } else {
+                parts.push(new Date().toISOString().slice(0, 10));
+            }
+            if (params.status) parts.push(params.status.split(',').join('-'));
+            if (params.unassigned) parts.push('unassigned');
+            return parts.join('_') + '.csv';
+        };
+
+        const exportBtn = document.getElementById('export-entries-btn');
+        exportBtn.addEventListener('click', async () => {
+            const originalHtml = exportBtn.innerHTML;
+            exportBtn.disabled = true;
+            exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+            try {
+                const params = {
+                    ...buildEntryParams(),
+                    sort_by: currentSort.by,
+                    sort_order: currentSort.order
+                };
+                const blob = await API.timeEntries.exportCsv(params);
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = buildExportFilename(params);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                App.showAlert(error.message || 'Export failed');
+            } finally {
+                exportBtn.disabled = false;
+                exportBtn.innerHTML = originalHtml;
             }
         });
 

@@ -89,6 +89,42 @@ const API = {
         }
     },
 
+    // Make API request that returns a file blob instead of JSON
+    async requestBlob(endpoint, _retried = false) {
+        const url = `${this.baseUrl}${endpoint}`;
+        const token = this.getToken();
+
+        const headers = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const response = await fetch(url, { headers });
+
+        if (!response.ok) {
+            if (response.status === 401 && !_retried) {
+                const refreshed = await this.refreshToken();
+                if (refreshed) {
+                    return this.requestBlob(endpoint, true);
+                }
+                this.clearTokens();
+                window.location.href = '/login';
+                return;
+            }
+            // Errors still come back as JSON
+            let message = 'Request failed';
+            try {
+                const data = await response.json();
+                message = data.error || data.message || message;
+            } catch {
+                // Response was not JSON - keep the generic message
+            }
+            throw new Error(message);
+        }
+
+        return response.blob();
+    },
+
     // Refresh access token
     async refreshToken() {
         const refreshToken = localStorage.getItem('refresh_token');
@@ -289,6 +325,11 @@ const API = {
         async list(params = {}) {
             const query = new URLSearchParams(params).toString();
             return API.request(`/time-entries${query ? '?' + query : ''}`);
+        },
+
+        async exportCsv(params = {}) {
+            const query = new URLSearchParams(params).toString();
+            return API.requestBlob(`/time-entries/export${query ? '?' + query : ''}`);
         },
 
         async get(entryId) {

@@ -2,9 +2,11 @@
 Time entry routes for tracking work hours.
 Includes creation, updates, verification, and submission workflows.
 """
+import csv
+import io
 from datetime import datetime, timedelta
 from decimal import Decimal
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, Response
 from sqlalchemy import and_
 from app import db
 from app.models import TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout, JobAssignment
@@ -51,26 +53,26 @@ def calculate_hours(time_in, time_out):
     return round(hours, 2)
 
 
-@time_entries_bp.route('', methods=['GET'])
-@jwt_required_with_user
-def list_time_entries():
+def _build_time_entry_query(user):
     """
-    List time entries with filtering.
+    Build a filtered, sorted TimeEntry query from the current request args.
+
+    Shared by the list and export endpoints so both apply identical filtering
+    and role scoping. Returns the query without pagination applied, or None if
+    the calling technician is not linked to a technician record.
 
     Query parameters:
-        - page, per_page: Pagination
-        - tech_id: Filter by technician
-        - job_id: Filter by job
+        - tech_id: Filter by technician (comma-separated for multiple)
+        - job_id, bundle_id: Filter by job or bundle
         - job_search: Search by job ticket number or client name
-        - status: Filter by entry status
+        - status: Filter by entry status (comma-separated for multiple)
         - period_id: Filter by pay period
         - from_date, to_date: Date range filter
+        - unassigned: Include entries with no technician
+        - my_assigned_jobs: Technicians only - limit to their assigned jobs
         - sort_by: Field to sort by (date_worked, hours_worked, status)
         - sort_order: asc or desc (default desc)
     """
-    user = g.current_user
-    page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 25, type=int)
     tech_id_param = request.args.get('tech_id', '')
     job_id = request.args.get('job_id', type=int)
     job_search = request.args.get('job_search', '').strip()
@@ -98,7 +100,7 @@ def list_time_entries():
     # Technicians see their own entries + unassigned entries
     if user.role == 'technician':
         if not user.tech_id:
-            return jsonify({'error': 'User not linked to technician'}), 400
+            return None
         query = query.filter(db.or_(
             TimeEntry.tech_id == user.tech_id,
             TimeEntry.tech_id.is_(None)
@@ -159,6 +161,26 @@ def list_time_entries():
     else:
         query = query.order_by(sort_column.desc(), TimeEntry.created_at.desc())
 
+    return query
+
+
+@time_entries_bp.route('', methods=['GET'])
+@jwt_required_with_user
+def list_time_entries():
+    """
+    List time entries with filtering.
+
+    Accepts every filter and sort parameter documented on
+    _build_time_entry_query, plus page and per_page for pagination.
+    """
+    user = g.current_user
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 25, type=int)
+
+    query = _build_time_entry_query(user)
+    if query is None:
+        return jsonify({'error': 'User not linked to technician'}), 400
+
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
     return jsonify({
@@ -168,6 +190,117 @@ def list_time_entries():
         'current_page': page
     }), 200
 
+
+EXPORT_MAX_ROWS = 10000
+
+EXPORT_COLUMNS = [
+    'Date', 'Job Ticket', 'Client', 'Job Description', 'Technician',
+    'Time In', 'Time Out', 'Hours', 'Mileage', 'Per Diem',
+    'Personal Expenses', 'Status', 'Notes', 'Entry ID',
+]
+
+
+def _export_filename():
+    """Build a CSV filename that reflects the active filters."""
+    parts = ['time_entries']
+    from_date = request.args.get('from_date')
+    to_date = request.args.get('to_date')
+    if from_date and to_date:
+        parts.append(f'{from_date}_to_{to_date}')
+    elif from_date:
+        parts.append(f'from_{from_date}')
+    elif to_date:
+        parts.append(f'through_{to_date}')
+    else:
+        parts.append(datetime.today().strftime('%Y-%m-%d'))
+
+    statuses = [s.strip() for s in request.args.get('status', '').split(',') if s.strip()]
+    if statuses:
+        parts.append('-'.join(statuses))
+
+    if request.args.get('unassigned', '').lower() == 'true':
+        parts.append('unassigned')
+
+    return '_'.join(parts) + '.csv'
+
+
+def _export_row(entry):
+    """Flatten a TimeEntry into the CSV column order."""
+    job = entry.job
+    if job:
+        ticket = job.ticket_number or ''
+        client = job.client_name or ''
+        description = job.description or ''
+    elif entry.bundle:
+        ticket = f'[Bundle] {entry.bundle.display_name}'
+        client = ''
+        description = ''
+    else:
+        ticket = ''
+        client = ''
+        description = ''
+
+    return [
+        entry.date_worked.isoformat() if entry.date_worked else '',
+        ticket,
+        client,
+        description,
+        entry.technician.name if entry.technician else 'Unassigned',
+        entry.time_in.strftime('%H:%M') if entry.time_in else '',
+        entry.time_out.strftime('%H:%M') if entry.time_out else '',
+        f'{entry.hours_worked:.2f}' if entry.hours_worked is not None else '',
+        f'{entry.mileage:.2f}' if entry.mileage is not None else '0.00',
+        f'{entry.per_diem:.2f}' if entry.per_diem is not None else '0.00',
+        f'{entry.personal_expenses:.2f}' if entry.personal_expenses is not None else '0.00',
+        entry.status or '',
+        entry.notes or '',
+        entry.entry_id,
+    ]
+
+
+@time_entries_bp.route('/export', methods=['GET'])
+@jwt_required_with_user
+def export_time_entries():
+    """
+    Export filtered time entries as CSV.
+
+    Accepts the same filter and sort parameters as the list endpoint, but
+    returns every matching row rather than a page. Role scoping is inherited
+    from the shared query builder, so technicians only ever export their own
+    and unassigned entries.
+    """
+    user = g.current_user
+
+    query = _build_time_entry_query(user)
+    if query is None:
+        return jsonify({'error': 'User not linked to technician'}), 400
+
+    total = query.count()
+    if total > EXPORT_MAX_ROWS:
+        return jsonify({
+            'error': f'Export too large: {total} entries match, limit is '
+                     f'{EXPORT_MAX_ROWS}. Narrow the date range or filters.'
+        }), 400
+
+    entries = query.all()
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer, lineterminator='\n')
+    writer.writerow(EXPORT_COLUMNS)
+    for entry in entries:
+        writer.writerow(_export_row(entry))
+
+    filename = _export_filename()
+    audit_logger.info(
+        f'User {user.user_id} exported {len(entries)} time entries as {filename}'
+    )
+
+    # Leading BOM so Excel reads the file as UTF-8
+    return Response(
+        '﻿' + buffer.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename="{filename}"'}
+    )
 
 @time_entries_bp.route('/<int:entry_id>', methods=['GET'])
 @jwt_required_with_user

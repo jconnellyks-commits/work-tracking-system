@@ -214,6 +214,8 @@ const App = {
         }
 
         modalOverlay.classList.add('active');
+        // Lets the print stylesheet hide the page behind the modal
+        document.body.classList.add('modal-open');
     },
 
     // Hide modal
@@ -222,6 +224,7 @@ const App = {
         const modal = modalOverlay.querySelector('.modal');
         modalOverlay.classList.remove('active');
         modal.classList.remove('modal-wide');
+        document.body.classList.remove('modal-open');
         document.getElementById('modal-actions').style.display = 'none';
     },
 

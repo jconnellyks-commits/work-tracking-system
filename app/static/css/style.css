@@ -904,6 +904,14 @@ tr:hover {
         content: none;
     }
 
+    /* When a modal is open, print ONLY the modal. Without this the page
+       behind it prints too - printing a pay stub from #payouts put the whole
+       payouts list, including other technicians' amounts, on the same sheet.
+       body.modal-open is set by App.showModal/hideModal. */
+    body.modal-open .app-container {
+        display: none !important;
+    }
+
     /* Print modal content (pay stubs) */
     .modal-overlay.active {
         position: static;

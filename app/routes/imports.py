@@ -229,6 +229,12 @@ def import_fieldnation():
                     job.scheduled_start_time = scheduled_start_time
                 if wo.get('title') and len(wo.get('title', '')) > len(job.description or ''):
                     job.description = wo['title'][:500]
+                # Only set when the scrape reported one. Field Nation hides the
+                # site address once a work order is submitted for approval, so a
+                # later completed-pass scrape sends nothing - this must not blank
+                # out an address captured while the job was assigned.
+                if wo.get('location'):
+                    job.location = wo['location'][:255]
                 # Set completed_date if status changed to completed
                 if mapped_status == 'completed' and not job.completed_date:
                     job.completed_date = datetime.utcnow().date()
@@ -251,6 +257,7 @@ def import_fieldnation():
                     job_status=mapped_status,
                     billing_amount=0 if mapped_status == 'cancelled' else wo.get('total_pay', 0),
                     external_url=url,
+                    location=(wo.get('location') or None) and wo['location'][:255],
                     platform_id=platform.platform_id,
                     platform_job_code=wo_id,
                     completed_date=datetime.utcnow().date() if mapped_status == 'completed' else None,
@@ -632,6 +639,8 @@ def import_workmarket():
                     job.scheduled_start_time = scheduled_start_time
                 if assignment.get('title') and len(assignment.get('title', '')) > len(job.description or ''):
                     job.description = assignment['title'][:500]
+                if assignment.get('location'):
+                    job.location = assignment['location'][:255]
                 # Set completed_date if status changed to completed
                 if mapped_status == 'completed' and not job.completed_date:
                     job.completed_date = datetime.utcnow().date()
@@ -654,6 +663,7 @@ def import_workmarket():
                     job_status=mapped_status,
                     billing_amount=0 if mapped_status == 'cancelled' else assignment.get('total_pay', 0),
                     external_url=url,
+                    location=(assignment.get('location') or None) and assignment['location'][:255],
                     platform_id=platform.platform_id,
                     platform_job_code=a_id,
                     completed_date=datetime.utcnow().date() if mapped_status == 'completed' else None,
@@ -1129,6 +1139,8 @@ def import_techlink():
                     existing_job.scheduled_start_time = scheduled_start_time
                 if external_url and not existing_job.external_url:
                     existing_job.external_url = external_url
+                if job_data.get('address'):
+                    existing_job.location = job_data['address'].strip()[:255]
                 if description and not existing_job.description.startswith(description.split(' | ')[0][:20] if description else ''):
                     pass  # Don't overwrite richer description from Assigned email
                 results['updated_jobs'] += 1
@@ -1140,6 +1152,7 @@ def import_techlink():
                     job_date=job_date,
                     scheduled_start_time=scheduled_start_time,
                     external_url=external_url,
+                    location=(job_data.get('address') or '').strip()[:255] or None,
                     job_status=mapped_status or 'assigned',
                     billing_amount=0,
                     billing_type='hourly',

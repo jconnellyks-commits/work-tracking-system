@@ -1091,6 +1091,7 @@ const Pages = {
                         ? ' calendar-chip--unassigned' : '';
                     const label = `${job.ticket_number || '#' + job.job_id} – ${job.client_name || ''}`;
                     let tooltipLines = [job.description || ''];
+                    if (job.location) tooltipLines.push(job.location);
                     if (job._from_schedule) {
                         const allTechs = jobTechsMap[job.job_id] ? [...jobTechsMap[job.job_id]] : [];
                         if (allTechs.length) tooltipLines.push('Techs: ' + allTechs.join(', '));

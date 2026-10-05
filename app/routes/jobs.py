@@ -177,10 +177,13 @@ def list_jobs():
         'client_name': Job.client_name
     }
     sort_column = sort_columns.get(sort_by, Job.job_date)
+    # job_id last so the ordering is total. Without it, rows tying on both
+    # job_date and created_at can order differently per page query, which makes
+    # paginated reads silently skip or repeat a job.
     if sort_order == 'asc':
-        query = query.order_by(sort_column.asc(), Job.created_at.desc())
+        query = query.order_by(sort_column.asc(), Job.created_at.desc(), Job.job_id.desc())
     else:
-        query = query.order_by(sort_column.desc(), Job.created_at.desc())
+        query = query.order_by(sort_column.desc(), Job.created_at.desc(), Job.job_id.desc())
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 

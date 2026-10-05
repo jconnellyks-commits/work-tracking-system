@@ -1228,13 +1228,15 @@ const Pages = {
                         </div>
                         <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${(state.scheduleEntries || []).length + (state.fallbackJobs || []).length} job${((state.scheduleEntries || []).length + (state.fallbackJobs || []).length) !== 1 ? 's' : ''} this month</span>
                     </div>
-                    ${alertHTML}
-                    <div style="padding: 0.5rem;">
-                        <div class="calendar-grid calendar-grid--header">
-                            ${dayHeaders.map(h => `<div class="calendar-day-header">${h}</div>`).join('')}
-                        </div>
-                        <div class="calendar-grid">
-                            ${cells}
+                    <div id="cal-body">
+                        ${alertHTML}
+                        <div style="padding: 0.5rem;">
+                            <div class="calendar-grid calendar-grid--header">
+                                ${dayHeaders.map(h => `<div class="calendar-day-header">${h}</div>`).join('')}
+                            </div>
+                            <div class="calendar-grid">
+                                ${cells}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1249,9 +1251,16 @@ const Pages = {
         }
 
         // Rebuild from data already loaded - filtering must not refetch.
+        // Only the grid is swapped: replacing the whole card would destroy the
+        // filter dropdown the user is still clicking in, and its listeners.
         function rerender() {
-            container.innerHTML = buildCalendarHTML();
-            attachEvents();
+            const fresh = document.createElement('div');
+            fresh.innerHTML = buildCalendarHTML();
+            const newBody = fresh.querySelector('#cal-body');
+            const currentBody = document.getElementById('cal-body');
+            if (newBody && currentBody) {
+                currentBody.innerHTML = newBody.innerHTML;
+            }
         }
 
         function attachTechFilter() {

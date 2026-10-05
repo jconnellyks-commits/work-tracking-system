@@ -156,10 +156,15 @@ def _build_time_entry_query(user):
         'status': TimeEntry.status,
     }
     sort_column = sort_columns.get(sort_by, TimeEntry.date_worked)
+    # entry_id last so the ordering is total. Imported entries share a
+    # created_at, so without it a tied group can order differently per page
+    # query and a paginated read silently skips or repeats rows.
     if sort_order == 'asc':
-        query = query.order_by(sort_column.asc(), TimeEntry.created_at.desc())
+        query = query.order_by(sort_column.asc(), TimeEntry.created_at.desc(),
+                               TimeEntry.entry_id.desc())
     else:
-        query = query.order_by(sort_column.desc(), TimeEntry.created_at.desc())
+        query = query.order_by(sort_column.desc(), TimeEntry.created_at.desc(),
+                               TimeEntry.entry_id.desc())
 
     return query
 

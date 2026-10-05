@@ -8,6 +8,9 @@ from datetime import datetime
 from flask import current_app
 from app import db
 from app.models import SystemSettings, SMSNotification
+from app.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class SMSService:
@@ -28,6 +31,13 @@ class SMSService:
     # SOAP namespace
     SOAP_NS = 'http://schemas.xmlsoap.org/soap/envelope/'
     VI_NS = 'http://tempuri.org/'
+
+    # A single SMS segment is 160 characters - that is a provider limit, not a
+    # style choice. Longer messages go out as a text-only MMS instead of being
+    # cut: SendMMSWithDLR takes the same arguments plus an optional files
+    # array, and the WSDL allows that array to be empty.
+    SMS_MAX_LENGTH = 160
+    MMS_MAX_LENGTH = 1500
 
     def __init__(self):
         """Initialize SMS service with settings from database."""
@@ -128,6 +138,58 @@ class SMSService:
   </soap:Body>
 </soap:Envelope>'''
 
+    def _build_mms_envelope(self, sender, recipient, message):
+        """
+        Build SOAP XML envelope for SendMMSWithDLR with no attachments.
+
+        Used for messages too long for a single SMS. The files array is
+        declared minOccurs="0" in the provider's WSDL, so an empty element is
+        valid and the message goes out as text-only MMS.
+        """
+        return f'''<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <SendMMSWithDLR xmlns="http://tempuri.org/">
+      <login>{self.api_key}</login>
+      <secret>{self.api_secret}</secret>
+      <sender>{sender}</sender>
+      <recipient>{recipient}</recipient>
+      <message>{message}</message>
+      <files />
+    </SendMMSWithDLR>
+  </soap:Body>
+</soap:Envelope>'''
+
+    @staticmethod
+    def _escape_xml(text):
+        """Escape XML special characters in a message body."""
+        return (text
+            .replace('&', '&amp;')
+            .replace('<', '&lt;')
+            .replace('>', '&gt;')
+            .replace('"', '&quot;')
+            .replace("'", '&apos;'))
+
+    def _post_envelope(self, soap_body, action):
+        """
+        POST a SOAP envelope and return (parsed_result, raw_response_text).
+
+        Raises the usual requests exceptions - callers handle them.
+        """
+        headers = {
+            'Content-Type': 'text/xml; charset=utf-8',
+            'SOAPAction': f'"http://tempuri.org/{action}"'
+        }
+        response = requests.post(
+            self.api_endpoint,
+            data=soap_body.encode('utf-8'),
+            headers=headers,
+            timeout=30
+        )
+        return self._parse_soap_response(response.text), response.text
+
     def _parse_soap_response(self, response_text):
         """
         Parse SOAP response from VoIP Innovations.
@@ -151,14 +213,14 @@ class SMSService:
 
             # Find the SendSMSWithDLRResult element - VoIP Innovations returns nested structure
             # <SendSMSWithDLRResult><responseCode>100</responseCode><responseMessage>Success</responseMessage>...</SendSMSWithDLRResult>
-            result = root.find('.//{http://tempuri.org/}SendSMSWithDLRResult')
-            if result is None:
-                result = root.find('.//SendSMSWithDLRResult')
-            if result is None:
-                # Fall back to SendSMSResult for compatibility
-                result = root.find('.//{http://tempuri.org/}SendSMSResult')
-            if result is None:
-                result = root.find('.//SendSMSResult')
+            result = None
+            for tag in ('SendSMSWithDLRResult', 'SendMMSWithDLRResult',
+                        'SendSMSResult', 'SendMMSResult'):
+                result = root.find('.//{http://tempuri.org/}' + tag)
+                if result is None:
+                    result = root.find('.//' + tag)
+                if result is not None:
+                    break
 
             if result is not None:
                 # Check for nested responseCode and responseMessage
@@ -260,16 +322,11 @@ class SMSService:
                 'notification': None
             }
 
-        # Truncate message to 160 characters for single SMS
-        truncated_message = message[:160] if len(message) > 160 else message
-
-        # Escape XML special characters in message
-        escaped_message = (truncated_message
-            .replace('&', '&amp;')
-            .replace('<', '&lt;')
-            .replace('>', '&gt;')
-            .replace('"', '&quot;')
-            .replace("'", '&apos;'))
+        # Pick the transport. A single SMS caps at 160 characters, so anything
+        # longer is sent as a text-only MMS rather than silently cut.
+        use_mms = len(message) > self.SMS_MAX_LENGTH
+        outgoing_message = message[:self.MMS_MAX_LENGTH] if use_mms else message
+        escaped_message = self._escape_xml(outgoing_message)
 
         # Create notification record
         notification = SMSNotification(
@@ -277,7 +334,7 @@ class SMSService:
             assignment_id=assignment_id,
             tech_id=tech_id,
             phone_number=f'+1{formatted_to}',  # Store in E.164 format
-            message_body=truncated_message,
+            message_body=outgoing_message,
             status='pending'
         )
         db.session.add(notification)
@@ -296,25 +353,31 @@ class SMSService:
 
         # Build and send SOAP request
         try:
-            soap_body = self._build_soap_envelope(formatted_from, formatted_to, escaped_message)
+            if use_mms:
+                soap_body = self._build_mms_envelope(
+                    formatted_from, formatted_to, escaped_message)
+                result, response_text = self._post_envelope(soap_body, 'SendMMSWithDLR')
 
-            headers = {
-                'Content-Type': 'text/xml; charset=utf-8',
-                'SOAPAction': '"http://tempuri.org/SendSMSWithDLR"'
-            }
-
-            response = requests.post(
-                self.api_endpoint,
-                data=soap_body.encode('utf-8'),
-                headers=headers,
-                timeout=30
-            )
-
-            # Log the raw response for debugging
-            response_text = response.text
-
-            # Parse response
-            result = self._parse_soap_response(response_text)
+                # If the provider will not take the MMS, fall back to a
+                # truncated SMS so a transport problem cannot drop the
+                # notification entirely.
+                if not result['success']:
+                    logger.warning(
+                        f"MMS send failed ({result.get('error')}), "
+                        f"falling back to truncated SMS"
+                    )
+                    fallback_message = message[:self.SMS_MAX_LENGTH]
+                    soap_body = self._build_soap_envelope(
+                        formatted_from, formatted_to,
+                        self._escape_xml(fallback_message))
+                    result, response_text = self._post_envelope(
+                        soap_body, 'SendSMSWithDLR')
+                    if result['success']:
+                        notification.message_body = fallback_message
+            else:
+                soap_body = self._build_soap_envelope(
+                    formatted_from, formatted_to, escaped_message)
+                result, response_text = self._post_envelope(soap_body, 'SendSMSWithDLR')
 
             if result['success']:
                 notification.status = 'sent'
@@ -419,6 +482,12 @@ class SMSService:
                 location = location[:22] + '...'
             message = f"New job assigned: {ticket}\nDate: {date_str}\nLocation: {location}\nClient: {client}"
 
+        # Notes the dispatcher typed for the tech. Appended last so the core
+        # job details stay in the first SMS segment; the message is sent as MMS
+        # if this pushes it past 160 characters.
+        if assignment.notes and assignment.notes.strip():
+            message = f"{message}\nNote: {assignment.notes.strip()}"
+
         result = self.send_sms(
             to_number=assignment.technician.phone,
             message=message,
@@ -519,9 +588,12 @@ class SMSService:
                 date_str = f"{date_str} at {start_str}"
 
         url_line = f"\n{job.external_url}" if job.external_url else ''
+        note_line = ''
+        if assignment.notes and assignment.notes.strip():
+            note_line = f"\nNote: {assignment.notes.strip()}"
         message = (
-            f"SleepyBear LLC: Are you available for {ticket} on {date_str}?{url_line} "
-            f"Reply Y or N. STOP to opt out."
+            f"SleepyBear LLC: Are you available for {ticket} on {date_str}?{url_line}"
+            f"{note_line} Reply Y or N. STOP to opt out."
         )
 
         result = self.send_sms(

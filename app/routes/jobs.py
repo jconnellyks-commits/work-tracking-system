@@ -6,12 +6,59 @@ from flask import Blueprint, request, jsonify, g
 from sqlalchemy import or_
 from app import db
 from decimal import Decimal
-from app.models import Job, Platform, TimeEntry, JobReimbursable, JobSchedule, PayoutJobDetail, PayoutAdjustment, Payout
+from app.models import (
+    Job, Platform, TimeEntry, JobReimbursable, JobSchedule, PayoutJobDetail,
+    PayoutAdjustment, Payout, JobAssignment, Technician
+)
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import jwt_required_with_user, manager_required
 
 jobs_bp = Blueprint('jobs', __name__)
 logger = get_logger(__name__)
+
+# Assignment statuses that count as "this tech is on this job". 'invited'
+# counts: the calendar shows an invited tech, so excluding them here would make
+# a job vanish from that tech's filter until they accept.
+ASSIGNED_STATUSES = ('accepted', 'invited')
+
+
+def get_assigned_tech_names(job_ids):
+    """
+    Map job_id -> sorted list of technician names attached to it.
+
+    Covers both ways a tech attaches to a job (JobAssignment and JobSchedule).
+    Done as two grouped queries rather than per-row lookups to avoid an N+1 on
+    every page of the jobs list.
+    """
+    if not job_ids:
+        return {}
+
+    names = {job_id: set() for job_id in job_ids}
+
+    assigned = db.session.query(
+        JobAssignment.job_id, Technician.name
+    ).join(
+        Technician, Technician.tech_id == JobAssignment.tech_id
+    ).filter(
+        JobAssignment.job_id.in_(job_ids),
+        JobAssignment.status.in_(ASSIGNED_STATUSES)
+    ).all()
+    for job_id, name in assigned:
+        if name:
+            names[job_id].add(name)
+
+    scheduled = db.session.query(
+        JobSchedule.job_id, Technician.name
+    ).join(
+        Technician, Technician.tech_id == JobSchedule.tech_id
+    ).filter(
+        JobSchedule.job_id.in_(job_ids)
+    ).all()
+    for job_id, name in scheduled:
+        if name:
+            names[job_id].add(name)
+
+    return {job_id: sorted(v) for job_id, v in names.items()}
 
 
 @jobs_bp.route('', methods=['GET'])
@@ -28,6 +75,10 @@ def list_jobs():
         - search: Search in ticket_number, description, client_name
         - from_date: Filter jobs on or after this date
         - to_date: Filter jobs on or before this date
+        - tech_id: Filter by assigned technician (comma-separated for several).
+          Matches a job-level JobAssignment (accepted or invited) OR a
+          per-day JobSchedule entry, which is what the calendar displays.
+        - unassigned: 'true' to include jobs with no technician either way
         - sort_by: Field to sort by (job_date, job_status, created_at)
         - sort_order: asc or desc (default desc)
     """
@@ -40,6 +91,10 @@ def list_jobs():
     to_date = request.args.get('to_date')
     sort_by = request.args.get('sort_by', 'job_date')
     sort_order = request.args.get('sort_order', 'desc')
+    tech_id_param = request.args.get('tech_id', '')
+    unassigned = request.args.get('unassigned', '').lower() == 'true'
+
+    tech_ids = [int(t) for t in tech_id_param.split(',') if t.strip().isdigit()]
 
     query = Job.query
 
@@ -86,6 +141,33 @@ def list_jobs():
             Job.job_id.in_(schedule_job_ids)
         ))
 
+    # Technician filter. A tech is attached to a job two ways and the calendar
+    # shows both, so matching only one would hide jobs that visibly carry that
+    # tech's name: a job-level JobAssignment, or a per-day JobSchedule entry.
+    if tech_ids or unassigned:
+        assigned_job_ids = db.session.query(JobAssignment.job_id).filter(
+            JobAssignment.status.in_(ASSIGNED_STATUSES)
+        )
+        scheduled_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.tech_id.isnot(None)
+        )
+
+        clauses = []
+        if tech_ids:
+            clauses.append(Job.job_id.in_(
+                assigned_job_ids.filter(JobAssignment.tech_id.in_(tech_ids))
+            ))
+            clauses.append(Job.job_id.in_(
+                scheduled_job_ids.filter(JobSchedule.tech_id.in_(tech_ids))
+            ))
+        if unassigned:
+            clauses.append(db.and_(
+                ~Job.job_id.in_(assigned_job_ids),
+                ~Job.job_id.in_(scheduled_job_ids)
+            ))
+
+        query = query.filter(or_(*clauses))
+
     # Sorting
     sort_columns = {
         'job_date': Job.job_date,
@@ -102,8 +184,13 @@ def list_jobs():
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
+    jobs = [job.to_dict() for job in pagination.items]
+    tech_names = get_assigned_tech_names([j['job_id'] for j in jobs])
+    for j in jobs:
+        j['assigned_techs'] = tech_names.get(j['job_id'], [])
+
     return jsonify({
-        'jobs': [job.to_dict() for job in pagination.items],
+        'jobs': jobs,
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page

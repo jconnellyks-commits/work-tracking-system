@@ -347,9 +347,11 @@ const App = {
     },
 
     // Get technician checkboxes HTML for multi-select
-    getTechnicianCheckboxes() {
+    getTechnicianCheckboxes(selected = []) {
         return this.technicians.map(t =>
-            `<label><input type="checkbox" value="${t.tech_id}"> ${t.name}</label>`
+            `<label><input type="checkbox" value="${t.tech_id}"${
+                selected.includes(String(t.tech_id)) ? ' checked' : ''
+            }> ${t.name}</label>`
         ).join('');
     },
 
@@ -821,6 +823,16 @@ const Pages = {
                         <option value="completed">Completed</option>
                         <option value="cancelled">Cancelled</option>
                     </select>
+                    <div class="multi-select" id="job-tech-filter">
+                        <div class="multi-select-display" onclick="App.toggleMultiSelect('job-tech-filter')">
+                            <span class="multi-select-text">All Technicians</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown">
+                            <label><input type="checkbox" value="unassigned"> Unassigned</label>
+                            ${App.getTechnicianCheckboxes()}
+                        </div>
+                    </div>
                     <select class="form-control" id="job-platform-filter">
                         <option value="">All Platforms</option>
                         ${App.getPlatformOptions()}
@@ -838,6 +850,7 @@ const Pages = {
                                 <th>Description</th>
                                 <th>Platform</th>
                                 <th>Client</th>
+                                <th>Technician</th>
                                 <th class="sortable" data-sort="job_date">Date <span id="sort-date-icon"></span></th>
                                 <th class="sortable" data-sort="job_status">Status <span id="sort-status-icon"></span></th>
                                 <th>Actions</th>
@@ -868,6 +881,15 @@ const Pages = {
             const fromDate = document.getElementById('job-from-date').value;
             const toDate = document.getElementById('job-to-date').value;
 
+            const techFilters = App.getMultiSelectValues('job-tech-filter');
+            if (techFilters.includes('unassigned')) {
+                params.unassigned = 'true';
+                const techIds = techFilters.filter(t => t !== 'unassigned');
+                if (techIds.length > 0) params.tech_id = techIds.join(',');
+            } else if (techFilters.length > 0) {
+                params.tech_id = techFilters.join(',');
+            }
+
             if (status) params.status = status;
             if (platform) params.platform_id = platform;
             if (search) params.search = search;
@@ -880,7 +902,7 @@ const Pages = {
 
             const tbody = document.getElementById('jobs-table');
             if (data.jobs.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center">No jobs found</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center">No jobs found</td></tr>';
             } else {
                 tbody.innerHTML = data.jobs.map(job => {
                     const ticketCell = job.external_url
@@ -892,6 +914,9 @@ const Pages = {
                         <td>${job.description}${job.bundle_name ? ` <span class="badge badge-bundle" onclick="Pages.viewBundle(${job.bundle_id})" title="Bundle: ${job.bundle_name}" style="cursor:pointer;background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:0.75rem;margin-left:4px"><i class="fas fa-layer-group"></i> ${job.bundle_name}</span>` : ''}</td>
                         <td>${job.platform_name || '-'}</td>
                         <td>${job.client_name || '-'}</td>
+                        <td>${(job.assigned_techs && job.assigned_techs.length)
+                            ? job.assigned_techs.join(', ')
+                            : '<span class="badge badge-warning">Unassigned</span>'}</td>
                         <td>${App.formatDate(job.job_date)}${job.schedule_dates && job.schedule_dates.length > 0 ? job.schedule_dates.filter(d => d !== job.job_date).map(d => `<br><span class="text-muted" style="font-size:0.85em">+ ${App.formatDate(d)}</span>`).join('') : ''}</td>
                         <td>${App.getStatusBadge(job.job_status)}</td>
                         <td>
@@ -919,6 +944,7 @@ const Pages = {
         Pages.jobsPage = loadJobs;
 
         // Event listeners
+        App.initMultiSelect('job-tech-filter', 'All Technicians', () => loadJobs(1));
         document.getElementById('job-status-filter').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-platform-filter').addEventListener('change', () => loadJobs(1));
         document.getElementById('job-from-date').addEventListener('change', () => loadJobs(1));
@@ -960,7 +986,8 @@ const Pages = {
             year: new Date().getFullYear(),
             month: new Date().getMonth(), // 0-indexed
             jobs: [],
-            myJobIds: new Set()
+            myJobIds: new Set(),
+            techFilter: []
         };
 
         const isManager = ['admin', 'manager'].includes(App.user.role);
@@ -1071,8 +1098,27 @@ const Pages = {
 
             const dayHeaders = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+            // A tech attaches to a job two ways and a chip can show either, so
+            // match against every name the chip could display.
+            function matchesTechFilter(job) {
+                const selected = state.techFilter;
+                if (!selected.length) return true;
+
+                const names = [];
+                if (jobTechsMap[job.job_id]) names.push(...jobTechsMap[job.job_id]);
+                if (job.tech_name) names.push(job.tech_name);
+                if (job.assigned_techs) names.push(...job.assigned_techs);
+
+                if (selected.includes('unassigned') && names.length === 0) return true;
+
+                const wanted = (App.technicians || [])
+                    .filter(t => selected.includes(String(t.tech_id)))
+                    .map(t => t.name);
+                return names.some(n => wanted.includes(n));
+            }
+
             function renderChips(dateStr) {
-                const dayJobs = jobsByDate[dateStr] || [];
+                const dayJobs = (jobsByDate[dateStr] || []).filter(matchesTechFilter);
                 return dayJobs.map(job => {
                     const isMine = state.myJobIds.has(job.job_id);
                     const colors = chipColors[job.job_status] || chipColors.cancelled;
@@ -1170,6 +1216,16 @@ const Pages = {
                         <h3 class="card-title" style="margin: 0; min-width: 180px; text-align: center;" id="cal-month-label">${formatMonthYear(year, month)}</h3>
                         <button class="btn btn-sm btn-secondary" id="cal-next"><i class="fas fa-chevron-right"></i></button>
                         <button class="btn btn-sm btn-primary" id="cal-today">Today</button>
+                        <div class="multi-select" id="cal-tech-filter" style="min-width: 170px;">
+                            <div class="multi-select-display" onclick="App.toggleMultiSelect('cal-tech-filter')">
+                                <span class="multi-select-text">All Technicians</span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="multi-select-dropdown">
+                                <label><input type="checkbox" value="unassigned"${state.techFilter.includes('unassigned') ? ' checked' : ''}> Unassigned</label>
+                                ${App.getTechnicianCheckboxes(state.techFilter)}
+                            </div>
+                        </div>
                         <span style="margin-left: auto; color: var(--gray-500); font-size: 0.85rem;">${(state.scheduleEntries || []).length + (state.fallbackJobs || []).length} job${((state.scheduleEntries || []).length + (state.fallbackJobs || []).length) !== 1 ? 's' : ''} this month</span>
                     </div>
                     ${alertHTML}
@@ -1192,7 +1248,26 @@ const Pages = {
             attachEvents();
         }
 
+        // Rebuild from data already loaded - filtering must not refetch.
+        function rerender() {
+            container.innerHTML = buildCalendarHTML();
+            attachEvents();
+        }
+
+        function attachTechFilter() {
+            const el = document.getElementById('cal-tech-filter');
+            if (!el) return;
+            App.updateMultiSelectDisplay('cal-tech-filter', 'All Technicians');
+            el.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    state.techFilter = App.getMultiSelectValues('cal-tech-filter');
+                    rerender();
+                });
+            });
+        }
+
         function attachEvents() {
+            attachTechFilter();
             document.getElementById('cal-prev').addEventListener('click', async () => {
                 state.month--;
                 if (state.month < 0) { state.month = 11; state.year--; }

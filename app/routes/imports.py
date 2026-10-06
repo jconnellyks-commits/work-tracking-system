@@ -630,6 +630,19 @@ def import_workmarket():
                 if assignment.get('status'):
                     job.job_status = mapped_status
                 if mapped_status == 'cancelled':
+                    # Cancelling zeroes the billing. That is right for a job
+                    # nobody worked, but if hours were already logged it
+                    # rewrites revenue for work that actually happened and
+                    # feeds the income/expense report. Surface it rather than
+                    # silently changing the number.
+                    logged = TimeEntry.query.filter_by(job_id=job.job_id).count()
+                    if logged and job.billing_amount:
+                        results['errors'].append(
+                            f"{job.ticket_number}: cancelled on WorkMarket but has "
+                            f"{logged} time entr{'y' if logged == 1 else 'ies'} - "
+                            f"billing of ${float(job.billing_amount):.2f} was zeroed, "
+                            f"please review"
+                        )
                     job.billing_amount = 0
                 elif assignment.get('total_pay'):
                     job.billing_amount = assignment.get('total_pay')

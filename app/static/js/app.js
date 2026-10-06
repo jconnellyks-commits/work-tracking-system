@@ -2426,7 +2426,7 @@ const Pages = {
                     <tr>
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
-                        <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}${entry.location ? `<br><small class="text-muted" style="opacity:0.75;">${entry.location}</small>` : ''}</td>
+                        <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}${entry.job_location ? `<br><small class="text-muted" style="opacity:0.75;">${entry.job_location}</small>` : ''}</td>
                         ${isManager ? `<td>${(entry.dispatched_techs && entry.dispatched_techs.length)
                             ? entry.dispatched_techs.join(', ')
                             : '<span class="text-muted">—</span>'}</td>` : ''}

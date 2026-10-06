@@ -330,6 +330,7 @@ class TimeEntry(db.Model):
             'job_ticket': self.job.ticket_number if self.job else None,
             'job_title': self.job.description if self.job else None,
             'job_client': self.job.client_name if self.job else None,
+            'job_location': self.job.location if self.job else None,
             'external_url': self.job.external_url if self.job else None,
             'bundle_id': self.bundle_id,
             'bundle_name': self.bundle.display_name if self.bundle else None,

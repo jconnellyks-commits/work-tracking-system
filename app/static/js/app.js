@@ -2426,7 +2426,7 @@ const Pages = {
                     <tr>
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
-                        <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
+                        <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}${entry.location ? `<br><small class="text-muted" style="opacity:0.75;">${entry.location}</small>` : ''}</td>
                         ${isManager ? `<td>${(entry.dispatched_techs && entry.dispatched_techs.length)
                             ? entry.dispatched_techs.join(', ')
                             : '<span class="text-muted">—</span>'}</td>` : ''}
@@ -2495,6 +2495,7 @@ const Pages = {
                                 <div>
                                     <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" class="job-link" style="font-weight: bold;">${job.job_ticket || 'Job #' + job.job_id}</a>
                                     <span style="margin-left: 1rem; color: #666;">${job.job_client || ''}</span>
+                                    ${job.job_location ? `<span style="margin-left: 1rem; color: #888; font-size: 0.85em;">${job.job_location}</span>` : ''}
                                 </div>
                                 <div>
                                     <span class="badge badge-info" style="cursor: pointer;" onclick="this.closest('.card').querySelector('.table-container').style.display = this.closest('.card').querySelector('.table-container').style.display === 'none' ? 'block' : 'none'"><i class="fas fa-chevron-down"></i> ${job.entry_count} entries</span>

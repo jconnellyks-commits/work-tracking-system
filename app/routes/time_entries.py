@@ -1119,6 +1119,7 @@ def list_time_entries_grouped():
                 'job_ticket': job.ticket_number if job else None,
                 'job_title': job.description if job else None,
                 'job_client': job.client_name if job else None,
+                'job_location': job.location if job else None,
                 'job_status': job.job_status if job else None,
                 'job_date': job.job_date.isoformat() if job and job.job_date else None,
                 'billing_amount': float(job.billing_amount) if job and job.billing_amount else None,

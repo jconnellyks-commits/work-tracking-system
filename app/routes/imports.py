@@ -235,6 +235,13 @@ def import_fieldnation():
                 # out an address captured while the job was assigned.
                 if wo.get('location'):
                     job.location = wo['location'][:255]
+                # Same placeholder repair as WorkMarket below - client_name was
+                # only ever written at creation, so a job first scraped without
+                # a company kept the literal 'Field Nation' permanently.
+                incoming_company = (wo.get('company') or '').strip()
+                if incoming_company and incoming_company != 'Field Nation':
+                    if not job.client_name or job.client_name == 'Field Nation':
+                        job.client_name = incoming_company[:200]
                 # Set completed_date if status changed to completed
                 if mapped_status == 'completed' and not job.completed_date:
                     job.completed_date = datetime.utcnow().date()
@@ -661,6 +668,16 @@ def import_workmarket():
                     job.description = assignment['title'][:500]
                 if assignment.get('location'):
                     job.location = assignment['location'][:255]
+                # Repair a placeholder client. client_name used to be written
+                # only at creation, so a job first scraped without a company
+                # (a list-page pass, or a scrape that came back blank) kept the
+                # literal 'WorkMarket' forever even though later scrapes carry
+                # the real buyer. Only overwrite the placeholder or an empty
+                # value - never a name that has already been established.
+                incoming_company = (assignment.get('company') or '').strip()
+                if incoming_company and incoming_company != 'WorkMarket':
+                    if not job.client_name or job.client_name == 'WorkMarket':
+                        job.client_name = incoming_company[:200]
                 # Set completed_date if status changed to completed
                 if mapped_status == 'completed' and not job.completed_date:
                     job.completed_date = datetime.utcnow().date()

@@ -9,7 +9,10 @@ from decimal import Decimal
 from flask import Blueprint, request, jsonify, g, Response
 from sqlalchemy import and_
 from app import db
-from app.models import TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout, JobAssignment
+from app.models import (
+    TimeEntry, Job, Technician, PayPeriod, PayoutJobDetail, Payout,
+    JobAssignment, JobSchedule
+)
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import (
     jwt_required_with_user,
@@ -53,6 +56,27 @@ def calculate_hours(time_in, time_out):
     return round(hours, 2)
 
 
+def attach_dispatched_techs(entries):
+    """
+    Add 'dispatched_techs' to each entry dict: the technicians dispatched to
+    that entry's job.
+
+    Distinct from 'tech_name', which is who the hours are attributed to. A
+    scraped entry typically arrives unassigned while its job already names who
+    was sent, which is what makes assigning it possible.
+
+    Reuses the jobs helper so both screens agree on what "dispatched" means,
+    and resolves every job in one grouped query rather than per row.
+    """
+    from app.routes.jobs import get_assigned_tech_names
+
+    job_ids = sorted({e['job_id'] for e in entries if e.get('job_id')})
+    names = get_assigned_tech_names(job_ids)
+    for e in entries:
+        e['dispatched_techs'] = names.get(e.get('job_id'), [])
+    return entries
+
+
 def _build_time_entry_query(user):
     """
     Build a filtered, sorted TimeEntry query from the current request args.
@@ -72,6 +96,10 @@ def _build_time_entry_query(user):
         - my_assigned_jobs: Technicians only - limit to their assigned jobs
         - sort_by: Field to sort by (date_worked, hours_worked, status)
         - sort_order: asc or desc (default desc)
+        - dispatched_tech_id: Filter by the technician dispatched to the ENTRY'S
+          JOB (comma-separated for several). Distinct from tech_id, which is
+          who the hours are attributed to - a scraped entry is often unassigned
+          while its job already has a dispatched tech.
     """
     tech_id_param = request.args.get('tech_id', '')
     job_id = request.args.get('job_id', type=int)
@@ -84,6 +112,11 @@ def _build_time_entry_query(user):
     sort_by = request.args.get('sort_by', 'date_worked')
     sort_order = request.args.get('sort_order', 'desc')
     my_assigned_jobs = request.args.get('my_assigned_jobs', '').lower() == 'true'
+    dispatched_param = request.args.get('dispatched_tech_id', '')
+
+    dispatched_tech_ids = [
+        int(t) for t in dispatched_param.split(',') if t.strip().isdigit()
+    ]
 
     # Parse multiple tech_ids (comma-separated)
     tech_ids = []
@@ -149,6 +182,23 @@ def _build_time_entry_query(user):
     if to_date:
         query = query.filter(TimeEntry.date_worked <= to_date)
 
+    # Dispatched technician: match on the entry's JOB, not the entry itself.
+    # A tech attaches to a job two ways and both are shown as "dispatched"
+    # elsewhere in the app, so match either - see get_assigned_tech_names.
+    if dispatched_tech_ids:
+        from app.routes.jobs import ASSIGNED_STATUSES
+        assigned_job_ids = db.session.query(JobAssignment.job_id).filter(
+            JobAssignment.status.in_(ASSIGNED_STATUSES),
+            JobAssignment.tech_id.in_(dispatched_tech_ids)
+        )
+        scheduled_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.tech_id.in_(dispatched_tech_ids)
+        )
+        query = query.filter(db.or_(
+            TimeEntry.job_id.in_(assigned_job_ids),
+            TimeEntry.job_id.in_(scheduled_job_ids)
+        ))
+
     # Sorting
     sort_columns = {
         'date_worked': TimeEntry.date_worked,
@@ -188,8 +238,11 @@ def list_time_entries():
 
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
+    entries = [te.to_dict() for te in pagination.items]
+    attach_dispatched_techs(entries)
+
     return jsonify({
-        'time_entries': [te.to_dict() for te in pagination.items],
+        'time_entries': entries,
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': page
@@ -822,6 +875,83 @@ def bulk_submit_entries():
     }), 200
 
 
+@time_entries_bp.route('/bulk-assign', methods=['POST'])
+@manager_required
+def bulk_assign_entries():
+    """
+    Assign multiple UNASSIGNED entries to one technician.
+
+    Only entries with no technician are touched. Anything already assigned is
+    skipped and reported rather than silently reattributed - moving logged
+    hours between technicians changes payroll, so that has to be deliberate
+    and per-entry.
+
+    Request body:
+        {
+            "entry_ids": [1, 2, 3],
+            "tech_id": 4
+        }
+    """
+    user = g.current_user
+    data = request.get_json()
+
+    if not data or 'entry_ids' not in data:
+        return jsonify({'error': 'Entry IDs required'}), 400
+
+    tech_id = data.get('tech_id')
+    if not tech_id:
+        return jsonify({'error': 'Technician required'}), 400
+
+    technician = Technician.query.get(tech_id)
+    if not technician:
+        return jsonify({'error': 'Technician not found'}), 404
+    if technician.status != 'active':
+        return jsonify({'error': f'{technician.name} is not an active technician'}), 400
+
+    assigned = []
+    errors = []
+
+    for entry_id in data['entry_ids']:
+        entry = TimeEntry.query.get(entry_id)
+
+        if not entry:
+            errors.append({'entry_id': entry_id, 'error': 'Not found'})
+            continue
+
+        if entry.tech_id:
+            current = entry.technician.name if entry.technician else f'tech {entry.tech_id}'
+            errors.append({
+                'entry_id': entry_id,
+                'error': f'Already assigned to {current}'
+            })
+            continue
+
+        entry.tech_id = tech_id
+        entry.updated_by = user.user_id
+        assigned.append(entry_id)
+
+    db.session.commit()
+
+    if assigned:
+        audit_logger.log(
+            action_type='bulk_assign',
+            entity_type='time_entry',
+            new_values={'assigned_ids': assigned, 'tech_id': tech_id},
+            description=(
+                f"Bulk assigned {len(assigned)} time entries to "
+                f"{technician.name}"
+            ),
+            user_id=user.user_id
+        )
+
+    return jsonify({
+        'message': f'Assigned {len(assigned)} entries to {technician.name}',
+        'assigned': assigned,
+        'tech_name': technician.name,
+        'errors': errors
+    }), 200
+
+
 @time_entries_bp.route('/bulk-verify', methods=['POST'])
 @manager_required
 def bulk_verify_entries():
@@ -899,6 +1029,11 @@ def list_time_entries_grouped():
     unassigned = request.args.get('unassigned', '').lower() == 'true'
     job_search = request.args.get('job_search', '').strip()
     my_assigned_jobs = request.args.get('my_assigned_jobs', '').lower() == 'true'
+    dispatched_param = request.args.get('dispatched_tech_id', '')
+
+    dispatched_tech_ids = [
+        int(t) for t in dispatched_param.split(',') if t.strip().isdigit()
+    ]
 
     # Parse multiple tech_ids (comma-separated)
     tech_ids = []
@@ -951,6 +1086,24 @@ def list_time_entries_grouped():
                 Job.client_name.ilike(f'%{job_search}%')
             )
         )
+
+    # Same dispatched-technician filter as the list view. This endpoint keeps
+    # its own copy of the filter parsing rather than using
+    # _build_time_entry_query, and both views are driven by one filter bar, so
+    # leaving it out here would make the same selection return different rows.
+    if dispatched_tech_ids:
+        from app.routes.jobs import ASSIGNED_STATUSES
+        assigned_job_ids = db.session.query(JobAssignment.job_id).filter(
+            JobAssignment.status.in_(ASSIGNED_STATUSES),
+            JobAssignment.tech_id.in_(dispatched_tech_ids)
+        )
+        scheduled_job_ids = db.session.query(JobSchedule.job_id).filter(
+            JobSchedule.tech_id.in_(dispatched_tech_ids)
+        )
+        query = query.filter(db.or_(
+            TimeEntry.job_id.in_(assigned_job_ids),
+            TimeEntry.job_id.in_(scheduled_job_ids)
+        ))
 
     # Get all matching entries
     entries = query.order_by(TimeEntry.date_worked.desc()).all()

@@ -382,6 +382,13 @@ const API = {
             });
         },
 
+        async bulkAssign(entryIds, techId) {
+            return API.request('/time-entries/bulk-assign', {
+                method: 'POST',
+                body: JSON.stringify({ entry_ids: entryIds, tech_id: techId })
+            });
+        },
+
         async bulkVerify(entryIds) {
             return API.request('/time-entries/bulk-verify', {
                 method: 'POST',

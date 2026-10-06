@@ -2306,6 +2306,15 @@ const Pages = {
                             ${App.getTechnicianCheckboxes()}
                         </div>
                     </div>
+                    <div class="multi-select" id="entry-dispatched-filter">
+                        <div class="multi-select-display" onclick="App.toggleMultiSelect('entry-dispatched-filter')">
+                            <span class="multi-select-text">Any Dispatched</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </div>
+                        <div class="multi-select-dropdown">
+                            ${App.getTechnicianCheckboxes()}
+                        </div>
+                    </div>
                     ` : ''}
                     ${!isManager ? `
                     <label style="display: flex; align-items: center; gap: 0.4rem; white-space: nowrap; font-size: 0.9rem; cursor: pointer;">
@@ -2318,6 +2327,7 @@ const Pages = {
                     <input type="text" class="form-control" id="entry-job-search" placeholder="Search job...">
                     <button class="btn btn-primary btn-sm" id="bulk-submit-btn">Bulk Submit</button>
                     ${isManager ? '<button class="btn btn-success btn-sm" id="bulk-verify-btn">Bulk Verify</button>' : ''}
+                    ${isManager ? '<button class="btn btn-warning btn-sm" id="bulk-assign-btn">Bulk Assign</button>' : ''}
                     <button class="btn btn-secondary btn-sm" id="toggle-group-btn"><i class="fas fa-layer-group"></i> Group by Job</button>
                     <button class="btn btn-secondary btn-sm" id="toggle-calendar-btn"><i class="fas fa-calendar-alt"></i> Calendar</button>
                     <button class="btn btn-secondary btn-sm" id="export-entries-btn"><i class="fas fa-download"></i> Export CSV</button>
@@ -2329,6 +2339,7 @@ const Pages = {
                                 <th><input type="checkbox" id="select-all-entries"></th>
                                 <th class="sortable" data-sort="date_worked">Date <span id="sort-date-icon"></span></th>
                                 <th>Job</th>
+                                ${isManager ? '<th>Dispatched</th>' : ''}
                                 ${isManager ? '<th>Technician</th>' : ''}
                                 <th>Time In</th>
                                 <th>Time Out</th>
@@ -2381,6 +2392,11 @@ const Pages = {
             if (toDate) params.to_date = toDate;
             if (jobSearch) params.job_search = jobSearch;
             if (myAssignedJobs) params.my_assigned_jobs = 'true';
+
+            const dispatched = isManager
+                ? App.getMultiSelectValues('entry-dispatched-filter') : [];
+            if (dispatched.length > 0) params.dispatched_tech_id = dispatched.join(',');
+
             return params;
         };
 
@@ -2397,7 +2413,7 @@ const Pages = {
             updateSortIcons();
 
             const tbody = document.getElementById('entries-table');
-            const colSpan = isManager ? 11 : 10;
+            const colSpan = isManager ? 12 : 10;
             if (data.time_entries.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="${colSpan}" class="text-center">No entries found</td></tr>`;
             } else {
@@ -2411,6 +2427,9 @@ const Pages = {
                         <td><input type="checkbox" class="entry-checkbox" data-status="${entry.status}" data-unassigned="${isUnassigned}" value="${entry.entry_id}" ${isManager ? (!['draft', 'submitted'].includes(entry.status) ? 'disabled' : '') : (entry.status !== 'draft' ? 'disabled' : '')}></td>
                         <td>${App.formatDate(entry.date_worked)}</td>
                         <td title="${entry.job_title || ''}">${entry.job_id ? `<a href="#" onclick="Pages.viewJob(${entry.job_id}); return false;" class="job-link">${entry.job_ticket || entry.job_id}</a>` : (entry.bundle_name ? `[Bundle] ${entry.bundle_name}` : '-')}${entry.job_client ? `<br><small class="text-muted">${entry.job_client}</small>` : ''}</td>
+                        ${isManager ? `<td>${(entry.dispatched_techs && entry.dispatched_techs.length)
+                            ? entry.dispatched_techs.join(', ')
+                            : '<span class="text-muted">—</span>'}</td>` : ''}
                         ${isManager ? `<td>${techDisplay}</td>` : ''}
                         <td>${App.formatTime(entry.time_in)}</td>
                         <td>${App.formatTime(entry.time_out)}</td>
@@ -3069,11 +3088,13 @@ const Pages = {
             const pagination = document.getElementById('entries-pagination');
             const bulkSubmit = document.getElementById('bulk-submit-btn');
             const bulkVerify = document.getElementById('bulk-verify-btn');
+            const bulkAssign = document.getElementById('bulk-assign-btn');
 
             calendarView.style.display = 'none';
             pagination.style.display = '';
             if (bulkSubmit) bulkSubmit.style.display = '';
             if (bulkVerify) bulkVerify.style.display = '';
+            if (bulkAssign) bulkAssign.style.display = '';
             calBtn.innerHTML = '<i class="fas fa-calendar-alt"></i> Calendar';
             calBtn.classList.remove('btn-primary');
             calBtn.classList.add('btn-secondary');
@@ -3145,6 +3166,7 @@ const Pages = {
         App.initMultiSelect('entry-status-filter', 'All Statuses', reloadEntries);
         if (isManager) {
             App.initMultiSelect('entry-tech-filter', 'All Technicians', reloadEntries);
+            App.initMultiSelect('entry-dispatched-filter', 'Any Dispatched', reloadEntries);
         }
         document.getElementById('entry-from-date').addEventListener('change', reloadEntries);
         document.getElementById('entry-to-date').addEventListener('change', reloadEntries);
@@ -3211,9 +3233,71 @@ const Pages = {
                     App.showAlert(error.message);
                 }
             });
+
+            document.getElementById('bulk-assign-btn').addEventListener('click', () => {
+                // Only unassigned rows - the endpoint refuses the rest anyway,
+                // but selecting them and being told no is a worse experience.
+                const selected = [...document.querySelectorAll('.entry-checkbox:checked')]
+                    .filter(cb => cb.dataset.unassigned === 'true')
+                    .map(cb => parseInt(cb.value));
+                const skipped = [...document.querySelectorAll('.entry-checkbox:checked')]
+                    .filter(cb => cb.dataset.unassigned !== 'true').length;
+
+                if (selected.length === 0) {
+                    App.showAlert('No unassigned entries selected');
+                    return;
+                }
+                Pages.bulkAssignModal(selected, skipped, () => loadEntries(1));
+            });
         }
 
         await loadEntries(1);
+    },
+
+    // Pick a technician for a set of unassigned entries
+    bulkAssignModal(entryIds, skippedCount, onDone) {
+        const techs = (App.technicians || []).filter(t => t.status === 'active');
+        const note = skippedCount
+            ? `<p class="text-muted" style="font-size:0.85rem;">${skippedCount} selected
+               entr${skippedCount === 1 ? 'y is' : 'ies are'} already assigned and will be
+               left alone.</p>`
+            : '';
+
+        App.showModal('Bulk Assign Technician', `
+            <p>Assign <strong>${entryIds.length}</strong> unassigned
+               entr${entryIds.length === 1 ? 'y' : 'ies'} to:</p>
+            ${note}
+            <div class="form-group">
+                <select class="form-control" id="bulk-assign-tech">
+                    <option value="">Select technician...</option>
+                    ${techs.map(t => `<option value="${t.tech_id}">${t.name}</option>`).join('')}
+                </select>
+            </div>
+        `, `
+            <button class="btn btn-secondary" onclick="App.hideModal()">Cancel</button>
+            <button class="btn btn-primary" id="bulk-assign-confirm">Assign</button>
+        `);
+
+        document.getElementById('bulk-assign-confirm').addEventListener('click', async () => {
+            const techId = document.getElementById('bulk-assign-tech').value;
+            if (!techId) {
+                App.showAlert('Select a technician');
+                return;
+            }
+            try {
+                const result = await API.timeEntries.bulkAssign(entryIds, parseInt(techId));
+                App.hideModal();
+                const failed = (result.errors || []).length;
+                App.showAlert(
+                    `Assigned ${(result.assigned || []).length} entries to ${result.tech_name}` +
+                    (failed ? ` (${failed} skipped)` : ''),
+                    'success'
+                );
+                if (onDone) onDone();
+            } catch (error) {
+                App.showAlert(error.message);
+            }
+        });
     },
 
     // Edit/create time entry

@@ -516,6 +516,13 @@ def map_workmarket_status(wm_status):
         'canceled': 'cancelled',
         'declined': 'cancelled',
         'rejected': 'cancelled',
+        # 'void' is what the embedded workEncoded JSON reports for a cancelled
+        # assignment - the rendered page says "cancelled or voided" instead, so
+        # which one a scrape sees depends on whether it took the text path or
+        # the JSON fallback. Without this it fell through to the 'pending'
+        # default and would have downgraded a cancelled job.
+        'void': 'cancelled',
+        'voided': 'cancelled',
     }
 
     return status_map.get(wm_status, 'pending')

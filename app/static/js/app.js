@@ -913,7 +913,7 @@ const Pages = {
                         <td>${ticketCell}</td>
                         <td>${job.description}${job.bundle_name ? ` <span class="badge badge-bundle" onclick="Pages.viewBundle(${job.bundle_id})" title="Bundle: ${job.bundle_name}" style="cursor:pointer;background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:0.75rem;margin-left:4px"><i class="fas fa-layer-group"></i> ${job.bundle_name}</span>` : ''}</td>
                         <td>${job.platform_name || '-'}</td>
-                        <td>${job.client_name || '-'}</td>
+                        <td>${job.client_name || '-'}${job.location ? `<br><small class="text-muted" style="opacity:0.75;">${job.location}</small>` : ''}</td>
                         <td>${(job.assigned_techs && job.assigned_techs.length)
                             ? job.assigned_techs.join(', ')
                             : '<span class="badge badge-warning">Unassigned</span>'}</td>

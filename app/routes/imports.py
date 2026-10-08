@@ -709,6 +709,20 @@ def import_workmarket():
                 db.session.flush()  # Get the job_id
                 results['imported_jobs'] += 1
 
+            # A pending reschedule means the date above is the time the tech
+            # has ASKED for, which WorkMarket has not approved yet. Taking it
+            # is the right call (the old behaviour kept the stale original and
+            # put WM-1228008224 three days out), but the calendar should not
+            # present a provisional date as settled.
+            if assignment.get('schedule_pending'):
+                when = str(job.job_date)
+                if job.scheduled_start_time:
+                    when += f" {job.scheduled_start_time.strftime('%I:%M %p')}"
+                results['errors'].append(
+                    f"{job.ticket_number}: reschedule request pending on WorkMarket - "
+                    f"{when} is the requested time, not yet approved"
+                )
+
             # Create/update JobSchedule entry with arrival window times
             if scheduled_date and (scheduled_start_time or scheduled_latest_start_time):
                 existing_sched = JobSchedule.query.filter_by(
@@ -1295,4 +1309,64 @@ def check_existing_jobs():
             'existing_needs_update': len(existing_not_completed),
             'new': len(new_ids)
         }
+    })
+
+
+# Statuses that mean a job still needs watching. Anything else is finished and
+# does not need re-scraping.
+OPEN_JOB_STATUSES = ('pending', 'assigned', 'in_progress')
+
+
+@imports_bp.route('/open-jobs', methods=['GET'])
+@jwt_required_with_user
+@admin_required
+def list_open_jobs():
+    """Platform job codes for jobs still open in our database.
+
+    The batch scraper walks the platform's status tabs, so a job only gets
+    updated while it is listed in a tab the scraper visits. If a detail scrape
+    is dropped - an exception, or an invitation false positive - nothing
+    notices, and the job keeps whatever status, date and hours it had. That is
+    how WM-1228008224 stayed 'assigned' on the wrong date with no time entry
+    after it had been worked, approved and paid.
+
+    The scraper reconciles against this list and re-scrapes by ID anything
+    that did not arrive, regardless of which tab the job now lives in.
+
+    Query params:
+        platform  'fieldnation' or 'workmarket' (required)
+
+    Response:
+        {"platform": "workmarket", "statuses": [...], "job_codes": [...]}
+    """
+    platform_name = (request.args.get('platform') or '').lower()
+    if not platform_name:
+        return jsonify({'error': 'platform is required'}), 400
+
+    platform_map = {
+        'fieldnation': 'FN', 'field_nation': 'FN', 'fn': 'FN',
+        'workmarket': 'WM', 'work_market': 'WM', 'wm': 'WM',
+    }
+    platform_code = platform_map.get(platform_name)
+    if not platform_code:
+        return jsonify({'error': f'Unknown platform: {platform_name}'}), 400
+
+    platform = Platform.query.filter_by(code=platform_code).first()
+    if not platform:
+        return jsonify({
+            'platform': platform_name,
+            'statuses': list(OPEN_JOB_STATUSES),
+            'job_codes': [],
+        })
+
+    jobs = Job.query.filter(
+        Job.platform_id == platform.platform_id,
+        Job.job_status.in_(OPEN_JOB_STATUSES),
+        Job.platform_job_code.isnot(None),
+    ).all()
+
+    return jsonify({
+        'platform': platform_name,
+        'statuses': list(OPEN_JOB_STATUSES),
+        'job_codes': [j.platform_job_code for j in jobs if j.platform_job_code],
     })

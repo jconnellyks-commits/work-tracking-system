@@ -12,6 +12,48 @@ import hashlib
 imports_bp = Blueprint('imports', __name__)
 
 
+# Scraper platform name -> (platform.name in the DB, codes it might carry).
+#
+# Resolving by code alone was a silent failure: the scrapers say 'workmarket'
+# and this mapped that to the code 'WM', but the WorkMarket row's code is
+# 'workmarket' (only Field Nation uses a short code, 'FN'). The lookup
+# returned None, and check-existing then answered "nothing is completed, go
+# scrape all of it" on every single run. Match on the name first, which is
+# what the import endpoints themselves use to find or create the platform.
+PLATFORM_ALIASES = {
+    'fieldnation': ('Field Nation', ('FN', 'fieldnation', 'field_nation')),
+    'field_nation': ('Field Nation', ('FN', 'fieldnation', 'field_nation')),
+    'fn': ('Field Nation', ('FN', 'fieldnation', 'field_nation')),
+    'workmarket': ('WorkMarket', ('workmarket', 'WM', 'work_market')),
+    'work_market': ('WorkMarket', ('workmarket', 'WM', 'work_market')),
+    'wm': ('WorkMarket', ('workmarket', 'WM', 'work_market')),
+}
+
+
+def resolve_platform(platform_name):
+    """Look up a Platform from a scraper platform name.
+
+    Returns (platform, known). `known` is False only when the name itself is
+    not one we support, which callers answer with 400; a known name whose row
+    does not exist yet yields (None, True).
+    """
+    entry = PLATFORM_ALIASES.get((platform_name or '').lower().strip())
+    if not entry:
+        return None, False
+
+    display_name, codes = entry
+    platform = Platform.query.filter_by(name=display_name).first()
+    if platform:
+        return platform, True
+
+    for code in codes:
+        platform = Platform.query.filter_by(code=code).first()
+        if platform:
+            return platform, True
+
+    return None, True
+
+
 def normalize_time_str(t):
     """Normalize a time string for consistent hashing.
     Converts various formats to 'HH:MM AM/PM' (e.g., '01:35 PM').
@@ -1257,22 +1299,9 @@ def check_existing_jobs():
     if not ids:
         return jsonify({'already_completed': [], 'to_scrape': []})
 
-    # Map platform name to code
-    platform_map = {
-        'fieldnation': 'FN',
-        'field_nation': 'FN',
-        'fn': 'FN',
-        'workmarket': 'WM',
-        'work_market': 'WM',
-        'wm': 'WM',
-    }
-
-    platform_code = platform_map.get(platform_name)
-    if not platform_code:
+    platform, known = resolve_platform(platform_name)
+    if not known:
         return jsonify({'error': f'Unknown platform: {platform_name}'}), 400
-
-    # Get platform
-    platform = Platform.query.filter_by(code=platform_code).first()
     if not platform:
         # No jobs for this platform yet - all are new
         return jsonify({'already_completed': [], 'to_scrape': ids})
@@ -1343,15 +1372,9 @@ def list_open_jobs():
     if not platform_name:
         return jsonify({'error': 'platform is required'}), 400
 
-    platform_map = {
-        'fieldnation': 'FN', 'field_nation': 'FN', 'fn': 'FN',
-        'workmarket': 'WM', 'work_market': 'WM', 'wm': 'WM',
-    }
-    platform_code = platform_map.get(platform_name)
-    if not platform_code:
+    platform, known = resolve_platform(platform_name)
+    if not known:
         return jsonify({'error': f'Unknown platform: {platform_name}'}), 400
-
-    platform = Platform.query.filter_by(code=platform_code).first()
     if not platform:
         return jsonify({
             'platform': platform_name,

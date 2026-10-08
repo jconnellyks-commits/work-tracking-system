@@ -499,6 +499,15 @@ def import_fieldnation():
                     db.session.add(entry)
                     results['imported_entries'] += 1
 
+                    # Same as the WorkMarket path: hours landing on an
+                    # already-paid job are a correction and must be visible.
+                    if job_pay_is_settled(job):
+                        results['errors'].append(
+                            f"{job.ticket_number}: imported {hours}h on "
+                            f"{entry_date} onto a job whose payout is already "
+                            f"paid - review before assigning a technician"
+                        )
+
                 except Exception as e:
                     results['errors'].append(f"Time entry error for WO#{wo_id}: {str(e)}")
 
@@ -948,6 +957,18 @@ def import_workmarket():
                     )
                     db.session.add(entry)
                     results['imported_entries'] += 1
+
+                    # Hours arriving on a job that has already been paid out
+                    # are a correction, not routine new work. The entry is
+                    # kept (it is draft and unassigned, so no payout moves on
+                    # its own) but it must not appear silently - WM-3454513047
+                    # picked up a 0.38h entry from December 2025 this way.
+                    if job_pay_is_settled(job):
+                        results['errors'].append(
+                            f"{job.ticket_number}: imported {hours}h on "
+                            f"{entry_date} onto a job whose payout is already "
+                            f"paid - review before assigning a technician"
+                        )
 
                 except Exception as e:
                     results['errors'].append(f"Time entry error for WM#{a_id}: {str(e)}")

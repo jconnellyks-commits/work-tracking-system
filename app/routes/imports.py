@@ -30,6 +30,76 @@ PLATFORM_ALIASES = {
 }
 
 
+# Pay periods that are no longer open have been paid out of.
+SETTLED_PERIOD_STATUSES = ('locked', 'closed', 'archived')
+
+
+def job_pay_is_settled(job):
+    """True if this job's money has already been paid out.
+
+    Scrapers re-read a platform page long after the work is done, and the
+    figure on that page keeps changing - a fee gets charged, an expense is
+    approved, FastFunds is taken. Rewriting billing_amount afterwards would
+    silently change the basis of payouts that are already calculated and paid,
+    which nobody would notice until the numbers stopped reconciling.
+
+    Two independent signals, because neither covers everything:
+      - a PayoutJobDetail row from a locked or paid Payout. Precise, but the
+        payout tables only go back to Aug 2026.
+      - any time entry on the job sitting in a pay period that is no longer
+        open. This is what catches the older history.
+    """
+    from app.models import Payout, PayoutJobDetail, PayPeriod
+
+    settled = db.session.query(PayoutJobDetail.id).join(
+        Payout, Payout.payout_id == PayoutJobDetail.payout_id
+    ).filter(
+        PayoutJobDetail.job_id == job.job_id,
+        Payout.status.in_(('locked', 'paid')),
+    ).first()
+    if settled:
+        return True
+
+    in_closed_period = db.session.query(TimeEntry.entry_id).join(
+        PayPeriod, TimeEntry.period_id == PayPeriod.period_id
+    ).filter(
+        TimeEntry.job_id == job.job_id,
+        PayPeriod.status.in_(SETTLED_PERIOD_STATUSES),
+    ).first()
+    return bool(in_closed_period)
+
+
+def apply_billing_update(job, new_amount, results, reason=''):
+    """Write billing_amount unless the job's pay is already settled.
+
+    Returns True when the value was written. A refused change is reported
+    rather than dropped, so a genuine correction to a paid period surfaces as
+    something to handle by hand (an advance or a payout adjustment).
+    """
+    from decimal import Decimal, InvalidOperation
+
+    try:
+        incoming = Decimal(str(new_amount or 0))
+    except (InvalidOperation, TypeError):
+        return False
+
+    current = Decimal(str(job.billing_amount or 0))
+    if incoming == current:
+        return False
+
+    if job_pay_is_settled(job):
+        results['errors'].append(
+            f"{job.ticket_number}: billing left at ${current:.2f} "
+            f"(platform now reports ${incoming:.2f}{', ' + reason if reason else ''}) "
+            f"- this job is in a paid payout, so changing it would move "
+            f"already-paid numbers. Adjust by hand if the difference is real."
+        )
+        return False
+
+    job.billing_amount = new_amount
+    return True
+
+
 def resolve_platform(platform_name):
     """Look up a Platform from a scraper platform name.
 
@@ -262,9 +332,9 @@ def import_fieldnation():
                 if wo.get('status'):
                     job.job_status = mapped_status
                 if mapped_status == 'cancelled':
-                    job.billing_amount = 0
+                    apply_billing_update(job, 0, results, 'cancelled on Field Nation')
                 elif wo.get('total_pay'):
-                    job.billing_amount = wo.get('total_pay')
+                    apply_billing_update(job, wo.get('total_pay'), results)
                 if scheduled_date:
                     job.job_date = scheduled_date
                 if scheduled_start_time:
@@ -692,16 +762,16 @@ def import_workmarket():
                     # feeds the income/expense report. Surface it rather than
                     # silently changing the number.
                     logged = TimeEntry.query.filter_by(job_id=job.job_id).count()
-                    if logged and job.billing_amount:
+                    if logged and job.billing_amount and not job_pay_is_settled(job):
                         results['errors'].append(
                             f"{job.ticket_number}: cancelled on WorkMarket but has "
                             f"{logged} time entr{'y' if logged == 1 else 'ies'} - "
                             f"billing of ${float(job.billing_amount):.2f} was zeroed, "
                             f"please review"
                         )
-                    job.billing_amount = 0
+                    apply_billing_update(job, 0, results, 'cancelled on WorkMarket')
                 elif assignment.get('total_pay'):
-                    job.billing_amount = assignment.get('total_pay')
+                    apply_billing_update(job, assignment.get('total_pay'), results)
                 if scheduled_date:
                     job.job_date = scheduled_date
                 if scheduled_start_time:
@@ -1096,7 +1166,7 @@ def import_tst():
                 # Update status and rate info if changed
                 existing_job.job_status = mapped_status
                 if billing_amount and billing_amount > float(existing_job.billing_amount or 0):
-                    existing_job.billing_amount = billing_amount
+                    apply_billing_update(existing_job, billing_amount, results)
                 # Append rate to description if not already present
                 if billing_rate and f"Rate: ${billing_rate:.2f}" not in (existing_job.description or ''):
                     rate_parts = []

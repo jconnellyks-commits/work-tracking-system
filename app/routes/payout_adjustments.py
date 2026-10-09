@@ -39,9 +39,11 @@ def resolve_adjustment(adj_id):
     if resolution not in ('carried_forward', 'dismissed'):
         return jsonify({'error': 'resolution must be carried_forward or dismissed'}), 400
 
-    adj.resolution = resolution
     adj.resolved_by = g.user_id
     adj.resolved_at = datetime.utcnow()
+
+    if resolution != 'carried_forward':
+        adj.resolution = resolution
 
     if resolution == 'carried_forward':
         # Find the tech's next open payout period
@@ -73,6 +75,24 @@ def resolve_adjustment(adj_id):
             db.session.add(li)
             db.session.flush()
             next_payout.recalculate_net()
+            adj.resolution = 'carried_forward'
+        else:
+            # The target period has no payout yet, which is the normal case -
+            # you carry forward INTO a future open period. Marking the
+            # adjustment 'carried_forward' here used to end it: no line item
+            # was created, and locking only ever picks up adjustments that are
+            # still 'pending', so the money was silently never paid. That is
+            # how Geoffery's real $56.30 on TST-517601 disappeared.
+            #
+            # Stay 'pending' and record the target instead. The lock for that
+            # period will consume it and mark it carried_forward then.
+            adj.resolution = 'pending'
 
     db.session.commit()
-    return jsonify({'message': f'Adjustment {resolution}', 'adjustment': adj.to_dict()})
+    applied = adj.resolution == 'carried_forward'
+    if resolution == 'carried_forward' and not applied:
+        message = ('Adjustment queued to carry forward - it will be applied '
+                   'when that period is locked')
+    else:
+        message = f'Adjustment {adj.resolution}'
+    return jsonify({'message': message, 'adjustment': adj.to_dict()})

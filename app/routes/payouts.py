@@ -99,10 +99,19 @@ def _create_payout_for_tech(period_id, tech_data, now):
     payout.total_advance_repayment = total_advance_repayment
     db.session.flush()
 
-    # Auto-apply pending carried-forward adjustments from prior periods
+    # Auto-apply pending carried-forward adjustments from prior periods.
+    #
+    # An adjustment the manager explicitly carried forward to a period carries
+    # that target in resolved_to_period_id; it must not be swept into an
+    # earlier lock. Untargeted ones (detected but never resolved by hand)
+    # still apply to whichever period locks next.
     pending_adjs = PayoutAdjustment.query.join(Payout).filter(
         Payout.tech_id == tech_id,
         PayoutAdjustment.resolution == 'pending',
+        db.or_(
+            PayoutAdjustment.resolved_to_period_id.is_(None),
+            PayoutAdjustment.resolved_to_period_id == period_id,
+        ),
     ).all()
 
     for adj in pending_adjs:

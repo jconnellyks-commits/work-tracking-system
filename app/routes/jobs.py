@@ -376,17 +376,36 @@ def _detect_payout_adjustments(job, description=None):
                     jobs_by_id[jid]['base_pay'] += j['base_pay']
             tech_jobs[tech['tech_id']] = jobs_by_id
 
+        # One comparison per PAYOUT, not per detail row.
+        #
+        # `details` holds one PayoutJobDetail per time entry, while the lookup
+        # above deliberately sums a job's recalculated pay across all of its
+        # entries. Comparing each row against that total reported a difference
+        # equal to the OTHER rows' pay - money the tech had already been paid.
+        # Worse, every row overwrote the same adjustment (the lookup below
+        # keys only on payout+job), so the last row silently won.
+        #
+        # FN-19924650 surfaced it: three rows of 205.00 / 195.75 / 212.50
+        # against a recalculated 613.25 produced a phantom $400.75 carry
+        # forward when the true difference was zero.
+        details_by_payout = {}
         for detail in details:
-            tech_id = detail.payout.tech_id
+            details_by_payout.setdefault(detail.payout_id, []).append(detail)
+
+        for payout_id, payout_details in details_by_payout.items():
+            tech_id = payout_details[0].payout.tech_id
             current_jobs = tech_jobs.get(tech_id, {})
             current_job = current_jobs.get(job.job_id)
 
-            old_base = Decimal(str(detail.base_pay or 0))
+            old_base = sum(
+                (Decimal(str(d.base_pay or 0)) for d in payout_details),
+                Decimal('0'),
+            )
             new_base = Decimal(str(current_job['base_pay'])) if current_job else Decimal('0')
             diff = new_base - old_base
 
             existing = PayoutAdjustment.query.filter_by(
-                payout_id=detail.payout_id,
+                payout_id=payout_id,
                 job_id=job.job_id,
                 resolution='pending'
             ).first()
@@ -404,7 +423,7 @@ def _detect_payout_adjustments(job, description=None):
                 existing.new_value = str(float(new_base))
             else:
                 adj = PayoutAdjustment(
-                    payout_id=detail.payout_id,
+                    payout_id=payout_id,
                     type='pay_change',
                     job_id=job.job_id,
                     description=desc,

@@ -206,14 +206,21 @@ def _build_time_entry_query(user):
         'status': TimeEntry.status,
     }
     sort_column = sort_columns.get(sort_by, TimeEntry.date_worked)
-    # entry_id last so the ordering is total. Imported entries share a
+    # Entries on the same day order by time in, in the same direction as the
+    # date. entry_id last so the ordering is total. Imported entries share a
     # created_at, so without it a tied group can order differently per page
     # query and a paginated read silently skips or repeats rows.
     if sort_order == 'asc':
-        query = query.order_by(sort_column.asc(), TimeEntry.created_at.desc(),
+        order = [sort_column.asc()]
+        if sort_column is TimeEntry.date_worked:
+            order.append(TimeEntry.time_in.asc())
+        query = query.order_by(*order, TimeEntry.created_at.desc(),
                                TimeEntry.entry_id.desc())
     else:
-        query = query.order_by(sort_column.desc(), TimeEntry.created_at.desc(),
+        order = [sort_column.desc()]
+        if sort_column is TimeEntry.date_worked:
+            order.append(TimeEntry.time_in.desc())
+        query = query.order_by(*order, TimeEntry.created_at.desc(),
                                TimeEntry.entry_id.desc())
 
     return query
@@ -1106,7 +1113,8 @@ def list_time_entries_grouped():
         ))
 
     # Get all matching entries
-    entries = query.order_by(TimeEntry.date_worked.desc()).all()
+    entries = query.order_by(TimeEntry.date_worked.desc(),
+                             TimeEntry.time_in.desc()).all()
 
     # Group by job
     jobs_dict = {}

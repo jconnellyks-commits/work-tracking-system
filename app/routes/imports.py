@@ -100,6 +100,27 @@ def apply_billing_update(job, new_amount, results, reason=''):
     return True
 
 
+# Forward order of a job's life. 'cancelled' is deliberately absent: it is not
+# a step on this path, so an email never moves a job into or out of it.
+JOB_STATUS_ORDER = ('pending', 'assigned', 'in_progress', 'completed')
+
+
+def advance_job_status(job, new_status):
+    """Move job_status forward to new_status, never back.
+
+    Dispatch emails (TST Service Order / Special Update, TechLink Assigned)
+    always say 'assigned', and they keep arriving after the work is done - a
+    rate update, a duplicate, a backfill replay. Writing that blindly reopened
+    completed jobs. Returns True when the status changed.
+    """
+    if new_status not in JOB_STATUS_ORDER or job.job_status not in JOB_STATUS_ORDER:
+        return False
+    if JOB_STATUS_ORDER.index(new_status) <= JOB_STATUS_ORDER.index(job.job_status):
+        return False
+    job.job_status = new_status
+    return True
+
+
 def resolve_platform(platform_name):
     """Look up a Platform from a scraper platform name.
 
@@ -1185,7 +1206,7 @@ def import_tst():
 
             if existing_job:
                 # Update status and rate info if changed
-                existing_job.job_status = mapped_status
+                advance_job_status(existing_job, mapped_status)
                 if billing_amount and billing_amount > float(existing_job.billing_amount or 0):
                     apply_billing_update(existing_job, billing_amount, results)
                 # Append rate to description if not already present
@@ -1316,7 +1337,7 @@ def import_techlink():
 
             if existing_job:
                 if mapped_status:
-                    existing_job.job_status = mapped_status
+                    advance_job_status(existing_job, mapped_status)
                 if job_date:
                     existing_job.job_date = job_date
                 if scheduled_start_time:

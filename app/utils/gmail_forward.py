@@ -46,11 +46,14 @@ def is_available():
 
 
 def forward_email(gmail_message_id, to_email):
-    service = _get_service()
-    if not service:
-        return {'success': False, 'error': 'Gmail service not available'}
-
+    # Loading credentials is inside the try: an unreadable or revoked token
+    # used to raise straight out of here and 500 the assignment request that
+    # called it, after the assignment and SMS had already gone through.
     try:
+        service = _get_service()
+        if not service:
+            return {'success': False, 'error': 'Gmail service not available'}
+
         original = service.users().messages().get(
             userId='me', id=gmail_message_id, format='raw'
         ).execute()

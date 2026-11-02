@@ -1,5 +1,65 @@
 # Work Tracking System - Session History
 
+## Session: October 26 – November 1, 2026 — Time Entry Sort, Email Parser Month-Long Outage, Watchdog
+
+### Summary
+Added time-in as a secondary sort for time entries. Then found the email parser had been crash-looping since **Sep 30** (243k restarts) — the third silent outage. Two stacked failures: the Gmail OAuth token was revoked (most likely Jeremiah's "log out of all devices" during a security concern), and the month of silence let Pub/Sub auto-delete the subscription after 31 idle days. Restored both, backfilled the missed jobs by hand, fixed two import/assignment bugs the recovery exposed, and added an SMS watchdog so the next outage is a same-day text instead of a month of nothing.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Time entries: secondary sort by time in | Done | Commit `b7cca9f`. Same direction as the date sort; list view and grouped-by-job view. Only applies when sorting by date |
+| Diagnose parser outage | Done | `invalid_grant` on every start. Last good watch renewal Sep 30 06:00, first failure Oct 1 06:00 (`Token has been expired or revoked`) |
+| Re-authorize Gmail | Done | Ran `email_parser/auth_setup.py` locally, installed `token.json` on server |
+| Recreate Pub/Sub subscription | Done | `gmail-dispatch-sub` returned 404 — deleted by Pub/Sub's default 31-day inactivity expiry. Recreated per `SETUP.md` (ack 60s) with **expiration = never** |
+| Restart parser from current position | Done | Did **not** resume from the Sep 30 historyId, to avoid an unreviewed month of auto-imports. Old position kept at `/opt/email-parser/state.json.sep30` (historyId 17682037) |
+| Backfill (dry run first) | Done | 70 TST/TechLink emails since Sep 29; only 6 importable, 3 tickets. Created **TST-527475** (job 791, Extra Space, Nov 19) and **TST-528674** (job 792, Chili's, Nov 2 08:45) through the parser's own `process_message()` so they were logged with Gmail IDs and labelled. **TL-425516** (job 658) marked completed at Jeremiah's instruction, `completed_date` = last worked day Oct 21, audit row #5882. Its reminder-email reschedule to Oct 19 was not applied |
+| Assignment 500 on TST-528674 | Done | Caused by me: installed the token with `chmod 600`; the Flask app (`www-data`) reads it to forward TST emails. Restored 644. Assignment #516 and its SMS had already committed; only the email forward failed |
+| Fix: dispatch emails reopening finished jobs | Done | Commit `211da7c`. TST and TechLink imports wrote `status: 'assigned'` over any existing status. New `advance_job_status()` only moves forward (pending → assigned → in_progress → completed), never touches cancelled |
+| Fix: forward failure crashing assignment | Done | Same commit. `gmail_forward.forward_email()` loaded credentials outside its `try`; now a token error records a failed forward instead of a 500 |
+| Email parser watchdog | Done | Commit `d4ff4d3`. Test SMS delivered and confirmed received |
+
+### Key Changes
+
+**`app/routes/time_entries.py`** — `time_in` tiebreaker after `date_worked`.
+
+**`app/routes/imports.py`** — `JOB_STATUS_ORDER` + `advance_job_status()`, used by `import_tst()` and `import_techlink()` for existing jobs.
+
+**`app/utils/gmail_forward.py`** — `_get_service()` inside the `try` in `forward_email()`.
+
+**`scripts/email_parser_watchdog.py`** (new) — runs every 15 min from the **`www-data`** crontab:
+```
+*/15 * * * * cd /opt/work-tracking && /opt/work-tracking/venv/bin/python scripts/email_parser_watchdog.py >> /var/tmp/email_parser_watchdog.log 2>&1
+```
+
+| Check | Catches |
+|-------|---------|
+| Service not active, or ≥3 restarts since last run | Crash loops (looks "active" between crashes) |
+| Last line of `renew_watch.log` isn't `Watch renewed` | Revoked token (hint: re-run `auth_setup.py`) |
+| `renew_watch.log` older than 26h | The renewal cron itself dead (the dash bug) |
+
+Texts the admin's technician phone (via `users.email` → technician), bypassing opt-in. One text per problem, repeats daily while it persists, one "OK" on recovery. State in `/var/tmp/email_parser_watchdog.json`; if a send fails, state is not saved, so the next run retries.
+
+**Server**:
+- `/opt/email-parser/token.json` — new token, owner `claude-code`, mode **644**. Backup of the dead one: `token.json.bak-20261101`
+- Pub/Sub `projects/remoteworkstation/subscriptions/gmail-dispatch-sub` — recreated, never expires
+
+### Lessons
+- **A long outage compounds.** Fixing the token only exposed the deleted subscription. If the parser has been down more than a few days, check the subscription exists too.
+- **The 7-day Testing expiry was a wrong guess.** The consent screen was already In production and the token had lived 49+ days. Password changes and "sign out everywhere" revoke OAuth tokens — expect a watchdog text after either.
+- **Restarting after a long gap can auto-import the whole backlog** if the saved historyId is still valid. TST imports used to reset status to `assigned`, so a blind replay could have reopened completed jobs. Set `state.json` aside and backfill deliberately.
+- **Token mode is 644, not 600** — two services, two users, one file.
+- Running `renew_watch.py` by hand without `>> renew_watch.log` leaves the log's last line stale, and the watchdog keeps reporting the old failure.
+
+### Open Items
+- [ ] **Send Email on TST-528674** — dispatch forward to the tech never went out (assignment and SMS did)
+- [ ] TST-527475 and TST-528674 have $0 billing until a TST Special Update arrives
+- [ ] Local gcloud auth is expired — `gcloud auth login`
+- [ ] TechLink reminder emails still overwrite `job_date` unconditionally, even on completed jobs (not addressed)
+
+---
+
 ## Session: August 13, 2026 — Email Parser Outage (Recurrence) & Cron Root Cause
 
 ### Summary

@@ -121,6 +121,23 @@ def advance_job_status(job, new_status):
     return True
 
 
+def schedule_is_open(job):
+    """True while a job's schedule is still a plan rather than history.
+
+    TechLink sends Install Reminders right up to (and past) the visit, each
+    carrying the scheduled date. Before the work, a changed date is a real
+    reschedule. After it, writing the date moved the job off the day it was
+    actually worked. Status alone is not enough to tell: TL-425516 still said
+    'assigned' with 9 time entries logged, so logged time also closes it.
+    """
+    if job.job_status not in ('pending', 'assigned'):
+        return False
+    has_time = db.session.query(TimeEntry.entry_id).filter(
+        TimeEntry.job_id == job.job_id
+    ).first()
+    return not has_time
+
+
 def resolve_platform(platform_name):
     """Look up a Platform from a scraper platform name.
 
@@ -1336,12 +1353,13 @@ def import_techlink():
             mapped_status = job_data.get('status')
 
             if existing_job:
+                if schedule_is_open(existing_job):
+                    if job_date:
+                        existing_job.job_date = job_date
+                    if scheduled_start_time:
+                        existing_job.scheduled_start_time = scheduled_start_time
                 if mapped_status:
                     advance_job_status(existing_job, mapped_status)
-                if job_date:
-                    existing_job.job_date = job_date
-                if scheduled_start_time:
-                    existing_job.scheduled_start_time = scheduled_start_time
                 if external_url and not existing_job.external_url:
                     existing_job.external_url = external_url
                 if job_data.get('address'):

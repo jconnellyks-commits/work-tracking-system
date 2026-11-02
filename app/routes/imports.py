@@ -138,6 +138,37 @@ def schedule_is_open(job):
     return not has_time
 
 
+TST_TRIP_DESCRIPTION = 'TST trip charge'
+
+
+def apply_tst_rate(job, billing_rate, trip_charge):
+    """Record a TST Special Update's hourly rate and trip charge on the job.
+
+    TST jobs are hourly, and on an hourly job the form makes billing_amount
+    read-only - the rate is the one money field left to type into. Leaving
+    it empty invited whatever figure was at hand, and recalculation then
+    multiplied it by hours. Storing the rate the email states, plus the trip
+    as a travel reimbursable, makes recalculation produce rate x hours + trip
+    (TST-502867: 3h x $75 + $90 = $315). A rate already on the job was put
+    there deliberately and is left alone, as is a job switched to flat rate.
+    """
+    from app.models import JobReimbursable
+
+    if job.billing_type != 'hourly' or job.billing_rate or not billing_rate:
+        return
+    if job.job_id and job_pay_is_settled(job):
+        return
+    job.billing_rate = billing_rate
+    if trip_charge:
+        existing = job.job_id and JobReimbursable.query.filter_by(
+            job_id=job.job_id, description=TST_TRIP_DESCRIPTION
+        ).first()
+        if not existing:
+            job.reimbursables.append(JobReimbursable(
+                description=TST_TRIP_DESCRIPTION, amount=trip_charge, category='travel'
+            ))
+
+
 def resolve_platform(platform_name):
     """Look up a Platform from a scraper platform name.
 
@@ -1224,6 +1255,7 @@ def import_tst():
             if existing_job:
                 # Update status and rate info if changed
                 advance_job_status(existing_job, mapped_status)
+                apply_tst_rate(existing_job, billing_rate, trip_charge)
                 if billing_amount and billing_amount > float(existing_job.billing_amount or 0):
                     apply_billing_update(existing_job, billing_amount, results)
                 # Append rate to description if not already present
@@ -1252,6 +1284,7 @@ def import_tst():
                     platform_id=platform.platform_id,
                     platform_job_code=ticket_number,
                 )
+                apply_tst_rate(job, billing_rate, trip_charge)
                 db.session.add(job)
                 results['imported_jobs'] += 1
 
@@ -1378,7 +1411,10 @@ def import_techlink():
                     location=(job_data.get('address') or '').strip()[:255] or None,
                     job_status=mapped_status or 'assigned',
                     billing_amount=0,
-                    billing_type='hourly',
+                    # TechLink pays a flat total. As 'hourly' the form only
+                    # offered the rate field, so the total went in there and
+                    # was multiplied by hours (TL-409561: $220 billed $607.20).
+                    billing_type='flat_rate',
                     platform_id=platform.platform_id,
                     platform_job_code=ticket_number,
                 )

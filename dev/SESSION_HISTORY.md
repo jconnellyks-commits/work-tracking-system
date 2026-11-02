@@ -53,7 +53,7 @@ Texts the admin's technician phone (via `users.email` → technician), bypassing
 - Running `renew_watch.py` by hand without `>> renew_watch.log` leaves the log's last line stale, and the watchdog keeps reporting the old failure.
 
 ### Open Items
-- [x] TST-528674 dispatch email — Jeremiah forwarded it manually from Gmail Nov 1 21:18 to geoffbaugher@gmail.com. No `email_forwards` row, so the job's Email column still reads "Not Sent"
+- [x] TST-528674 dispatch email — Jeremiah forwarded it manually from Gmail Nov 1 21:18 to geoffbaugher@gmail.com. Recorded afterwards as `email_forwards` #8 (status `sent`, real send time, assignment #516) with an audit row, so the job's Email column reads Sent
 - [ ] TST-527475 and TST-528674 have $0 billing until a TST Special Update arrives
 - [ ] Local gcloud auth is expired — `gcloud auth login`
 - [x] TechLink reminder emails overwriting `job_date` on worked jobs — fixed in commit `0a0fc31`. New `schedule_is_open()`: date/time only update while the job is `pending`/`assigned` **and** has no time logged. Verified by replaying TL-425516's real Oct 18 reminder through `import_techlink` in a rolled-back transaction (date stayed Oct 12), plus an open job that still reschedules

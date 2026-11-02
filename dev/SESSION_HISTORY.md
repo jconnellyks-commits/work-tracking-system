@@ -56,7 +56,7 @@ Texts the admin's technician phone (via `users.email` → technician), bypassing
 - [ ] **Send Email on TST-528674** — dispatch forward to the tech never went out (assignment and SMS did)
 - [ ] TST-527475 and TST-528674 have $0 billing until a TST Special Update arrives
 - [ ] Local gcloud auth is expired — `gcloud auth login`
-- [ ] TechLink reminder emails still overwrite `job_date` unconditionally, even on completed jobs (not addressed)
+- [x] TechLink reminder emails overwriting `job_date` on worked jobs — fixed in commit `0a0fc31`. New `schedule_is_open()`: date/time only update while the job is `pending`/`assigned` **and** has no time logged. Verified by replaying TL-425516's real Oct 18 reminder through `import_techlink` in a rolled-back transaction (date stayed Oct 12), plus an open job that still reschedules
 
 ---
 

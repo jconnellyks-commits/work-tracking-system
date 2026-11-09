@@ -977,6 +977,7 @@ class PayoutAdjustment(db.Model):
     payout_id = db.Column(db.Integer, db.ForeignKey('payouts.payout_id', ondelete='CASCADE'), nullable=False)
     type = db.Column(db.String(50), nullable=False)
     job_id = db.Column(db.Integer, db.ForeignKey('jobs.job_id'))
+    bundle_id = db.Column(db.Integer, db.ForeignKey('job_bundles.bundle_id', ondelete='SET NULL'))
     entry_id = db.Column(db.Integer, db.ForeignKey('time_entries.entry_id'))
     description = db.Column(db.Text, nullable=False)
     old_value = db.Column(db.Text)
@@ -989,6 +990,7 @@ class PayoutAdjustment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     job = db.relationship('Job', backref=db.backref('payout_adjustments', lazy='dynamic'))
+    bundle = db.relationship('JobBundle')
 
     def to_dict(self):
         return {
@@ -998,6 +1000,7 @@ class PayoutAdjustment(db.Model):
             'tech_name': self.payout.technician.name if self.payout and self.payout.technician else None,
             'type': self.type,
             'job_id': self.job_id,
+            'bundle_id': self.bundle_id,
             'job_ticket': self.job.ticket_number if self.job else None,
             'entry_id': self.entry_id,
             'description': self.description,

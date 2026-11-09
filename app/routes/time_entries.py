@@ -26,15 +26,24 @@ time_entries_bp = Blueprint('time_entries', __name__)
 logger = get_logger(__name__)
 
 
-def _check_time_entry_adjustments(job):
-    """Check if a job has locked payouts and detect pay differences after time entry changes."""
-    has_locked = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
-        Payout
-    ).filter(Payout.status.in_(['locked', 'paid'])).first()
-    if not has_locked:
-        return
-    from app.routes.jobs import _detect_payout_adjustments
-    _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries changed")
+def _check_time_entry_adjustments(job, bundle_id=None):
+    """Check if a job (or its bundle) has locked payouts and detect pay differences after time entry changes."""
+    from app.routes.jobs import _detect_payout_adjustments, detect_adjustments_for_jobs
+    if job:
+        has_locked = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
+            Payout
+        ).filter(Payout.status.in_(['locked', 'paid'])).first()
+        if has_locked:
+            _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries changed")
+    detect_adjustments_for_jobs([job], 'time entries changed', bundle_ids=[bundle_id])
+
+
+def _check_entries_adjustments(entries):
+    """Bundle adjustment check after a bulk change to entries' status."""
+    from app.routes.jobs import detect_adjustments_for_jobs
+    detect_adjustments_for_jobs([e.job for e in entries if e.job_id],
+                                'time entries verified/changed',
+                                bundle_ids=[e.bundle_id for e in entries])
 
 
 def calculate_hours(time_in, time_out):
@@ -543,9 +552,8 @@ def create_time_entry():
         user_id=user.user_id
     )
 
-    # Detect payout adjustments if this job has locked payouts
-    if job:
-        _check_time_entry_adjustments(job)
+    # Detect payout adjustments if this job (or its bundle) has locked payouts
+    _check_time_entry_adjustments(job, bundle_id=entry.bundle_id)
 
     return jsonify({
         'message': 'Time entry created successfully',
@@ -643,13 +651,14 @@ def update_time_entry(entry_id):
         user_id=user.user_id
     )
 
-    # Detect payout adjustments for affected jobs
-    if current_job:
-        _check_time_entry_adjustments(current_job)
-    if old_job_id and old_job_id != entry.job_id:
-        old_job_obj = Job.query.get(old_job_id)
-        if old_job_obj:
-            _check_time_entry_adjustments(old_job_obj)
+    # Detect payout adjustments for affected jobs and bundles (old and new)
+    old_job_obj = Job.query.get(old_job_id) if old_job_id and old_job_id != entry.job_id else None
+    _check_time_entry_adjustments(current_job, bundle_id=entry.bundle_id)
+    if old_job_obj:
+        _check_time_entry_adjustments(old_job_obj)
+    old_bundle_id = old_values.get('bundle_id')
+    if old_bundle_id and old_bundle_id != entry.bundle_id:
+        _check_time_entry_adjustments(None, bundle_id=old_bundle_id)
 
     return jsonify({
         'message': 'Time entry updated successfully',
@@ -693,9 +702,8 @@ def delete_time_entry(entry_id):
         user_id=user.user_id
     )
 
-    # Detect payout adjustments for the affected job
-    if job:
-        _check_time_entry_adjustments(job)
+    # Detect payout adjustments for the affected job and bundle
+    _check_time_entry_adjustments(job, bundle_id=old_values.get('bundle_id'))
 
     return jsonify({'message': 'Time entry deleted successfully'}), 200
 
@@ -767,6 +775,9 @@ def verify_time_entry(entry_id):
         new_values={'status': 'verified', 'verified_by': user.user_id},
         user_id=user.user_id
     )
+
+    # A verified entry starts counting in its period's share of a bundle
+    _check_entries_adjustments([entry])
 
     return jsonify({
         'message': 'Time entry verified',
@@ -1007,6 +1018,7 @@ def bulk_verify_entries():
             description=f"Bulk verified {len(verified)} time entries",
             user_id=user.user_id
         )
+        _check_entries_adjustments(TimeEntry.query.filter(TimeEntry.entry_id.in_(verified)).all())
 
     return jsonify({
         'message': f'Verified {len(verified)} entries',

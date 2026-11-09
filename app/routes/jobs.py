@@ -339,8 +339,6 @@ def create_job():
 
 def _detect_payout_adjustments(job, description=None):
     """Check if a job's current pay differs from locked payout snapshots and create/update adjustment records."""
-    from app.utils.pay_calculator import calculate_period_pay
-
     locked_details = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
         Payout
     ).filter(Payout.status.in_(['locked', 'paid'])).all()
@@ -348,7 +346,64 @@ def _detect_payout_adjustments(job, description=None):
     if not locked_details:
         return
 
-    desc = description or f"Job {job.ticket_number} pay changed"
+    _reconcile_locked_unit(
+        locked_details,
+        unit_key=job.job_id,
+        desc=description or f"Job {job.ticket_number} pay changed",
+        adj_key={'job_id': job.job_id},
+    )
+
+
+def detect_bundle_payout_adjustments(bundle_id, description=None):
+    """Bundle counterpart of _detect_payout_adjustments.
+
+    A bundle's locked payout rows carry bundle_id with no job_id, so the
+    job-keyed check never saw them: topeka10-12's payout 115 was locked at
+    $178.52 and drifted to $74.33 as 35 more hours landed on the bundle,
+    with no adjustment. Pooled pay is split by each period's share of ALL
+    the bundle's hours, so an early-locked share moves whenever the bundle
+    grows - this keeps a pending adjustment in step with it.
+    """
+    from app.models import JobBundle
+
+    locked_details = PayoutJobDetail.query.filter_by(bundle_id=bundle_id).join(
+        Payout
+    ).filter(Payout.status.in_(['locked', 'paid'])).all()
+
+    if not locked_details:
+        return
+
+    bundle = JobBundle.query.get(bundle_id)
+    name = bundle.display_name if bundle else f"Bundle #{bundle_id}"
+    _reconcile_locked_unit(
+        locked_details,
+        unit_key=f"bundle:{bundle_id}",
+        desc=f"{name}: {description or 'bundle pay changed'}",
+        adj_key={'bundle_id': bundle_id, 'job_id': None},
+        count_handled=True,
+    )
+
+
+def detect_adjustments_for_jobs(jobs, description=None, bundle_ids=()):
+    """Run the bundle check once per bundle touched by these jobs/bundles.
+
+    Standalone jobs are left to the existing per-job hooks; this only adds
+    the bundle side, deduplicated so a bulk action recalculates each
+    bundle once.
+    """
+    seen = set(b for b in bundle_ids if b)
+    seen.update(j.bundle_id for j in jobs if j is not None and j.bundle_id)
+    for bid in sorted(seen):
+        detect_bundle_payout_adjustments(bid, description)
+
+
+def _reconcile_locked_unit(locked_details, unit_key, desc, adj_key, count_handled=False):
+    """Compare locked snapshots for one pay unit (job or bundle) with today's pay.
+
+    unit_key is how calculate_period_pay keys the unit (a job_id, or
+    'bundle:<id>'); adj_key identifies the unit's PayoutAdjustment rows.
+    """
+    from app.utils.pay_calculator import calculate_period_pay
 
     # Group locked details by period so we recalculate per-period
     details_by_period = {}
@@ -395,19 +450,38 @@ def _detect_payout_adjustments(job, description=None):
         for payout_id, payout_details in details_by_payout.items():
             tech_id = payout_details[0].payout.tech_id
             current_jobs = tech_jobs.get(tech_id, {})
-            current_job = current_jobs.get(job.job_id)
+            current_job = current_jobs.get(unit_key)
 
             old_base = sum(
                 (Decimal(str(d.base_pay or 0)) for d in payout_details),
                 Decimal('0'),
             )
             new_base = Decimal(str(current_job['base_pay'])) if current_job else Decimal('0')
-            diff = new_base - old_base
+
+            # The snapshot never changes, so once a difference has been
+            # carried forward (or dismissed by a manager) it must count as
+            # handled. Otherwise the next change re-detects the full gap and
+            # a second pending adjustment pays or deducts it all over again.
+            #
+            # Bundles only, for now: the job-side history holds dismissed
+            # phantom adjustments (#6 #8 #10, from the pre-Oct-9 per-row bug)
+            # whose amounts were never real differences. Counting them would
+            # raise new adjustments for the opposite amount.
+            handled = Decimal('0')
+            if count_handled:
+                handled = sum(
+                    (Decimal(str(a.amount_diff or 0)) for a in PayoutAdjustment.query.filter(
+                        PayoutAdjustment.payout_id == payout_id,
+                        PayoutAdjustment.resolution != 'pending',
+                    ).filter_by(**adj_key).all()),
+                    Decimal('0'),
+                )
+            diff = new_base - old_base - handled
 
             existing = PayoutAdjustment.query.filter_by(
                 payout_id=payout_id,
-                job_id=job.job_id,
-                resolution='pending'
+                resolution='pending',
+                **adj_key
             ).first()
 
             if abs(diff) < Decimal('0.01'):
@@ -419,17 +493,17 @@ def _detect_payout_adjustments(job, description=None):
             if existing:
                 existing.amount_diff = diff
                 existing.description = desc
-                existing.old_value = str(float(old_base))
+                existing.old_value = str(float(old_base + handled))
                 existing.new_value = str(float(new_base))
             else:
                 adj = PayoutAdjustment(
                     payout_id=payout_id,
                     type='pay_change',
-                    job_id=job.job_id,
                     description=desc,
-                    old_value=str(float(old_base)),
+                    old_value=str(float(old_base + handled)),
                     new_value=str(float(new_base)),
                     amount_diff=diff,
+                    **adj_key
                 )
                 db.session.add(adj)
 
@@ -509,6 +583,7 @@ def update_job(job_id):
             for f in changed_financials
         )
         _detect_payout_adjustments(job, f"Job {job.ticket_number} financials changed: {changes_desc}")
+        detect_adjustments_for_jobs([job], f"{job.ticket_number} financials changed: {changes_desc}")
 
     logger.info(f"Job updated: {job.job_id}")
     audit_logger.log(
@@ -748,6 +823,7 @@ def add_reimbursable(job_id):
         description=f"Reimbursable '{description}' added to job {job.ticket_number}",
         user_id=g.user_id
     )
+    detect_adjustments_for_jobs([job], f"{job.ticket_number} reimbursable added")
 
     return jsonify({
         'message': 'Reimbursable added',
@@ -777,5 +853,6 @@ def delete_reimbursable(job_id, reimbursable_id):
         description=f"Reimbursable removed from job {job.ticket_number}",
         user_id=g.user_id
     )
+    detect_adjustments_for_jobs([job], f"{job.ticket_number} reimbursable removed")
 
     return jsonify({'message': 'Reimbursable removed'}), 200

@@ -326,6 +326,7 @@ def import_fieldnation():
     if not data or not isinstance(data, list):
         return jsonify({'error': 'Expected array of work orders'}), 400
 
+    touched_bundles = set()
     results = {
         'imported_jobs': 0,
         'updated_jobs': 0,
@@ -567,6 +568,8 @@ def import_fieldnation():
                     )
                     db.session.add(entry)
                     results['imported_entries'] += 1
+                    if job.bundle_id:
+                        touched_bundles.add(job.bundle_id)
 
                     # Same as the WorkMarket path: hours landing on an
                     # already-paid job are a correction and must be visible.
@@ -584,6 +587,10 @@ def import_fieldnation():
             results['errors'].append(f"Work order {wo_id} error: {str(e)}")
 
     db.session.commit()
+
+    # New hours on a bundled job change every period's share of its pool
+    from app.routes.jobs import detect_adjustments_for_jobs
+    detect_adjustments_for_jobs([], 'time entries imported', bundle_ids=touched_bundles)
 
     return jsonify({
         'message': 'Import completed',
@@ -761,6 +768,7 @@ def import_workmarket():
     if not data or not isinstance(data, list):
         return jsonify({'error': 'Expected array of assignments'}), 400
 
+    touched_bundles = set()
     results = {
         'imported_jobs': 0,
         'updated_jobs': 0,
@@ -1026,6 +1034,8 @@ def import_workmarket():
                     )
                     db.session.add(entry)
                     results['imported_entries'] += 1
+                    if job.bundle_id:
+                        touched_bundles.add(job.bundle_id)
 
                     # Hours arriving on a job that has already been paid out
                     # are a correction, not routine new work. The entry is
@@ -1046,6 +1056,10 @@ def import_workmarket():
             results['errors'].append(f"Assignment {a_id} error: {str(e)}")
 
     db.session.commit()
+
+    # New hours on a bundled job change every period's share of its pool
+    from app.routes.jobs import detect_adjustments_for_jobs
+    detect_adjustments_for_jobs([], 'time entries imported', bundle_ids=touched_bundles)
 
     return jsonify({
         'message': 'Import completed',

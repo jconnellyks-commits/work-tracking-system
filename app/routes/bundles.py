@@ -51,6 +51,12 @@ def bundle_pay_is_settled(bundle):
     return True
 
 
+def _detect(bundle_id, description):
+    """Re-check this bundle's locked payouts after its pooled numbers changed."""
+    from app.routes.jobs import detect_bundle_payout_adjustments
+    detect_bundle_payout_adjustments(bundle_id, description)
+
+
 def _bundle_matches(d, search):
     """Match a search term against a bundle's name, tickets, and clients."""
     haystack = ' '.join([d['display_name']] + d['tickets'] + d['clients']).lower()
@@ -156,6 +162,7 @@ def add_bundle_expense(bundle_id):
         description=f"Expense ${expense.amount} '{expense.description}' added to '{bundle.display_name}'",
         user_id=g.user_id
     )
+    _detect(bundle_id, f"expense added ({expense.description} ${expense.amount})")
     return jsonify({'message': 'Expense added', 'expense': expense.to_dict()}), 201
 
 
@@ -184,6 +191,7 @@ def update_bundle_expense(bundle_id, expense_id):
         new_values=expense.to_dict(),
         user_id=g.user_id
     )
+    _detect(bundle_id, f"expense changed ({expense.description})")
     return jsonify({'message': 'Expense updated', 'expense': expense.to_dict()}), 200
 
 
@@ -208,6 +216,7 @@ def delete_bundle_expense(bundle_id, expense_id):
         description=f"Expense ${old_values['amount']:.2f} '{old_values['description']}' removed from '{bundle.display_name}'",
         user_id=g.user_id
     )
+    _detect(bundle_id, f"expense removed ({old_values['description']})")
     return jsonify({'message': 'Expense deleted'}), 200
 
 
@@ -352,6 +361,8 @@ def add_jobs_to_bundle(bundle_id):
         added.append(jid)
 
     db.session.commit()
+    if added:
+        _detect(bundle_id, f"{len(added)} job(s) added to bundle")
 
     return jsonify({
         'message': f'Added {len(added)} jobs to bundle',
@@ -373,6 +384,7 @@ def remove_job_from_bundle(bundle_id, job_id):
 
     job.bundle_id = None
     db.session.commit()
+    _detect(bundle_id, f"{job.ticket_number} removed from bundle")
 
     remaining = bundle.jobs.count()
     # A bundle with expenses is kept even when empty, so they aren't lost.

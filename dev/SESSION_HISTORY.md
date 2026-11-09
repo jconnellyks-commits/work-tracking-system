@@ -1,5 +1,52 @@
 # Work Tracking System - Session History
 
+## Session: November 1–9, 2026 — Hourly-Rate Import Bug, Bundle Expenses, Bundle Payout Adjustments
+
+### Summary
+Closed the long-standing "email parser puts total pay as hourly rate" TODO. It turned out not to be a parsing bug: imported jobs were created `hourly` with no rate, and the hourly form left the rate as the only editable money field. Then built bundle expenses and a Bundles lookup page, loosened their lock so partly-paid bundles still take expenses, and extended post-lock payout adjustments to bundles. The trigger was topeka10-12: one tech's locked share had drifted from $178.52 to $74.33 with no adjustment.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Total pay landing in the hourly rate | Done | Commit `f52ab7b`. All 34 TST Special Updates parse the right $/hr. Real cause: every TechLink/TST job was created `billing_type='hourly'` with no rate. Since the Apr 18 hourly form, Billing Amount is read-only on hourly jobs, so a flat total was typed into Rate and multiplied by hours (TL-409561: $220 → $607.20, part of the period 15/16 overpayments). TechLink jobs are now `flat_rate`; TST Special Updates store `billing_rate` and add the trip as a travel reimbursable (`apply_tst_rate()`), so billing = rate × hours + trip |
+| Existing hourly TechLink jobs | Left as-is | Per Jeremiah: hourly with hours and no travel already bills rate × hours correctly. Six open TL jobs are hourly with no rate (TL-419646–419649, TL-412937, TL-411979) and need either a rate, or a switch to Flat Rate if paid as a flat total |
+| Bundle expenses + Bundles page | Done | Commit `b440774`, migration 024. Dated line items (date, description, category, amount) pooled into the bundle's expenses in both bundle pay and period pay. Income/expense report shows each as its own row on its date. New Bundles page: search by name, ticket, or client; status filter; bundle view with totals, expense add/edit/delete, job links, close/reopen. A bundle holding expenses can't be deleted and isn't auto-deleted when it empties |
+| Expense lock too strict | Done | Commit `e03fce9`. Locked as soon as any bundle time was paid. topeka10-12 was blocked by one tech's locked share while three jobs were still in progress. Now refused only when every job is complete/cancelled and all time is in closed periods or locked/paid payouts |
+| Bundle post-lock adjustments | Done | Commit `94ce4e3`, migration 025 (`payout_adjustments.bundle_id`). The job check looked up locked rows by `job_id`; bundle rows have none, so bundles never got adjustments. New `detect_bundle_payout_adjustments()` runs on entry create/update/delete/verify/bulk-verify, FN/WM imports onto bundled jobs, job financial/reimbursable changes, bundle expenses, and bundle membership changes. Differences already carried forward or dismissed count as handled (bundles only) |
+
+### Key Changes
+
+**`app/routes/imports.py`** — `apply_tst_rate()`; TechLink create uses `flat_rate`; FN/WM imports re-check touched bundles after commit.
+
+**`app/models.py`** — `BundleExpense` model; `JobBundle.expense_items`, `expenses_total`, and richer `to_dict()` (tickets, clients, dates, totals); `PayoutAdjustment.bundle_id`.
+
+**`app/routes/bundles.py`** — expense CRUD (`/api/bundles/<id>/expenses`), `bundle_pay_is_settled()` (fully paid out only), search over tickets/clients.
+
+**`app/routes/jobs.py`** — shared `_reconcile_locked_unit()` behind both `_detect_payout_adjustments()` (jobs, unchanged behavior) and `detect_bundle_payout_adjustments()`; `detect_adjustments_for_jobs()` dedupes per bundle.
+
+**`app/utils/pay_calculator.py`** — bundle expenses added to pooled expenses in `calculate_bundle_pay()` and the period-pay virtual bundle job.
+
+**`app/routes/reports.py`** — bundle expense rows in the income/expense report, excluded from job counts.
+
+**Frontend** — Bundles sidebar page and rebuilt bundle view in `app.js`; expense calls in `api.js`; cache version `20261109b`.
+
+### Lessons
+- **"Parser bug" was a form bug.** Check how a value gets entered before blaming the code that imports it. The audit log showed every bad rate was typed by hand, not written by the importer.
+- **Bundle shares locked early are provisional.** Pooled pay is split by each period's share of ALL the bundle's hours (the denominator counts every entry, any status). Payout 115's period share fell from ~51% to ~27% as 35 hours landed after the lock.
+- **Adjustment snapshots never change.** Re-detecting against the snapshot after a carry-forward raises the whole gap a second time. Count resolved adjustments as handled.
+- Tests ran against a copy of the server code inside rolled-back transactions. Schema not yet migrated was shadowed with session-only `CREATE TEMPORARY TABLE` copies, so production was never touched before approval.
+
+### Open Items
+- [ ] **Tech 9, payout #115 (topeka10-12):** about **-$104.19** pending adjustment appears on the bundle's next change. It applies at tech 9's next lock unless dismissed, and moves as more hours land.
+- [ ] **Job-side adjustments double-count after resolution.** Same snapshot flaw as above, not fixed for jobs: the dismissed phantom adjustments #6/#8/#10 ($540.50) would raise opposite-sign adjustments. Exclude them first (see CLAUDE.md TODO).
+- [ ] Six hourly TechLink jobs with no rate (listed above).
+- [ ] Older TST wording "special rate for this customer (75/hr per tech)" isn't parsed; the rate stays empty on those.
+- [ ] Bundle period-pay pooling of expenses was changed alongside bundle pay but not tested separately; watch the first bundled payout that includes expenses.
+- [ ] Carried over: TST-527475/528674 $0 billing until a Special Update; local `gcloud auth login`.
+
+---
+
 ## Session: October 26 – November 1, 2026 — Time Entry Sort, Email Parser Month-Long Outage, Watchdog
 
 ### Summary

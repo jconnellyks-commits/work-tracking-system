@@ -54,6 +54,7 @@ const App = {
         const menuItems = [
             { id: 'dashboard', icon: 'fas fa-tachometer-alt', label: 'Dashboard' },
             { id: 'jobs', icon: 'fas fa-briefcase', label: 'Jobs' },
+            { id: 'bundles', icon: 'fas fa-layer-group', label: 'Bundles', roles: ['admin', 'manager'] },
             { id: 'calendar', icon: 'fas fa-calendar-alt', label: 'Calendar' },
             { id: 'time-entries', icon: 'fas fa-clock', label: 'Time Entries' },
             { id: 'payout', icon: 'fas fa-money-bill-wave', label: 'Payout', roles: ['admin', 'manager'] },
@@ -113,6 +114,7 @@ const App = {
         const titles = {
             'dashboard': 'Dashboard',
             'jobs': 'Jobs',
+            'bundles': 'Job Bundles',
             'calendar': 'Calendar',
             'time-entries': 'Time Entries',
             'reports': 'Reports',
@@ -139,6 +141,9 @@ const App = {
                     break;
                 case 'jobs':
                     await Pages.jobs(content);
+                    break;
+                case 'bundles':
+                    await Pages.bundles(content);
                     break;
                 case 'calendar':
                     await Pages.calendar(content);
@@ -694,48 +699,233 @@ const Pages = {
         });
     },
 
+    // Bundles lookup page
+    async bundles(container) {
+        container.innerHTML = `
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Job Bundles</h3>
+                    <button class="btn btn-secondary" id="bundles-create-btn"><i class="fas fa-layer-group"></i> Create Bundle</button>
+                </div>
+                <div class="filters">
+                    <input type="text" class="form-control" id="bundle-search" placeholder="Search name, ticket, or client...">
+                    <select class="form-control" id="bundle-status-filter">
+                        <option value="">All Statuses</option>
+                        <option value="active" selected>Active</option>
+                        <option value="closed">Closed</option>
+                    </select>
+                </div>
+                <div class="table-container" id="bundles-table"><div class="loading"><div class="spinner"></div>Loading...</div></div>
+            </div>
+        `;
+
+        const load = async () => {
+            const params = {};
+            const search = document.getElementById('bundle-search').value.trim();
+            const status = document.getElementById('bundle-status-filter').value;
+            if (search) params.search = search;
+            if (status) params.status = status;
+            const data = await API.bundles.list(params);
+            const table = document.getElementById('bundles-table');
+            if (!table) return;
+            if (!data.bundles.length) {
+                table.innerHTML = '<p class="text-muted" style="padding:1rem">No bundles found.</p>';
+                return;
+            }
+            const dateRange = b => {
+                if (!b.job_dates.length) return '-';
+                const first = App.formatDate(b.job_dates[0]);
+                const last = App.formatDate(b.job_dates[b.job_dates.length - 1]);
+                return first === last ? first : `${first} – ${last}`;
+            };
+            table.innerHTML = `
+                <table>
+                    <thead><tr><th>Bundle</th><th>Jobs</th><th>Dates</th><th style="text-align:right">Billing</th><th style="text-align:right">Expenses</th><th>Status</th></tr></thead>
+                    <tbody>
+                        ${data.bundles.map(b => `
+                            <tr style="cursor:pointer" onclick="Pages.viewBundle(${b.bundle_id})">
+                                <td><i class="fas fa-layer-group" style="color:#6366f1;margin-right:4px"></i><strong>${b.display_name}</strong>${b.clients.length ? `<br><small class="text-muted">${b.clients.join(', ')}</small>` : ''}</td>
+                                <td>${b.job_count}${b.tickets.length ? `<br><small class="text-muted">${b.tickets.join(', ')}</small>` : ''}</td>
+                                <td>${dateRange(b)}</td>
+                                <td style="text-align:right">$${b.total_billing.toFixed(2)}</td>
+                                <td style="text-align:right">$${(b.job_expenses + b.bundle_expenses).toFixed(2)}</td>
+                                <td>${b.status === 'active' ? '<span class="badge badge-success">Active</span>' : '<span class="badge badge-secondary">Closed</span>'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        };
+
+        let timer;
+        document.getElementById('bundle-search').addEventListener('input', () => {
+            clearTimeout(timer);
+            timer = setTimeout(load, 250);
+        });
+        document.getElementById('bundle-status-filter').addEventListener('change', load);
+        document.getElementById('bundles-create-btn').addEventListener('click', () => Pages.createBundle());
+        await load();
+    },
+
     async viewBundle(bundleId) {
         const data = await API.bundles.get(bundleId);
         const bundle = data.bundle;
+        const isManager = ['admin', 'manager'].includes(App.user.role);
+        const canEdit = isManager && !bundle.pay_settled;
+        const categories = ['materials', 'equipment', 'lodging', 'meals', 'travel', 'other'];
+        const totalExpenses = bundle.job_expenses + bundle.bundle_expenses;
 
+        document.querySelectorAll('.bundle-view-modal').forEach(m => m.remove());
         const modal = document.createElement('div');
-        modal.className = 'modal-overlay active';
+        modal.className = 'modal-overlay active bundle-view-modal';
         modal.innerHTML = `
-            <div class="modal" style="max-width:700px">
+            <div class="modal" style="max-width:800px">
                 <div class="modal-header">
-                    <h3><i class="fas fa-layer-group"></i> ${bundle.display_name}</h3>
+                    <h3><i class="fas fa-layer-group"></i> ${bundle.display_name}
+                        ${bundle.status === 'closed' ? '<span class="badge badge-secondary" style="margin-left:6px">Closed</span>' : ''}</h3>
                     <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
                 </div>
                 <div class="modal-body">
+                    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;text-align:center;background:#f8f9fa;padding:0.75rem;border-radius:4px;margin-bottom:1rem">
+                        <div><small>Billing</small><br><strong>$${bundle.total_billing.toFixed(2)}</strong></div>
+                        <div><small>Job Expenses</small><br><strong>$${bundle.job_expenses.toFixed(2)}</strong></div>
+                        <div><small>Bundle Expenses</small><br><strong>$${bundle.bundle_expenses.toFixed(2)}</strong></div>
+                        <div><small>Net</small><br><strong>$${(bundle.total_billing - totalExpenses).toFixed(2)}</strong></div>
+                    </div>
+
                     <h4>Jobs in Bundle (${bundle.jobs.length})</h4>
                     <table style="width:100%">
-                        <thead><tr><th>Ticket</th><th>Description</th><th>Client</th><th>Billing</th><th>Status</th></tr></thead>
+                        <thead><tr><th>Ticket</th><th>Description</th><th>Client</th><th>Date</th><th>Billing</th><th>Status</th></tr></thead>
                         <tbody>
                             ${bundle.jobs.map(j => `
                                 <tr>
-                                    <td>${j.ticket_number || '-'}</td>
+                                    <td><a href="#" onclick="this.closest('.modal-overlay').remove(); Pages.viewJob(${j.job_id}); return false;">${j.ticket_number || '-'}</a></td>
                                     <td>${j.description}</td>
                                     <td>${j.client_name || '-'}</td>
+                                    <td>${j.job_date ? App.formatDate(j.job_date) : '-'}</td>
                                     <td>$${(j.billing_amount || 0).toFixed(2)}</td>
                                     <td>${App.getStatusBadge(j.job_status)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>
-                        <tfoot>
-                            <tr style="font-weight:bold">
-                                <td colspan="3">Pooled Total</td>
-                                <td>$${bundle.jobs.reduce((s, j) => s + (j.billing_amount || 0), 0).toFixed(2)}</td>
-                                <td></td>
-                            </tr>
-                        </tfoot>
                     </table>
+
+                    <h4 style="margin-top:1.25rem">Bundle Expenses (${bundle.expenses.length})</h4>
+                    ${bundle.pay_settled ? '<p class="text-muted"><i class="fas fa-lock"></i> This bundle is in a locked or paid payout, so its expenses can no longer be changed.</p>' : ''}
+                    <table style="width:100%">
+                        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th>${canEdit ? '<th></th>' : ''}</tr></thead>
+                        <tbody>
+                            ${bundle.expenses.length ? bundle.expenses.map(e => `
+                                <tr>
+                                    <td>${App.formatDate(e.expense_date)}</td>
+                                    <td>${e.description}</td>
+                                    <td>${e.category}</td>
+                                    <td style="text-align:right">$${e.amount.toFixed(2)}</td>
+                                    ${canEdit ? `<td style="white-space:nowrap;text-align:right">
+                                        <button class="btn btn-sm btn-outline bundle-exp-edit" data-id="${e.id}" title="Edit"><i class="fas fa-edit"></i></button>
+                                        <button class="btn btn-sm btn-outline bundle-exp-del" data-id="${e.id}" title="Delete"><i class="fas fa-trash"></i></button>
+                                    </td>` : ''}
+                                </tr>
+                            `).join('') : `<tr><td colspan="${canEdit ? 5 : 4}" class="text-muted">No bundle expenses yet.</td></tr>`}
+                        </tbody>
+                        ${bundle.expenses.length ? `<tfoot><tr style="font-weight:bold"><td colspan="3">Total</td><td style="text-align:right">$${bundle.bundle_expenses.toFixed(2)}</td>${canEdit ? '<td></td>' : ''}</tr></tfoot>` : ''}
+                    </table>
+
+                    ${canEdit ? `
+                        <div id="bundle-exp-form" style="display:grid;grid-template-columns:140px 1fr 130px 110px auto;gap:6px;align-items:end;margin-top:0.75rem">
+                            <div><label style="font-size:0.8rem">Date</label><input type="date" class="form-control" id="bexp-date" value="${new Date().toLocaleDateString('en-CA')}"></div>
+                            <div><label style="font-size:0.8rem">Description</label><input type="text" class="form-control" id="bexp-desc" placeholder="e.g. Hotel, 2 nights"></div>
+                            <div><label style="font-size:0.8rem">Category</label><select class="form-control" id="bexp-cat">${categories.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+                            <div><label style="font-size:0.8rem">Amount</label><input type="number" step="0.01" min="0" class="form-control" id="bexp-amount"></div>
+                            <div style="white-space:nowrap">
+                                <button class="btn btn-primary" id="bexp-save">Add</button>
+                                <button class="btn btn-secondary" id="bexp-cancel" style="display:none">Cancel</button>
+                            </div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div class="modal-footer">
+                    ${isManager ? `<button class="btn btn-outline" id="bundle-toggle-status">${bundle.status === 'active' ? 'Close Bundle' : 'Reopen Bundle'}</button>` : ''}
                     <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Close</button>
                 </div>
             </div>
         `;
         document.body.appendChild(modal);
+
+        const refresh = async () => {
+            await Pages.viewBundle(bundleId);
+            if (App.currentPage === 'bundles') Pages.bundles(document.getElementById('content'));
+        };
+
+        const toggle = modal.querySelector('#bundle-toggle-status');
+        if (toggle) toggle.addEventListener('click', async () => {
+            try {
+                await API.bundles.update(bundleId, { status: bundle.status === 'active' ? 'closed' : 'active' });
+                await refresh();
+            } catch (e) {
+                App.showAlert(e.message || 'Failed to update bundle', 'error');
+            }
+        });
+
+        if (!canEdit) return;
+
+        let editingId = null;
+        const saveBtn = modal.querySelector('#bexp-save');
+        const cancelBtn = modal.querySelector('#bexp-cancel');
+        const resetForm = () => {
+            editingId = null;
+            modal.querySelector('#bexp-desc').value = '';
+            modal.querySelector('#bexp-amount').value = '';
+            saveBtn.textContent = 'Add';
+            cancelBtn.style.display = 'none';
+        };
+
+        saveBtn.addEventListener('click', async () => {
+            const payload = {
+                expense_date: modal.querySelector('#bexp-date').value,
+                description: modal.querySelector('#bexp-desc').value.trim(),
+                category: modal.querySelector('#bexp-cat').value,
+                amount: parseFloat(modal.querySelector('#bexp-amount').value),
+            };
+            if (!payload.expense_date || !payload.description || !(payload.amount > 0)) {
+                App.showAlert('Date, description, and an amount above 0 are required', 'error');
+                return;
+            }
+            try {
+                if (editingId) {
+                    await API.bundles.updateExpense(bundleId, editingId, payload);
+                } else {
+                    await API.bundles.addExpense(bundleId, payload);
+                }
+                await refresh();
+            } catch (e) {
+                App.showAlert(e.message || 'Failed to save expense', 'error');
+            }
+        });
+
+        cancelBtn.addEventListener('click', resetForm);
+
+        modal.querySelectorAll('.bundle-exp-edit').forEach(btn => btn.addEventListener('click', () => {
+            const e = bundle.expenses.find(x => x.id === parseInt(btn.dataset.id));
+            editingId = e.id;
+            modal.querySelector('#bexp-date').value = e.expense_date;
+            modal.querySelector('#bexp-desc').value = e.description;
+            modal.querySelector('#bexp-cat').value = e.category;
+            modal.querySelector('#bexp-amount').value = e.amount;
+            saveBtn.textContent = 'Save';
+            cancelBtn.style.display = '';
+        }));
+
+        modal.querySelectorAll('.bundle-exp-del').forEach(btn => btn.addEventListener('click', async () => {
+            const e = bundle.expenses.find(x => x.id === parseInt(btn.dataset.id));
+            if (!confirm(`Delete expense "${e.description}" ($${e.amount.toFixed(2)})?`)) return;
+            try {
+                await API.bundles.deleteExpense(bundleId, e.id);
+                await refresh();
+            } catch (err) {
+                App.showAlert(err.message || 'Failed to delete expense', 'error');
+            }
+        }));
     },
 
     async addJobToBundle(jobId) {
@@ -4224,8 +4414,8 @@ const Pages = {
                                 <tr style="${rowStyle}">
                                     <td>${(job.effective_date || job.job_date) ? App.formatDate(job.effective_date || job.job_date) : '-'}${projectedBadge}</td>
                                     <td>
-                                        <a href="#" onclick="Pages.viewJob(${job.job_id}); return false;" style="color: var(--primary);">
-                                            ${bundleIcon}${job.ticket_number || 'Job #' + job.job_id}
+                                        <a href="#" onclick="${job.is_bundle_expense ? `Pages.viewBundle(${job.bundle_id})` : `Pages.viewJob(${job.job_id})`}; return false;" style="color: var(--primary);">
+                                            ${bundleIcon}${job.is_bundle_expense ? 'Bundle expense: ' : ''}${job.ticket_number || 'Job #' + job.job_id}
                                         </a>
                                         <small style="display: block; color: var(--gray-500);">${job.description.slice(0, 30)}${job.description.length > 30 ? '...' : ''}</small>
                                     </td>

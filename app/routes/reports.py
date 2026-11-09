@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify, g
 from sqlalchemy import func, and_, or_, exists
 from app import db
 from app.models import (
-    TimeEntry, Job, Technician, Platform, PayPeriod, AuditLog, User
+    TimeEntry, Job, Technician, Platform, PayPeriod, AuditLog, User, BundleExpense
 )
 from app.utils.logging import get_logger, audit_logger
 from app.utils.auth import (
@@ -315,6 +315,39 @@ def income_expense_report():
             totals['total_expenses'] += total_expenses
             totals['net_profit'] += net_profit
 
+    # Bundle expenses belong to no single job, so each one is its own row on
+    # the day it was spent. Without them the report overstates profit.
+    bundle_expense_count = 0
+    for exp in BundleExpense.query.filter(
+        BundleExpense.expense_date >= from_date,
+        BundleExpense.expense_date <= to_date
+    ).all():
+        amount = Decimal(str(exp.amount))
+        date_str = exp.expense_date.isoformat()
+        jobs_data.append({
+            'job_id': None,
+            'is_bundle_expense': True,
+            'ticket_number': exp.bundle.display_name,
+            'description': f"{exp.description} ({exp.category})",
+            'job_date': date_str,
+            'effective_date': date_str,
+            'platform': None,
+            'billing': 0.0,
+            'job_expenses': float(amount),
+            'commissions': 0.0,
+            'tech_pay': 0.0,
+            'total_expenses': float(amount),
+            'net_profit': float(-amount),
+            'is_projected': False,
+            'entry_hours_by_date': {},
+            'bundle_id': exp.bundle_id,
+            'bundle_name': exp.bundle.display_name,
+        })
+        bundle_expense_count += 1
+        totals['job_expenses'] += amount
+        totals['total_expenses'] += amount
+        totals['net_profit'] -= amount
+
     # Sort by effective date (date work was performed)
     jobs_data.sort(key=lambda j: j['effective_date'] or '')
 
@@ -325,7 +358,7 @@ def income_expense_report():
         user_id=g.user_id
     )
 
-    actual_job_count = len(jobs_data) - projected_totals['job_count']
+    actual_job_count = len(jobs_data) - projected_totals['job_count'] - bundle_expense_count
 
     profit_margin = float((totals['net_profit'] / totals['billing'] * 100) if totals['billing'] > 0 else 0)
     projected_profit = float(projected_totals['billing'] * Decimal(str(profit_margin)) / 100) if profit_margin else 0
@@ -343,7 +376,7 @@ def income_expense_report():
             'profit': round(projected_profit, 2)
         },
         'job_count': actual_job_count,
-        'total_job_count': len(jobs_data),
+        'total_job_count': len(jobs_data) - bundle_expense_count,
         'profit_margin': profit_margin
     }), 200
 

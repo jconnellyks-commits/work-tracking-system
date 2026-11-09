@@ -317,6 +317,26 @@ const API = {
 
         async getPay(bundleId) {
             return API.request(`/bundles/${bundleId}/pay`);
+        },
+
+        async addExpense(bundleId, data) {
+            return API.request(`/bundles/${bundleId}/expenses`, {
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async updateExpense(bundleId, expenseId, data) {
+            return API.request(`/bundles/${bundleId}/expenses/${expenseId}`, {
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+        },
+
+        async deleteExpense(bundleId, expenseId) {
+            return API.request(`/bundles/${bundleId}/expenses/${expenseId}`, {
+                method: 'DELETE'
+            });
         }
     },
 

@@ -278,7 +278,7 @@ def calculate_bundle_pay(bundle_id):
 
     # Pool financials from all jobs
     billing_amount = sum((Decimal(str(j.billing_amount or 0)) for j in jobs), Decimal('0'))
-    expenses = sum((Decimal(str(j.expenses or 0)) for j in jobs), Decimal('0'))
+    expenses = sum((Decimal(str(j.expenses or 0)) for j in jobs), Decimal('0')) + bundle.expenses_total
     commissions = sum((Decimal(str(j.commissions or 0)) for j in jobs), Decimal('0'))
     job_net = billing_amount - expenses - commissions
 
@@ -751,7 +751,8 @@ def calculate_period_pay(period_id=None, start_date=None, end_date=None, tech_id
             job.description = bundle_obj.display_name
             job.external_url = None
             job.billing_amount = float(sum(Decimal(str(j.billing_amount or 0)) for j in bundled_jobs))
-            job.expenses = float(sum(Decimal(str(j.expenses or 0)) for j in bundled_jobs))
+            job.expenses = float(sum(Decimal(str(j.expenses or 0)) for j in bundled_jobs)
+                                 + bundle_obj.expenses_total)
             job.commissions = float(sum(Decimal(str(j.commissions or 0)) for j in bundled_jobs))
             # to_dict for _accumulate_tech_result
             _bundle_dict = {

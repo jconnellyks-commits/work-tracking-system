@@ -3,6 +3,7 @@ SQLAlchemy models for the Work Tracking System.
 Maps to the MySQL database schema defined in database/schema.sql.
 """
 from datetime import datetime
+from decimal import Decimal
 from app import db
 
 
@@ -230,7 +231,18 @@ class JobBundle(db.Model):
 
     jobs = db.relationship('Job', backref='bundle', lazy='dynamic')
     time_entries = db.relationship('TimeEntry', backref='bundle', lazy='dynamic')
+    expense_items = db.relationship('BundleExpense', backref='bundle', lazy='dynamic',
+                                    cascade='all, delete-orphan', passive_deletes=True)
     created_by_user = db.relationship('User', foreign_keys=[created_by])
+
+    @property
+    def expenses_total(self):
+        """Sum of the bundle's own expense line items (not its jobs' expenses)."""
+        from sqlalchemy import func as sqlfunc
+        total = db.session.query(
+            sqlfunc.coalesce(sqlfunc.sum(BundleExpense.amount), 0)
+        ).filter(BundleExpense.bundle_id == self.bundle_id).scalar()
+        return Decimal(str(total or 0))
 
     @property
     def display_name(self):
@@ -253,6 +265,39 @@ class JobBundle(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
             'job_count': len(jobs_list),
             'job_ids': [j.job_id for j in jobs_list],
+            'tickets': [j.ticket_number for j in jobs_list if j.ticket_number],
+            'clients': sorted({j.client_name for j in jobs_list if j.client_name}),
+            'job_dates': sorted(j.job_date.isoformat() for j in jobs_list if j.job_date),
+            'total_billing': float(sum(Decimal(str(j.billing_amount or 0)) for j in jobs_list)),
+            'job_expenses': float(sum(Decimal(str(j.expenses or 0)) for j in jobs_list)),
+            'bundle_expenses': float(self.expenses_total),
+        }
+
+
+class BundleExpense(db.Model):
+    """Dated expense line item on a job bundle, pooled into the bundle's expenses."""
+    __tablename__ = 'bundle_expenses'
+
+    CATEGORIES = ('materials', 'equipment', 'lodging', 'meals', 'travel', 'other')
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    bundle_id = db.Column(db.Integer, db.ForeignKey('job_bundles.bundle_id', ondelete='CASCADE'), nullable=False)
+    expense_date = db.Column(db.Date, nullable=False)
+    description = db.Column(db.String(255), nullable=False)
+    amount = db.Column(db.Numeric(10, 2), nullable=False)
+    category = db.Column(db.Enum(*CATEGORIES), nullable=False, default='other')
+    created_by = db.Column(db.Integer, db.ForeignKey('users.user_id', ondelete='SET NULL'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'bundle_id': self.bundle_id,
+            'expense_date': self.expense_date.isoformat() if self.expense_date else None,
+            'description': self.description,
+            'amount': float(self.amount) if self.amount else 0,
+            'category': self.category,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 

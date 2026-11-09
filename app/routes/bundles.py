@@ -14,33 +14,41 @@ logger = get_logger(__name__)
 
 
 def bundle_pay_is_settled(bundle):
-    """True if any of this bundle's pooled pay has already been paid out.
+    """True once a bundle is fully paid out - no unpaid work left on it.
 
-    Bundle expenses come out of the pooled tech pool, so changing them after
-    a payout is locked would move numbers that are already paid.
+    Bundles run across several pay periods and technicians are locked one at
+    a time, so part of a bundle being paid is the normal state while work is
+    still going on (topeka10-12: one tech's share locked, most hours unpaid).
+    Expenses are allowed until nothing is left to pay. Locked payouts keep
+    their snapshot either way; an expense only shapes pay not yet locked.
     """
-    from app.models import Payout, PayoutJobDetail, PayPeriod
-    from app.routes.imports import job_pay_is_settled, SETTLED_PERIOD_STATUSES
+    from app.models import Payout, PayPeriod
+    from app.routes.imports import SETTLED_PERIOD_STATUSES
 
-    locked = db.session.query(PayoutJobDetail.id).join(
-        Payout, Payout.payout_id == PayoutJobDetail.payout_id
-    ).filter(
-        PayoutJobDetail.bundle_id == bundle.bundle_id,
-        Payout.status.in_(('locked', 'paid')),
-    ).first()
-    if locked:
-        return True
+    jobs = bundle.jobs.all()
+    if any(j.job_status not in ('completed', 'cancelled') for j in jobs):
+        return False
 
-    in_closed_period = db.session.query(TimeEntry.entry_id).join(
-        PayPeriod, TimeEntry.period_id == PayPeriod.period_id
-    ).filter(
-        TimeEntry.bundle_id == bundle.bundle_id,
-        PayPeriod.status.in_(SETTLED_PERIOD_STATUSES),
-    ).first()
-    if in_closed_period:
-        return True
+    job_ids = [j.job_id for j in jobs]
+    entry_filter = TimeEntry.bundle_id == bundle.bundle_id
+    if job_ids:
+        entry_filter = db.or_(entry_filter, TimeEntry.job_id.in_(job_ids))
+    entries = TimeEntry.query.filter(entry_filter).all()
+    if not entries:
+        return False
 
-    return any(job_pay_is_settled(j) for j in bundle.jobs.all())
+    closed_periods = {p.period_id for p in PayPeriod.query.filter(
+        PayPeriod.status.in_(SETTLED_PERIOD_STATUSES)).all()}
+    locked_payouts = {(p.tech_id, p.period_id) for p in Payout.query.filter(
+        Payout.status.in_(('locked', 'paid'))).all()}
+
+    for e in entries:
+        if e.period_id in closed_periods:
+            continue
+        if e.tech_id and e.period_id and (e.tech_id, e.period_id) in locked_payouts:
+            continue
+        return False  # unassigned, not yet in a period, or in an unlocked payout
+    return True
 
 
 def _bundle_matches(d, search):
@@ -119,9 +127,9 @@ def _parse_expense(data, existing=None):
 
 def _settled_response(bundle):
     return jsonify({
-        'error': f"Pay for '{bundle.display_name}' is already in a locked or paid payout. "
-                 f"Changing its expenses would move already-paid numbers - record the "
-                 f"difference as an adjustment instead."
+        'error': f"'{bundle.display_name}' is fully paid out - every job is complete and all "
+                 f"of its time is in locked or paid payouts. Changing its expenses would move "
+                 f"already-paid numbers; record the difference as a payout adjustment instead."
     }), 409
 
 

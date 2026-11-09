@@ -811,7 +811,7 @@ const Pages = {
                     </table>
 
                     <h4 style="margin-top:1.25rem">Bundle Expenses (${bundle.expenses.length})</h4>
-                    ${bundle.pay_settled ? '<p class="text-muted"><i class="fas fa-lock"></i> This bundle is in a locked or paid payout, so its expenses can no longer be changed.</p>' : ''}
+                    ${bundle.pay_settled ? '<p class="text-muted"><i class="fas fa-lock"></i> This bundle is fully paid out (all jobs complete, all time in locked or paid payouts), so its expenses can no longer be changed.</p>' : ''}
                     <table style="width:100%">
                         <thead><tr><th>Date</th><th>Description</th><th>Category</th><th style="text-align:right">Amount</th>${canEdit ? '<th></th>' : ''}</tr></thead>
                         <tbody>

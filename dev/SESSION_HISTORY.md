@@ -15,6 +15,10 @@ TL-430547 looked missed by the email parser. It was imported on Nov 17 with no d
 ### Open Items
 - TL-419646–419649 (Yesway) are still undated; only an Assigned email was ever received.
 - Jeremiah is entering the date and time for TL-430547 and correcting dates by hand.
+- First live "Updated" email since the deploy (Nov 23 13:30) not yet seen; check the parser log.
+- 14 older TL jobs have on/off-site emails but still say assigned/pending (old emails were not replayed). Most are probably ready to mark completed.
+- TL-401368, TL-401372, TL-404485 (Mar-Apr) have on/off-site emails but no job under that ticket; may be billed under another name.
+- `/opt/email-parser/config.py` lacks the repo's `gmail.send` scope line. Reason unknown, so don't overwrite it with `cp email_parser/*`.
 
 ---
 

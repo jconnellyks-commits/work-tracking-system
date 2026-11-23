@@ -24,7 +24,9 @@ import config
 from api_client import WorkTrackingClient
 from gmail_client import GmailClient
 from parsers.tst import classify_tst_subject, parse_service_order, parse_special_update
-from parsers.techlink import classify_techlink_subject, parse_techlink_email, parse_techlink_reminder
+from parsers.techlink import (
+    classify_techlink_subject, parse_techlink_email, parse_techlink_reminder, parse_techlink_updated,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -172,6 +174,9 @@ def process_message(gmail_client, api_client, msg_id):
     elif config.TECHLINK_SENDER_DOMAIN in sender_domain:
         email_type, ticket = classify_techlink_subject(subject)
 
+        # An update we can't interpret falls through to review below
+        updated_job = parse_techlink_updated(msg, ticket) if email_type == 'updated' else None
+
         if email_type == 'assigned' and ticket:
             job = parse_techlink_email(msg, ticket)
             if job:
@@ -219,6 +224,35 @@ def process_message(gmail_client, api_client, msg_id):
                     )
                     gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
                     return
+            gmail_client.apply_labels(
+                msg_id,
+                add_label_names=[config.LABEL_TL_PROCESSED],
+                remove_label_ids=['INBOX'],
+            )
+
+        elif updated_job:
+            try:
+                result = api_client.import_techlink([updated_job])
+                logger.info(f"TechLink update result: {result}")
+                # The API answers 200 even when a job inside it failed
+                errors = result.get('results', {}).get('errors')
+                if errors:
+                    raise RuntimeError('; '.join(errors))
+                api_client.log_email_processed(
+                    platform='TechLink', email_type='updated', subject=subject,
+                    status='success', ticket_number=ticket,
+                    client_name=updated_job.get('client_name'),
+                    gmail_message_id=msg_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to update TL-{ticket}: {e}")
+                api_client.log_email_processed(
+                    platform='TechLink', email_type='updated', subject=subject,
+                    status='failed', ticket_number=ticket,
+                    error_message=str(e), gmail_message_id=msg_id,
+                )
+                gmail_client.apply_labels(msg_id, add_label_names=[config.LABEL_REVIEW])
+                return
             gmail_client.apply_labels(
                 msg_id,
                 add_label_names=[config.LABEL_TL_PROCESSED],

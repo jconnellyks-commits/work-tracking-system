@@ -1409,7 +1409,11 @@ def import_techlink():
                     advance_job_status(existing_job, mapped_status)
                 if external_url and not existing_job.external_url:
                     existing_job.external_url = external_url
-                if job_data.get('address'):
+                # An Updated email repeats the address on every status change, so it
+                # only fills a blank; it must not undo a hand-corrected location.
+                if job_data.get('address') and (
+                    not existing_job.location or job_data.get('email_type') != 'updated'
+                ):
                     existing_job.location = job_data['address'].strip()[:255]
                 if description and not existing_job.description.startswith(description.split(' | ')[0][:20] if description else ''):
                     pass  # Don't overwrite richer description from Assigned email

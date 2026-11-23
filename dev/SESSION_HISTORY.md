@@ -10,9 +10,9 @@ TL-430547 looked missed by the email parser. It was imported on Nov 17 with no d
 | Task | Status | Notes |
 |------|--------|-------|
 | Show undated open jobs | Done | `undated_open_clause()` in `app/routes/jobs.py`: no `job_date`, no schedule entries, status pending/assigned/in_progress. Leads a date sort in either order; calendar gets `undated_jobs` and a "No date" strip that follows the technician filter |
+| Parse TechLink "Updated" emails | Done | `parse_techlink_updated()`. All 86 since Feb 18 2026 are one of two kinds. Status change: on site = `in_progress`, dated the day the email was sent (TL-424393's body was stale by 4 days); off site = `in_progress`, never completed, since 425516 goes off site daily and checkouts are filed late. Reschedule: date and time only. Anything else still goes to review. Creates the job if missing; fills a blank location but never replaces one. Deploy copies only `email_parser.py` and `parsers/techlink.py` |
 
 ### Open Items
-- TechLink "Updated" emails are still not parsed. The existing date regex read all 90 checked (Feb–Nov 2026). Tech Off Site must not mean completed (425516 goes off site daily).
 - TL-419646–419649 (Yesway) are still undated; only an Assigned email was ever received.
 - Jeremiah is entering the date and time for TL-430547 and correcting dates by hand.
 

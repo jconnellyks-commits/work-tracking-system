@@ -1,20 +1,29 @@
 """
 Parser for TechLink Services dispatch emails.
 
-Handles two email types:
+Handles three email types:
 1. "TechLink Work Order #NNNNN Assigned" — creates new job
 2. "TechLink Install Reminder: WO #NNNNN, ..." — updates schedule on existing job
+3. "TechLink WO #NNNNN Updated: ..." — tech on/off site, or a reschedule
 """
 
 import base64
 import logging
 import re
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 _RE_SUBJECT_ASSIGNED = re.compile(r'TechLink\s+Work\s+Order\s+#(\d+)\s+Assigned', re.IGNORECASE)
 _RE_SUBJECT_REMINDER = re.compile(r'TechLink\s+Install\s+Reminder:\s*WO\s+#(\d+)', re.IGNORECASE)
+
+# Anchored so a note that merely mentions "Updated:" doesn't match
+_RE_SUBJECT_UPDATED = re.compile(r'TechLink\s+WO\s+#(\d+)\s+Updated:', re.IGNORECASE)
+
+# Matched against the body with whitespace collapsed; the emails hard-wrap anywhere
+_RE_STATUS_CHANGE = re.compile(r'has changed from (.+?) to (.+?)\.', re.IGNORECASE)
+_RE_RESCHEDULE = re.compile(r'installation start time has been updated from', re.IGNORECASE)
 
 _RE_SCHEDULED = re.compile(r'Scheduled\s+Install\s+Time:\s*(.+)', re.IGNORECASE)
 _RE_SUMMARY = re.compile(r'Summary:\s*(.+)', re.IGNORECASE)
@@ -22,18 +31,23 @@ _RE_CLIENT_PO = re.compile(r'Client\s+PO:\s*(.+)', re.IGNORECASE)
 _RE_PHONE = re.compile(r'^\s*(?:1\s*)?[\(\s]*\d{3}[\)\s\-]*\d{3}[\s\-]*\d{4}\s*$')
 _RE_PORTAL_URL = re.compile(r'http[s]?://portal\.techlinksvc\.net/admin/\?mod=workorders&act=edit&id=(\d+)')
 
+LOCAL_TZ = ZoneInfo('America/Chicago')
+
 PORTAL_URL_TEMPLATE = 'https://portal.techlinksvc.net/admin/?mod=workorders&act=edit&id={}'
 
 
 def classify_techlink_subject(subject):
     """Returns (email_type, ticket_number) or (None, None).
-    email_type is 'assigned' or 'reminder'."""
+    email_type is 'assigned', 'reminder' or 'updated'."""
     m = _RE_SUBJECT_ASSIGNED.search(subject)
     if m:
         return 'assigned', m.group(1)
     m = _RE_SUBJECT_REMINDER.search(subject)
     if m:
         return 'reminder', m.group(1)
+    m = _RE_SUBJECT_UPDATED.search(subject)
+    if m:
+        return 'updated', m.group(1)
     return None, None
 
 
@@ -221,3 +235,43 @@ def parse_techlink_reminder(gmail_msg, ticket_number):
     }
     logger.info(f"Parsed TechLink Reminder WO#{ticket_number} / {job_date} {scheduled_start_time}")
     return result
+
+
+def parse_techlink_updated(gmail_msg, ticket_number):
+    """
+    Parse a TechLink "Updated" email: a tech on/off site status change, or a
+    reschedule. Often the only email that carries a short-notice job's date.
+
+    Returns a job dict (status None = leave it alone), or None when the change
+    isn't one we understand, so the caller can send it to review.
+    """
+    text = ' '.join(_get_text_body(gmail_msg).split())
+    if not text:
+        logger.warning(f"TechLink Updated WO#{ticket_number}: empty body")
+        return None
+
+    job = parse_techlink_email(gmail_msg, ticket_number)
+    job['email_type'] = 'updated'
+
+    m = _RE_STATUS_CHANGE.search(text)
+    new_status = m.group(2).strip().upper() if m else None
+
+    if new_status == 'TECH ON SITE':
+        # The tech is there now, so the day this was sent is the work day. The
+        # schedule in the body can lag: TL-424393 went on site Oct 1 while it
+        # still read Oct 5, and its reschedule came in the same minute.
+        sent = datetime.fromtimestamp(int(gmail_msg['internalDate']) / 1000, LOCAL_TZ).strftime('%Y-%m-%d')
+        if job['job_date'] != sent:
+            job['job_date'], job['scheduled_start_time'] = sent, None
+        job['status'] = 'in_progress'
+    elif new_status == 'TECH OFF SITE':
+        # Not 'completed': multi-day jobs go off site every evening. Checkouts
+        # are also filed late, so here the schedule beats the day it was sent.
+        job['status'] = 'in_progress'
+    elif new_status is None and _RE_RESCHEDULE.search(text) and job['job_date']:
+        job['status'] = None
+    else:
+        logger.info(f"TechLink Updated WO#{ticket_number}: unrecognized change")
+        return None
+
+    return job

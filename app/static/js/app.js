@@ -1098,6 +1098,9 @@ const Pages = {
                     const ticketCell = job.external_url
                         ? `<a href="${job.external_url}" target="_blank" title="Open in platform">${job.ticket_number || '-'}</a>`
                         : (job.ticket_number || '-');
+                    const isUndated = !job.job_date && !(job.schedule_dates && job.schedule_dates.length)
+                        && ['pending', 'assigned', 'in_progress'].includes(job.job_status);
+                    const dateCell = isUndated ? '<span class="badge badge-warning">No date</span>' : App.formatDate(job.job_date);
                     return `
                     <tr>
                         <td>${ticketCell}</td>
@@ -1107,7 +1110,7 @@ const Pages = {
                         <td>${(job.assigned_techs && job.assigned_techs.length)
                             ? job.assigned_techs.join(', ')
                             : '<span class="badge badge-warning">Unassigned</span>'}</td>
-                        <td>${App.formatDate(job.job_date)}${job.schedule_dates && job.schedule_dates.length > 0 ? job.schedule_dates.filter(d => d !== job.job_date).map(d => `<br><span class="text-muted" style="font-size:0.85em">+ ${App.formatDate(d)}</span>`).join('') : ''}</td>
+                        <td>${dateCell}${job.schedule_dates && job.schedule_dates.length > 0 ? job.schedule_dates.filter(d => d !== job.job_date).map(d => `<br><span class="text-muted" style="font-size:0.85em">+ ${App.formatDate(d)}</span>`).join('') : ''}</td>
                         <td>${App.getStatusBadge(job.job_status)}</td>
                         <td>
                             <button class="btn btn-sm btn-secondary" onclick="Pages.viewJob(${job.job_id})">View</button>
@@ -1209,6 +1212,7 @@ const Pages = {
             const schedData = await API.schedule.getRange(fromDate, toDate);
             state.scheduleEntries = schedData.entries || [];
             state.fallbackJobs = schedData.fallback_jobs || [];
+            state.undatedJobs = schedData.undated_jobs || [];
 
             // For technicians, fetch their assigned job IDs
             state.myJobIds = new Set();
@@ -1308,8 +1312,11 @@ const Pages = {
             }
 
             function renderChips(dateStr) {
-                const dayJobs = (jobsByDate[dateStr] || []).filter(matchesTechFilter);
-                return dayJobs.map(job => {
+                return renderJobChips((jobsByDate[dateStr] || []).filter(matchesTechFilter));
+            }
+
+            function renderJobChips(jobList) {
+                return jobList.map(job => {
                     const isMine = state.myJobIds.has(job.job_id);
                     const colors = chipColors[job.job_status] || chipColors.cancelled;
                     // Prefer start_time from JobSchedule, fall back to scheduled_start_time from Job
@@ -1399,6 +1406,14 @@ const Pages = {
                     ${unassigned.map(u => `<span style="cursor:pointer;text-decoration:underline;margin-left:0.5rem;" onclick="Pages.viewJob(${u.job_id})">${u.ticket_number || '#' + u.job_id} (${u.dayLabel})</span>`).join(',')}
                 </div>` : '';
 
+            // Open jobs with no date sit on no day cell, so list them above the grid
+            const undatedJobs = (state.undatedJobs || []).filter(matchesTechFilter);
+            const undatedHTML = undatedJobs.length ? `
+                <div class="calendar-undated">
+                    <div class="calendar-undated-label"><i class="fas fa-calendar-times"></i> No date (${undatedJobs.length})</div>
+                    <div class="calendar-undated-chips">${renderJobChips(undatedJobs)}</div>
+                </div>` : '';
+
             return `
                 <div class="card">
                     <div class="card-header" style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
@@ -1420,6 +1435,7 @@ const Pages = {
                     </div>
                     <div id="cal-body">
                         ${alertHTML}
+                        ${undatedHTML}
                         <div style="padding: 0.5rem;">
                             <div class="calendar-grid calendar-grid--header">
                                 ${dayHeaders.map(h => `<div class="calendar-day-header">${h}</div>`).join('')}

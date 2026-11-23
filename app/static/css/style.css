@@ -645,6 +645,37 @@ tr:hover {
     filter: none;
 }
 
+/* Open jobs with no date, listed above the month grid */
+.calendar-undated {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin: 0.5rem 0.5rem 0;
+    padding: 0.5rem 0.75rem;
+    background: #fffbeb;
+    border: 1px solid #fcd34d;
+    border-radius: 6px;
+}
+
+.calendar-undated-label {
+    flex-shrink: 0;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #92400e;
+}
+
+.calendar-undated-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+}
+
+.calendar-undated-chips .calendar-chip {
+    margin-bottom: 0;
+    max-width: 100%;
+}
+
 /* Time Entry Calendar */
 .te-calendar-grid {
     display: grid;

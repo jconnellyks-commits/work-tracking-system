@@ -1,5 +1,23 @@
 # Work Tracking System - Session History
 
+## Session: November 23, 2026 — Undated TechLink Jobs (TL-430547)
+
+### Summary
+TL-430547 looked missed by the email parser. It was imported on Nov 17 with no date: Assigned emails carry none, no Install Reminder ever arrived, and the two "Updated" emails holding the schedule (Nov 18 4:00 PM) go to review unparsed. An undated job was on no calendar day, last in the newest-first Jobs list, and outside the 200 jobs the time entry form loads.
+
+### Completed Tasks
+
+| Task | Status | Notes |
+|------|--------|-------|
+| Show undated open jobs | Done | `undated_open_clause()` in `app/routes/jobs.py`: no `job_date`, no schedule entries, status pending/assigned/in_progress. Leads a date sort in either order; calendar gets `undated_jobs` and a "No date" strip that follows the technician filter |
+
+### Open Items
+- TechLink "Updated" emails are still not parsed. The existing date regex read all 90 checked (Feb–Nov 2026). Tech Off Site must not mean completed (425516 goes off site daily).
+- TL-419646–419649 (Yesway) are still undated; only an Assigned email was ever received.
+- Jeremiah is entering the date and time for TL-430547 and correcting dates by hand.
+
+---
+
 ## Session: November 1–9, 2026 — Hourly-Rate Import Bug, Bundle Expenses, Bundle Payout Adjustments
 
 ### Summary

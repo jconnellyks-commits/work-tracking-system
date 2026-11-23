@@ -6,6 +6,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 from app import db
 from app.models import Job, JobSchedule, JobAssignment, Technician
+from app.routes.jobs import undated_open_clause
 from app.utils.auth import jwt_required_with_user, manager_required
 from app.utils.logging import get_logger
 from app.utils.sms_service import get_sms_service
@@ -207,7 +208,8 @@ def delete_schedule_entry(job_id, entry_id):
 def get_schedule_range():
     """
     Get all schedule entries in a date range (for calendar rendering).
-    Also returns jobs with job_date in range that have NO schedule entries (fallback).
+    Also returns jobs with job_date in range that have NO schedule entries (fallback),
+    and open jobs with no date at all (undated_jobs, regardless of range).
 
     Query params: from (YYYY-MM-DD), to (YYYY-MM-DD)
     """
@@ -268,12 +270,11 @@ def get_schedule_range():
         fallback_query = fallback_query.filter(~Job.job_id.in_(scheduled_job_ids))
     fallback_jobs = fallback_query.all()
 
-    fallback_list = []
-    for job in fallback_jobs:
-        tech_names = [a.technician.name for a in job.assignments.filter(
-            JobAssignment.status.in_(['accepted', 'invited'])
-        ).all() if a.technician]
-        fallback_list.append({
+    undated_jobs = Job.query.filter(undated_open_clause())\
+        .order_by(Job.created_at.desc(), Job.job_id.desc()).all()
+
+    def job_summary(job):
+        return {
             'job_id': job.job_id,
             'ticket_number': job.ticket_number,
             'client_name': job.client_name,
@@ -282,10 +283,13 @@ def get_schedule_range():
             'job_status': job.job_status,
             'job_date': job.job_date.isoformat() if job.job_date else None,
             'scheduled_start_time': job.scheduled_start_time.strftime('%H:%M') if job.scheduled_start_time else None,
-            'assigned_techs': tech_names,
-        })
+            'assigned_techs': [a.technician.name for a in job.assignments.filter(
+                JobAssignment.status.in_(['accepted', 'invited'])
+            ).all() if a.technician],
+        }
 
     return jsonify({
         'entries': result_entries,
-        'fallback_jobs': fallback_list
+        'fallback_jobs': [job_summary(j) for j in fallback_jobs],
+        'undated_jobs': [job_summary(j) for j in undated_jobs]
     }), 200

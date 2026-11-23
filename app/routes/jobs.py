@@ -3,7 +3,7 @@ Job management routes for creating, updating, and querying jobs.
 """
 from datetime import datetime
 from flask import Blueprint, request, jsonify, g
-from sqlalchemy import or_
+from sqlalchemy import case, or_
 from app import db
 from decimal import Decimal
 from app.models import (
@@ -20,6 +20,23 @@ logger = get_logger(__name__)
 # counts: the calendar shows an invited tech, so excluding them here would make
 # a job vanish from that tech's filter until they accept.
 ASSIGNED_STATUSES = ('accepted', 'invited')
+
+OPEN_JOB_STATUSES = ('pending', 'assigned', 'in_progress')
+
+
+def undated_open_clause():
+    """
+    Open jobs with no date of any kind: no job_date and no schedule entries.
+
+    TechLink Assigned emails carry no date, so a job whose Install Reminder
+    never comes stays undated (TL-430547). Such a job is on no calendar day and
+    MySQL sorts its NULL last in a newest-first list, so nobody sees it.
+    """
+    return db.and_(
+        Job.job_date.is_(None),
+        Job.job_status.in_(OPEN_JOB_STATUSES),
+        ~Job.schedule_entries.any()
+    )
 
 
 def get_assigned_tech_names(job_ids):
@@ -79,7 +96,8 @@ def list_jobs():
           Matches a job-level JobAssignment (accepted or invited) OR a
           per-day JobSchedule entry, which is what the calendar displays.
         - unassigned: 'true' to include jobs with no technician either way
-        - sort_by: Field to sort by (job_date, job_status, created_at)
+        - sort_by: Field to sort by (job_date, job_status, created_at). Sorting
+          by job_date puts open jobs with no date first, in either order.
         - sort_order: asc or desc (default desc)
     """
     page = request.args.get('page', 1, type=int)
@@ -177,6 +195,10 @@ def list_jobs():
         'client_name': Job.client_name
     }
     sort_column = sort_columns.get(sort_by, Job.job_date)
+    # Undated open jobs lead a date sort in either direction, so they get noticed.
+    if sort_column is Job.job_date:
+        query = query.order_by(case((undated_open_clause(), 0), else_=1))
+
     # job_id last so the ordering is total. Without it, rows tying on both
     # job_date and created_at can order differently per page query, which makes
     # paginated reads silently skip or repeat a job.

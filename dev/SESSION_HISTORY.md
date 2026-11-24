@@ -13,11 +13,11 @@ TL-430547 looked missed by the email parser. It was imported on Nov 17 with no d
 | Parse TechLink "Updated" emails | Done | `parse_techlink_updated()`. All 86 since Feb 18 2026 are one of two kinds. Status change: on site = `in_progress`, dated the day the email was sent (TL-424393's body was stale by 4 days); off site = `in_progress`, never completed, since 425516 goes off site daily and checkouts are filed late. Reschedule: date and time only. Anything else still goes to review. Creates the job if missing; fills a blank location but never replaces one. Deploy copies only `email_parser.py` and `parsers/techlink.py` |
 
 ### Open Items
-- TL-419646–419649 (Yesway) are still undated; only an Assigned email was ever received.
+- TL-419646–419649 (Yesway) are still undated; only an Assigned email was ever received. Nov 24: absent from the TechLink portal's work order list (all statuses) and invoices. Jeremiah thinks they were cancelled; not yet changed here.
 - Jeremiah is entering the date and time for TL-430547 and correcting dates by hand.
 - First live "Updated" email since the deploy (Nov 23 13:30) not yet seen; check the parser log.
 - 14 older TL jobs have on/off-site emails but still say assigned/pending (old emails were not replayed). Most are probably ready to mark completed.
-- TL-401368, TL-401372, TL-404485 (Mar-Apr) have on/off-site emails but no job under that ticket; may be billed under another name.
+- Corrected Nov 24: 401368, 401372 and 404485 do have jobs, entered without the `TL-` prefix (jobs 255, 254, 301; also 398124, 396994), and the portal shows all three paid at our billed amount. Search TechLink tickets both ways.
 - `/opt/email-parser/config.py` lacks the repo's `gmail.send` scope line. Reason unknown, so don't overwrite it with `cp email_parser/*`.
 
 ---

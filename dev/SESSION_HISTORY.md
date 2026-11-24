@@ -3,10 +3,10 @@
 ## Session: November 24, 2026 — TechLink cleanup, TL-421962 pay correction
 
 - Matched jobs against the TechLink portal. Cancelled TL-419646–419649 and TL-399754; completed 15 paid jobs (audit #6569–6588); completed TL-430547 and TL-430872 at $105 with draft entries #1349/#1350 for Geoffery from the email times (he adds mileage).
-- TL-421962: verified York Hinds' entry #977 at Jeremiah's request. Geoffery's $14.87 is adjustment #19, pending, targeted to period 29 (Nov 12–25). York was paid by Cash App, so his $106.63 in period 23 has no payout row; do not lock and pay it again.
+- TL-421962: verified York Hinds' entry #977 at Jeremiah's request. Geoffery's $14.87 is adjustment #19, pending, targeted to period 29 (Nov 12–25). York was paid $105 by Venmo: payout 132 (period 23, locked) is $106.63 less advance #60 ($105) less a $1.63 settlement deduction, net $0.
 - **Open bug:** the Carry Forward button targets the earliest open period after the payout's own, even when that tech's payout there is already paid. The adjustment then stays pending and is never consumed. Period 28 was open with Geoffery already paid, so #19 was targeted by hand.
 - **Open gap:** verifying an entry runs only the bundle adjustment check; standalone jobs with locked payouts raise no adjustment until something else changes.
-- York's payout 78 (period 19, $82.10) is still locked, not paid; waiting on Jeremiah.
+- York's payout 78 (period 19, $82.10) marked paid Nov 24; it had been paid earlier.
 - Still open: TL-415326, TL-412937, TL-411979 (paid $504.16, no time, hourly with no rate); TL-429056; amounts on TL-350473, TL-398498, TL-418224; October dates on TL-424393, TL-424247, TL-425636.
 
 ## Session: November 23, 2026 — Undated TechLink Jobs (TL-430547)

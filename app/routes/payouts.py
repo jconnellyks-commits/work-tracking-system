@@ -258,12 +258,27 @@ def unlock_payout(payout_id):
                 advance.status = 'active'
                 advance.repaid_at = None
 
-    # Un-resolve any adjustments that were carried forward into this payout
-    for adj in payout.adjustments.all():
-        if adj.resolution == 'carried_forward' and adj.resolved_to_period_id == period_id:
+    # Put back any corrections this payout paid, so the relock pays them again.
+    # They were raised on the tech's EARLIER payouts (payout.adjustments holds
+    # the ones raised on this one). Their target period is kept. Only those whose
+    # line is still here: a line removed by hand stays removed.
+    lines = [(li.type, li.amount, li.description) for li in payout.line_items.all()]
+    consumed = PayoutAdjustment.query.join(Payout).filter(
+        Payout.tech_id == payout.tech_id,
+        Payout.payout_id != payout_id,
+        PayoutAdjustment.resolution == 'carried_forward',
+        PayoutAdjustment.resolved_to_period_id == period_id,
+    ).all()
+    for adj in consumed:
+        li_type = 'bonus' if adj.amount_diff >= 0 else 'deduction'
+        line = next((
+            li for li in lines
+            if li[:2] == (li_type, abs(adj.amount_diff)) and li[2] in (
+                f'Carry-forward: {adj.description}', f'Carried forward: {adj.description}')
+        ), None)
+        if line:
+            lines.remove(line)
             adj.resolution = 'pending'
-            adj.resolved_to_period_id = None
-            adj.resolved_by = None
             adj.resolved_at = None
 
     db.session.delete(payout)

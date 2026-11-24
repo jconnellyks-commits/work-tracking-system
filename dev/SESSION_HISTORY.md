@@ -11,6 +11,10 @@
 - **Open:** bundle 1 adjustment #2 (-74.64) has no `bundle_id`, so a change to that bundle would deduct it again.
 - **Past misses (read-only check, nothing created):** never on a check: Jeremiah WM-9725625802 $543.40 (P14), TST-502881 $300.55 and WM-5544087590 $125.30 (P17); Geoffery TST-517062 $66.30 (P19); Rowland WM-3294547376 $67.40 (P27). Late second tech: York WM-2584850551 $38.15 (P17), Rowland WM-2761810569 $46.94 (P22, part is a later billing rise). Late mileage: Rowland and Keith $13.40 each on TL-425516 (P26), Jeremiah $16.75 on WM-8182883320 (P17). P5-P12 differences predate the Apr 14 formula and Period 12 corrections. The P13, P18, P22 and P24 rest are billing changed by re-scrapes after payment.
 - York's payout 78 (period 19, $82.10) marked paid Nov 24; it had been paid earlier.
+- **Queued for period 29 (Nov 12-25):** Geoffery #19 $14.87, #127 $122.58 (TST-519991), #135 $66.30 (TST-517062), #138 $46.93 (TST-517601); Rowland #133 $13.40, #136 $67.40; Michael #128 $75.00 (TST-524492); Keith #134 $13.40.
+- **TST-517601:** billing set to the $418.50 TST paid (cut from 3.75 to 3.5 hours). #138 replaces #7 ($56.30), which must not be paid. #7 was applied by a lock on Aug 3 and missing from the relock 52 minutes later, which fits the unlock bug.
+- **TST invoices vs ours (InLattice):** still to correct to what TST paid: 515455 $93.75, 518678 $112.50 (our rate $150 should be $75), 502881 $561, 501507 $248.50, 504584 $75, 511084 $1300. 512707 paid $225 of $300 with no note; ask TST. 516969: TST backed out; cancel. 507719 (Mar 17, $150) has no job. 523989: unknown if worked. 528920, 527475, 527473 open for a return visit.
+- **Unverified time:** WM-5572538338 and WM-5225596730 need a technician; old drafts #457, #436, #439, #443, #448, #1337 need checking. FN-19924650/651 have hours under a tech named "Null".
 - Still open: TL-415326, TL-412937, TL-411979 (paid $504.16, no time, hourly with no rate); TL-429056; amounts on TL-350473, TL-398498, TL-418224; October dates on TL-424393, TL-424247, TL-425636.
 
 ## Session: November 23, 2026 — Undated TechLink Jobs (TL-430547)

@@ -48,9 +48,15 @@ def resolve_adjustment(adj_id):
     if resolution == 'carried_forward':
         # Find the tech's next open payout period
         payout = Payout.query.get(adj.payout_id)
+        # A period stays open until everyone in it is paid, so skip any where
+        # this tech's own check has already gone out.
+        already_paid = db.session.query(Payout.period_id).filter(
+            Payout.tech_id == payout.tech_id, Payout.status == 'paid'
+        )
         next_period = PayPeriod.query.filter(
             PayPeriod.status == 'open',
-            PayPeriod.start_date > payout.pay_period.end_date
+            PayPeriod.start_date > payout.pay_period.end_date,
+            PayPeriod.period_id.notin_(already_paid),
         ).order_by(PayPeriod.start_date.asc()).first()
 
         if not next_period:

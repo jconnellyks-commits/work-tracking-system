@@ -8,7 +8,7 @@ from app import db
 from decimal import Decimal
 from app.models import (
     Job, Platform, TimeEntry, JobReimbursable, JobSchedule, PayoutJobDetail,
-    PayoutAdjustment, Payout, JobAssignment, Technician
+    PayoutAdjustment, Payout, PayPeriod, JobAssignment, Technician
 )
 from app.utils.logging import get_logger, audit_logger, log_action
 from app.utils.auth import jwt_required_with_user, manager_required
@@ -359,13 +359,38 @@ def create_job():
     }), 201
 
 
-def _detect_payout_adjustments(job, description=None):
-    """Check if a job's current pay differs from locked payout snapshots and create/update adjustment records."""
+# Adjustments recorded before the per-payout comparison fix (Oct 9, 2026) include
+# phantoms that were never real differences, so they can't be subtracted as
+# already handled.
+TRUSTED_ADJUSTMENTS_SINCE = datetime(2026, 10, 10)
+
+
+def _detect_payout_adjustments(job, description=None, pay_cache=None):
+    """Compare a standalone job's pay with every payout it should already be on."""
     locked_details = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
         Payout
     ).filter(Payout.status.in_(['locked', 'paid'])).all()
 
-    if not locked_details:
+    # A tech whose check was locked before this job's hours were verified has no
+    # snapshot row for it: TST-517062 and WM-3294547376 were never paid that way.
+    # (A bundled job's hours are paid under its bundle instead.)
+    snapshotted = {d.payout_id for d in locked_details}
+    unpaid_payouts = [] if job.bundle_id else [
+        p for p in Payout.query.join(PayPeriod, Payout.period_id == PayPeriod.period_id).join(
+            TimeEntry, db.and_(
+                TimeEntry.tech_id == Payout.tech_id,
+                TimeEntry.date_worked >= PayPeriod.start_date,
+                TimeEntry.date_worked <= PayPeriod.end_date,
+            )
+        ).filter(
+            TimeEntry.job_id == job.job_id,
+            TimeEntry.status.in_(['verified', 'billed', 'paid']),
+            Payout.status.in_(['locked', 'paid']),
+        ).distinct().all()
+        if p.payout_id not in snapshotted
+    ]
+
+    if not locked_details and not unpaid_payouts:
         return
 
     _reconcile_locked_unit(
@@ -373,6 +398,9 @@ def _detect_payout_adjustments(job, description=None):
         unit_key=job.job_id,
         desc=description or f"Job {job.ticket_number} pay changed",
         adj_key={'job_id': job.job_id},
+        handled_since=TRUSTED_ADJUSTMENTS_SINCE,
+        unpaid_payouts=unpaid_payouts,
+        pay_cache=pay_cache,
     )
 
 
@@ -402,7 +430,6 @@ def detect_bundle_payout_adjustments(bundle_id, description=None):
         unit_key=f"bundle:{bundle_id}",
         desc=f"{name}: {description or 'bundle pay changed'}",
         adj_key={'bundle_id': bundle_id, 'job_id': None},
-        count_handled=True,
     )
 
 
@@ -419,115 +446,100 @@ def detect_adjustments_for_jobs(jobs, description=None, bundle_ids=()):
         detect_bundle_payout_adjustments(bid, description)
 
 
-def _reconcile_locked_unit(locked_details, unit_key, desc, adj_key, count_handled=False):
+PAY_COMPONENTS = ('base_pay', 'mileage_pay', 'per_diem', 'personal_expenses')
+
+
+def _reconcile_locked_unit(locked_details, unit_key, desc, adj_key, handled_since=None,
+                           unpaid_payouts=(), pay_cache=None):
     """Compare locked snapshots for one pay unit (job or bundle) with today's pay.
 
     unit_key is how calculate_period_pay keys the unit (a job_id, or
     'bundle:<id>'); adj_key identifies the unit's PayoutAdjustment rows.
+    unpaid_payouts have no snapshot row for the unit, so they compare from zero.
+    pay_cache (period_id -> result) saves recalculating in bulk actions.
     """
     from app.utils.pay_calculator import calculate_period_pay
 
-    # Group locked details by period so we recalculate per-period
-    details_by_period = {}
-    for detail in locked_details:
-        pid = detail.payout.period_id
-        if pid not in details_by_period:
-            details_by_period[pid] = []
-        details_by_period[pid].append(detail)
+    if pay_cache is None:
+        pay_cache = {}
 
-    for period_id, details in details_by_period.items():
-        period_pay = calculate_period_pay(period_id=period_id)
+    def total(value_of):
+        # Mileage and expenses lower the pool AND get reimbursed, so comparing
+        # base pay alone deducted late mileage without ever paying it back.
+        return sum((Decimal(str(value_of(c) or 0)) for c in PAY_COMPONENTS), Decimal('0'))
+
+    # One comparison per PAYOUT, not per detail row.
+    #
+    # There is one PayoutJobDetail per time entry. Comparing each row against
+    # the job's whole recalculated pay reported a difference equal to the OTHER
+    # rows' pay - money the tech had already been paid - and every row
+    # overwrote the same adjustment, so the last row silently won.
+    #
+    # FN-19924650 surfaced it: three rows of 205.00 / 195.75 / 212.50 against a
+    # recalculated 613.25 produced a phantom $400.75 carry forward when the
+    # true difference was zero.
+    locked_pay = {p.payout_id: [p, Decimal('0')] for p in unpaid_payouts}
+    for detail in locked_details:
+        row = locked_pay.setdefault(detail.payout_id, [detail.payout, Decimal('0')])
+        row[1] += total(lambda c: getattr(detail, c))
+
+    for payout_id, (payout, old_pay) in locked_pay.items():
+        if payout.period_id not in pay_cache:
+            pay_cache[payout.period_id] = calculate_period_pay(period_id=payout.period_id)
+        period_pay = pay_cache[payout.period_id]
         if not period_pay or not period_pay['technicians']:
             continue
 
-        # Build lookup: tech_id -> {job_id -> job_data}
-        tech_jobs = {}
-        for tech in period_pay['technicians']:
-            jobs_by_id = {}
-            for j in tech['jobs']:
-                jid = j['job_id']
-                if jid not in jobs_by_id:
-                    jobs_by_id[jid] = j
-                else:
-                    # Multiple entries for same job — sum base_pay
-                    jobs_by_id[jid]['base_pay'] += j['base_pay']
-            tech_jobs[tech['tech_id']] = jobs_by_id
+        new_pay = sum((
+            total(row.get)
+            for tech in period_pay['technicians'] if tech['tech_id'] == payout.tech_id
+            for row in tech['jobs'] if row['job_id'] == unit_key
+        ), Decimal('0'))
 
-        # One comparison per PAYOUT, not per detail row.
-        #
-        # `details` holds one PayoutJobDetail per time entry, while the lookup
-        # above deliberately sums a job's recalculated pay across all of its
-        # entries. Comparing each row against that total reported a difference
-        # equal to the OTHER rows' pay - money the tech had already been paid.
-        # Worse, every row overwrote the same adjustment (the lookup below
-        # keys only on payout+job), so the last row silently won.
-        #
-        # FN-19924650 surfaced it: three rows of 205.00 / 195.75 / 212.50
-        # against a recalculated 613.25 produced a phantom $400.75 carry
-        # forward when the true difference was zero.
-        details_by_payout = {}
-        for detail in details:
-            details_by_payout.setdefault(detail.payout_id, []).append(detail)
+        # The snapshot never changes, so once a difference has been carried
+        # forward (or dismissed by a manager) it must count as handled.
+        # Otherwise the next change re-detects the full gap and a second
+        # pending adjustment pays or deducts it all over again.
+        handled_query = PayoutAdjustment.query.filter(
+            PayoutAdjustment.payout_id == payout_id,
+            PayoutAdjustment.resolution != 'pending',
+        ).filter_by(**adj_key)
+        if handled_since:
+            handled_query = handled_query.filter(PayoutAdjustment.created_at >= handled_since)
+        handled = sum(
+            (Decimal(str(a.amount_diff or 0)) for a in handled_query.all()), Decimal('0')
+        )
+        diff = new_pay - old_pay - handled
 
-        for payout_id, payout_details in details_by_payout.items():
-            tech_id = payout_details[0].payout.tech_id
-            current_jobs = tech_jobs.get(tech_id, {})
-            current_job = current_jobs.get(unit_key)
+        existing = PayoutAdjustment.query.filter_by(
+            payout_id=payout_id,
+            resolution='pending',
+            **adj_key
+        ).first()
 
-            old_base = sum(
-                (Decimal(str(d.base_pay or 0)) for d in payout_details),
-                Decimal('0'),
-            )
-            new_base = Decimal(str(current_job['base_pay'])) if current_job else Decimal('0')
-
-            # The snapshot never changes, so once a difference has been
-            # carried forward (or dismissed by a manager) it must count as
-            # handled. Otherwise the next change re-detects the full gap and
-            # a second pending adjustment pays or deducts it all over again.
-            #
-            # Bundles only, for now: the job-side history holds dismissed
-            # phantom adjustments (#6 #8 #10, from the pre-Oct-9 per-row bug)
-            # whose amounts were never real differences. Counting them would
-            # raise new adjustments for the opposite amount.
-            handled = Decimal('0')
-            if count_handled:
-                handled = sum(
-                    (Decimal(str(a.amount_diff or 0)) for a in PayoutAdjustment.query.filter(
-                        PayoutAdjustment.payout_id == payout_id,
-                        PayoutAdjustment.resolution != 'pending',
-                    ).filter_by(**adj_key).all()),
-                    Decimal('0'),
-                )
-            diff = new_base - old_base - handled
-
-            existing = PayoutAdjustment.query.filter_by(
-                payout_id=payout_id,
-                resolution='pending',
-                **adj_key
-            ).first()
-
-            if abs(diff) < Decimal('0.01'):
-                # No meaningful difference — remove any stale pending adjustment
-                if existing:
-                    db.session.delete(existing)
-                continue
-
+        # Several components are each rounded to the cent, so a cent is noise
+        if abs(diff) < Decimal('0.02'):
+            # No meaningful difference — remove any stale pending adjustment
             if existing:
-                existing.amount_diff = diff
-                existing.description = desc
-                existing.old_value = str(float(old_base + handled))
-                existing.new_value = str(float(new_base))
-            else:
-                adj = PayoutAdjustment(
-                    payout_id=payout_id,
-                    type='pay_change',
-                    description=desc,
-                    old_value=str(float(old_base + handled)),
-                    new_value=str(float(new_base)),
-                    amount_diff=diff,
-                    **adj_key
-                )
-                db.session.add(adj)
+                db.session.delete(existing)
+            continue
+
+        if existing:
+            existing.amount_diff = diff
+            existing.description = desc
+            existing.old_value = str(float(old_pay + handled))
+            existing.new_value = str(float(new_pay))
+        else:
+            adj = PayoutAdjustment(
+                payout_id=payout_id,
+                type='pay_change',
+                description=desc,
+                old_value=str(float(old_pay + handled)),
+                new_value=str(float(new_pay)),
+                amount_diff=diff,
+                **adj_key
+            )
+            db.session.add(adj)
 
     db.session.commit()
 

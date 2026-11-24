@@ -30,18 +30,18 @@ def _check_time_entry_adjustments(job, bundle_id=None):
     """Check if a job (or its bundle) has locked payouts and detect pay differences after time entry changes."""
     from app.routes.jobs import _detect_payout_adjustments, detect_adjustments_for_jobs
     if job:
-        has_locked = PayoutJobDetail.query.filter_by(job_id=job.job_id).join(
-            Payout
-        ).filter(Payout.status.in_(['locked', 'paid'])).first()
-        if has_locked:
-            _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries changed")
+        _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries changed")
     detect_adjustments_for_jobs([job], 'time entries changed', bundle_ids=[bundle_id])
 
 
 def _check_entries_adjustments(entries):
-    """Bundle adjustment check after a bulk change to entries' status."""
-    from app.routes.jobs import detect_adjustments_for_jobs
-    detect_adjustments_for_jobs([e.job for e in entries if e.job_id],
+    """Job and bundle adjustment check after entries' status changes, once per job."""
+    from app.routes.jobs import _detect_payout_adjustments, detect_adjustments_for_jobs
+    jobs = {e.job_id: e.job for e in entries if e.job_id and e.job}
+    pay_cache = {}
+    for job in jobs.values():
+        _detect_payout_adjustments(job, f"Job {job.ticket_number} time entries verified", pay_cache)
+    detect_adjustments_for_jobs(list(jobs.values()),
                                 'time entries verified/changed',
                                 bundle_ids=[e.bundle_id for e in entries])
 
@@ -776,7 +776,7 @@ def verify_time_entry(entry_id):
         user_id=user.user_id
     )
 
-    # A verified entry starts counting in its period's share of a bundle
+    # A verified entry starts counting toward pay, including checks already locked
     _check_entries_adjustments([entry])
 
     return jsonify({
